@@ -1,0 +1,388 @@
+// Draft API Routes
+import { Router } from 'express';
+import { pool } from '../db/pool';
+import {
+  generateDraftClass,
+  convertProspectToPlayer,
+  simulateLottery,
+  getLotteryOdds,
+  LotteryTeam
+} from '../draft';
+import { v4 as uuidv4 } from 'uuid';
+
+const router = Router();
+
+// Get current draft class (prospects)
+router.get('/prospects', async (req, res) => {
+  try {
+    const seasonResult = await pool.query(
+      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
+    );
+    const seasonId = seasonResult.rows[0]?.id;
+
+    if (!seasonId) {
+      return res.json({ prospects: [] });
+    }
+
+    const result = await pool.query(
+      `SELECT dp.*, dpa.*
+       FROM draft_prospects dp
+       LEFT JOIN draft_prospect_attributes dpa ON dp.id = dpa.prospect_id
+       WHERE dp.season_id = $1 AND dp.is_drafted = false
+       ORDER BY dp.mock_draft_position`,
+      [seasonId]
+    );
+
+    res.json({ prospects: result.rows });
+  } catch (error) {
+    console.error('Draft prospects error:', error);
+    res.status(500).json({ error: 'Failed to fetch draft prospects' });
+  }
+});
+
+// Generate new draft class
+router.post('/generate', async (req, res) => {
+  try {
+    const seasonResult = await pool.query(
+      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
+    );
+    const seasonId = seasonResult.rows[0]?.id;
+
+    if (!seasonId) {
+      return res.status(400).json({ error: 'No active season' });
+    }
+
+    // Check if draft class already exists
+    const existingResult = await pool.query(
+      'SELECT COUNT(*) FROM draft_prospects WHERE season_id = $1',
+      [seasonId]
+    );
+
+    if (parseInt(existingResult.rows[0].count) > 0) {
+      return res.status(400).json({ error: 'Draft class already generated' });
+    }
+
+    // Generate draft class
+    const prospects = generateDraftClass(seasonId);
+
+    // Insert prospects into database
+    for (const prospect of prospects) {
+      await pool.query(
+        `INSERT INTO draft_prospects
+         (id, season_id, first_name, last_name, position, archetype,
+          height_inches, weight_lbs, age, overall, potential,
+          mock_draft_position, big_board_rank, peak_age, durability,
+          coachability, motor)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+        [prospect.id, seasonId, prospect.first_name, prospect.last_name,
+         prospect.position, prospect.archetype, prospect.height_inches,
+         prospect.weight_lbs, prospect.age, prospect.overall, prospect.potential,
+         prospect.mock_draft_position, prospect.big_board_rank, prospect.peak_age,
+         prospect.durability, prospect.coachability, prospect.motor]
+      );
+
+      // Insert prospect attributes
+      const attrs = prospect.attributes;
+      await pool.query(
+        `INSERT INTO draft_prospect_attributes
+         (prospect_id, inside_scoring, close_shot, mid_range, three_point, free_throw,
+          shot_iq, offensive_consistency, layup, standing_dunk, driving_dunk, draw_foul,
+          post_moves, post_control, ball_handling, speed_with_ball, passing_accuracy,
+          passing_vision, passing_iq, offensive_iq, interior_defense, perimeter_defense,
+          steal, block, defensive_iq, defensive_consistency, lateral_quickness,
+          help_defense_iq, offensive_rebound, defensive_rebound, box_out, rebound_timing,
+          speed, acceleration, strength, vertical, stamina, hustle, basketball_iq,
+          clutch, consistency, work_ethic, aggression, streakiness, composure)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                 $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29,
+                 $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45)`,
+        [prospect.id,
+         attrs.inside_scoring, attrs.close_shot, attrs.mid_range, attrs.three_point,
+         attrs.free_throw, attrs.shot_iq, attrs.offensive_consistency, attrs.layup,
+         attrs.standing_dunk, attrs.driving_dunk, attrs.draw_foul, attrs.post_moves,
+         attrs.post_control, attrs.ball_handling, attrs.speed_with_ball,
+         attrs.passing_accuracy, attrs.passing_vision, attrs.passing_iq, attrs.offensive_iq,
+         attrs.interior_defense, attrs.perimeter_defense, attrs.steal, attrs.block,
+         attrs.defensive_iq, attrs.defensive_consistency, attrs.lateral_quickness,
+         attrs.help_defense_iq, attrs.offensive_rebound, attrs.defensive_rebound,
+         attrs.box_out, attrs.rebound_timing, attrs.speed, attrs.acceleration,
+         attrs.strength, attrs.vertical, attrs.stamina, attrs.hustle, attrs.basketball_iq,
+         attrs.clutch, attrs.consistency, attrs.work_ethic, attrs.aggression,
+         attrs.streakiness, attrs.composure]
+      );
+    }
+
+    res.json({
+      message: 'Draft class generated',
+      total_prospects: prospects.length,
+      lottery_picks: 14,
+      first_round: 30,
+      second_round: 30,
+      undrafted_pool: 20
+    });
+  } catch (error) {
+    console.error('Draft generation error:', error);
+    res.status(500).json({ error: 'Failed to generate draft class' });
+  }
+});
+
+// Get lottery odds
+router.get('/lottery/odds', async (req, res) => {
+  try {
+    const seasonResult = await pool.query(
+      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
+    );
+    const seasonId = seasonResult.rows[0]?.id;
+
+    // Get bottom 14 teams by record
+    const standingsResult = await pool.query(
+      `SELECT t.id, t.name, t.abbreviation, s.wins, s.losses,
+              ROW_NUMBER() OVER (ORDER BY s.wins ASC, s.losses DESC) as lottery_position
+       FROM standings s
+       JOIN teams t ON s.team_id = t.id
+       WHERE s.season_id = $1
+       ORDER BY s.wins ASC, s.losses DESC
+       LIMIT 14`,
+      [seasonId]
+    );
+
+    const lotteryTeams = standingsResult.rows.map((t: any, idx: number) => ({
+      team_id: t.id,
+      team_name: t.name,
+      abbreviation: t.abbreviation,
+      wins: t.wins,
+      losses: t.losses,
+      lottery_position: idx + 1,
+      odds: getLotteryOdds(idx + 1)
+    }));
+
+    res.json({ lottery_teams: lotteryTeams });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch lottery odds' });
+  }
+});
+
+// Run the draft lottery
+router.post('/lottery/run', async (req, res) => {
+  try {
+    const seasonResult = await pool.query(
+      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
+    );
+    const seasonId = seasonResult.rows[0]?.id;
+
+    // Check if lottery already run
+    const existingResult = await pool.query(
+      'SELECT COUNT(*) FROM draft_lottery WHERE season_id = $1 AND post_lottery_position IS NOT NULL',
+      [seasonId]
+    );
+
+    if (parseInt(existingResult.rows[0].count) > 0) {
+      return res.status(400).json({ error: 'Lottery already completed' });
+    }
+
+    // Get bottom 14 teams
+    const standingsResult = await pool.query(
+      `SELECT t.id, t.name, s.wins, s.losses
+       FROM standings s
+       JOIN teams t ON s.team_id = t.id
+       WHERE s.season_id = $1
+       ORDER BY s.wins ASC, s.losses DESC
+       LIMIT 14`,
+      [seasonId]
+    );
+
+    const teams: LotteryTeam[] = standingsResult.rows.map((t: any, idx: number) => ({
+      team_id: t.id,
+      team_name: t.name,
+      pre_lottery_position: idx + 1,
+      lottery_odds: getLotteryOdds(idx + 1)
+    }));
+
+    // Run lottery simulation
+    const results = simulateLottery(teams);
+
+    // Save results
+    for (const result of results) {
+      await pool.query(
+        `INSERT INTO draft_lottery
+         (season_id, team_id, pre_lottery_position, lottery_odds, post_lottery_position, lottery_win)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (season_id, team_id) DO UPDATE
+         SET post_lottery_position = $5, lottery_win = $6`,
+        [seasonId, result.team_id, result.pre_lottery_position,
+         result.lottery_odds, result.post_lottery_position, result.lottery_win]
+      );
+    }
+
+    res.json({
+      message: 'Lottery completed',
+      results: results.map(r => ({
+        pick: r.post_lottery_position,
+        team: r.team_name,
+        moved_up: r.lottery_win,
+        original_position: r.pre_lottery_position
+      }))
+    });
+  } catch (error) {
+    console.error('Lottery error:', error);
+    res.status(500).json({ error: 'Failed to run lottery' });
+  }
+});
+
+// Get draft order (after lottery)
+router.get('/order', async (req, res) => {
+  try {
+    const seasonResult = await pool.query(
+      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
+    );
+    const seasonId = seasonResult.rows[0]?.id;
+
+    // Get lottery results for picks 1-14
+    const lotteryResult = await pool.query(
+      `SELECT dl.*, t.name, t.abbreviation
+       FROM draft_lottery dl
+       JOIN teams t ON dl.team_id = t.id
+       WHERE dl.season_id = $1
+       ORDER BY dl.post_lottery_position`,
+      [seasonId]
+    );
+
+    // Get non-lottery teams (15-30) ordered by record (worst first)
+    const nonLotteryResult = await pool.query(
+      `SELECT t.id, t.name, t.abbreviation, s.wins, s.losses
+       FROM standings s
+       JOIN teams t ON s.team_id = t.id
+       WHERE s.season_id = $1
+         AND t.id NOT IN (SELECT team_id FROM draft_lottery WHERE season_id = $1)
+       ORDER BY s.wins ASC, s.losses DESC`,
+      [seasonId]
+    );
+
+    // Combine for full first round
+    const draftOrder = [
+      ...lotteryResult.rows.map((t: any) => ({
+        pick: t.post_lottery_position,
+        round: 1,
+        team_id: t.team_id,
+        team_name: t.name,
+        abbreviation: t.abbreviation,
+        lottery_win: t.lottery_win
+      })),
+      ...nonLotteryResult.rows.map((t: any, idx: number) => ({
+        pick: 15 + idx,
+        round: 1,
+        team_id: t.id,
+        team_name: t.name,
+        abbreviation: t.abbreviation,
+        lottery_win: false
+      }))
+    ];
+
+    // Add second round (reverse order of first round)
+    const secondRound = [...draftOrder].reverse().map((t, idx) => ({
+      ...t,
+      pick: 31 + idx,
+      round: 2
+    }));
+
+    res.json({
+      first_round: draftOrder,
+      second_round: secondRound
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch draft order' });
+  }
+});
+
+// Make a draft pick
+router.post('/pick', async (req, res) => {
+  try {
+    const { prospect_id, team_id } = req.body;
+
+    if (!prospect_id || !team_id) {
+      return res.status(400).json({ error: 'prospect_id and team_id required' });
+    }
+
+    // Get prospect
+    const prospectResult = await pool.query(
+      `SELECT dp.*, dpa.*
+       FROM draft_prospects dp
+       LEFT JOIN draft_prospect_attributes dpa ON dp.id = dpa.prospect_id
+       WHERE dp.id = $1 AND dp.is_drafted = false`,
+      [prospect_id]
+    );
+
+    if (prospectResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Prospect not found or already drafted' });
+    }
+
+    const prospect = prospectResult.rows[0];
+
+    // Create player from prospect
+    const playerId = uuidv4();
+
+    await pool.query(
+      `INSERT INTO players
+       (id, first_name, last_name, team_id, position, archetype,
+        height_inches, weight_lbs, age, jersey_number, years_pro,
+        overall, potential, peak_age, durability, coachability,
+        greed, ego, loyalty, leadership, motor)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+      [playerId, prospect.first_name, prospect.last_name, team_id,
+       prospect.position, prospect.archetype, prospect.height_inches,
+       prospect.weight_lbs, prospect.age, Math.floor(Math.random() * 99),
+       0, prospect.overall, prospect.potential, prospect.peak_age,
+       prospect.durability, prospect.coachability,
+       Math.floor(Math.random() * 60) + 20,
+       Math.floor(Math.random() * 60) + 20,
+       Math.floor(Math.random() * 40) + 30,
+       Math.floor(Math.random() * 30) + 30,
+       prospect.motor]
+    );
+
+    // Copy attributes
+    await pool.query(
+      `INSERT INTO player_attributes
+       (player_id, inside_scoring, close_shot, mid_range, three_point, free_throw,
+        shot_iq, offensive_consistency, layup, standing_dunk, driving_dunk, draw_foul,
+        post_moves, post_control, ball_handling, speed_with_ball, passing_accuracy,
+        passing_vision, passing_iq, offensive_iq, interior_defense, perimeter_defense,
+        steal, block, defensive_iq, defensive_consistency, lateral_quickness,
+        help_defense_iq, offensive_rebound, defensive_rebound, box_out, rebound_timing,
+        speed, acceleration, strength, vertical, stamina, hustle, basketball_iq,
+        clutch, consistency, work_ethic, aggression, streakiness, composure)
+       SELECT $1, inside_scoring, close_shot, mid_range, three_point, free_throw,
+        shot_iq, offensive_consistency, layup, standing_dunk, driving_dunk, draw_foul,
+        post_moves, post_control, ball_handling, speed_with_ball, passing_accuracy,
+        passing_vision, passing_iq, offensive_iq, interior_defense, perimeter_defense,
+        steal, block, defensive_iq, defensive_consistency, lateral_quickness,
+        help_defense_iq, offensive_rebound, defensive_rebound, box_out, rebound_timing,
+        speed, acceleration, strength, vertical, stamina, hustle, basketball_iq,
+        clutch, consistency, work_ethic, aggression, streakiness, composure
+       FROM draft_prospect_attributes WHERE prospect_id = $2`,
+      [playerId, prospect_id]
+    );
+
+    // Mark prospect as drafted
+    await pool.query(
+      `UPDATE draft_prospects
+       SET is_drafted = true, drafted_by_team_id = $1
+       WHERE id = $2`,
+      [team_id, prospect_id]
+    );
+
+    res.json({
+      message: 'Draft pick made',
+      player_id: playerId,
+      player_name: `${prospect.first_name} ${prospect.last_name}`,
+      position: prospect.position,
+      overall: prospect.overall,
+      potential: prospect.potential
+    });
+  } catch (error) {
+    console.error('Draft pick error:', error);
+    res.status(500).json({ error: 'Failed to make draft pick' });
+  }
+});
+
+export default router;
