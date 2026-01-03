@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* EA FIFA Style - Clean White Theme */
+:root {
+  /* Primary Brand */
+  --color-primary: #1a56db;
+  --color-primary-hover: #1e40af;
+  --color-primary-light: #dbeafe;
+
+  /* Backgrounds */
+  --color-bg-base: #ffffff;
+  --color-bg-surface: #f8fafc;
+  --color-bg-elevated: #f1f5f9;
+  --color-bg-muted: #e2e8f0;
+
+  /* Text */
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94a3b8;
+
+  /* Semantic */
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+
+  /* Borders */
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+}
+
+/* Utility classes for stat colors */
+.stat-elite { color: #059669; }    /* 90-99 */
+.stat-great { color: #16a34a; }    /* 80-89 */
+.stat-good { color: #2563eb; }     /* 70-79 */
+.stat-average { color: #475569; }  /* 60-69 */
+.stat-below { color: #d97706; }    /* 50-59 */
+.stat-poor { color: #ea580c; }     /* 40-49 */
+.stat-bad { color: #dc2626; }      /* 0-39 */
