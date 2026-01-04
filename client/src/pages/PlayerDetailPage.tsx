@@ -15,8 +15,8 @@ export default function PlayerDetailPage() {
     return (
       <PageTemplate title="Loading..." subtitle="">
         <div className="animate-pulse space-y-4">
-          <div className="h-32 bg-slate-200 rounded-xl" />
-          <div className="h-64 bg-slate-200 rounded-xl" />
+          <div className="h-32 bg-slate-800/50 rounded-xl" />
+          <div className="h-64 bg-slate-800/50 rounded-xl" />
         </div>
       </PageTemplate>
     );
@@ -25,7 +25,7 @@ export default function PlayerDetailPage() {
   if (!player) {
     return (
       <PageTemplate title="Player Not Found" subtitle="">
-        <p>The player you're looking for doesn't exist.</p>
+        <p className="text-slate-400">The player you're looking for doesn't exist.</p>
       </PageTemplate>
     );
   }
@@ -72,7 +72,7 @@ export default function PlayerDetailPage() {
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 md:gap-6">
             {/* Avatar + Ratings (side by side on mobile) */}
             <div className="flex sm:flex-col items-center gap-4 sm:gap-0">
-              <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-full bg-slate-200 flex items-center justify-center text-2xl sm:text-3xl font-bold text-slate-500 flex-shrink-0">
+              <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-full bg-slate-700 flex items-center justify-center text-2xl sm:text-3xl font-bold text-slate-300 flex-shrink-0">
                 {player.jersey_number}
               </div>
 
@@ -85,46 +85,46 @@ export default function PlayerDetailPage() {
                 <div className={cn('text-xl font-bold mt-1', getStatColor(player.potential))}>
                   {player.potential}
                 </div>
-                <p className="text-xs text-slate-400">POT</p>
+                <p className="text-xs text-slate-500">POT</p>
               </div>
             </div>
 
             {/* Info */}
             <div className="flex-1 min-w-0 text-center sm:text-left">
               <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3 mb-2">
-                <h2 className="text-xl md:text-2xl font-bold text-slate-900 truncate">
+                <h2 className="text-xl md:text-2xl font-bold text-white truncate">
                   {player.first_name} {player.last_name}
                 </h2>
                 <Badge variant="position">{player.position}</Badge>
               </div>
 
-              <p className="text-slate-500 text-sm md:text-base mb-3 md:mb-4">{formatArchetype(player.archetype)}</p>
+              <p className="text-slate-400 text-sm md:text-base mb-3 md:mb-4">{formatArchetype(player.archetype)}</p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 text-xs md:text-sm">
                 <div>
-                  <p className="text-slate-400">Team</p>
+                  <p className="text-slate-500">Team</p>
                   {team ? (
-                    <Link to={`/basketball/teams/${team.id}`} className="flex items-center justify-center sm:justify-start gap-1.5 md:gap-2 mt-1 hover:text-blue-600">
+                    <Link to={`/basketball/teams/${team.id}`} className="flex items-center justify-center sm:justify-start gap-1.5 md:gap-2 mt-1 hover:text-blue-400 text-slate-200">
                       <TeamLogo abbreviation={team.abbreviation} primaryColor={team.primary_color} size="sm" />
                       <span className="font-medium truncate">{team.city} {team.name}</span>
                     </Link>
                   ) : (
-                    <p className="font-medium text-slate-900 mt-1">Free Agent</p>
+                    <p className="font-medium text-white mt-1">Free Agent</p>
                   )}
                 </div>
                 <div>
-                  <p className="text-slate-400">Height / Weight</p>
-                  <p className="font-medium text-slate-900 mt-1">
+                  <p className="text-slate-500">Height / Weight</p>
+                  <p className="font-medium text-white mt-1">
                     {formatHeight(player.height_inches)} / {player.weight_lbs} lbs
                   </p>
                 </div>
                 <div>
-                  <p className="text-slate-400">Age</p>
-                  <p className="font-medium text-slate-900 mt-1">{player.age} years old</p>
+                  <p className="text-slate-500">Age</p>
+                  <p className="font-medium text-white mt-1">{player.age} years old</p>
                 </div>
                 <div>
-                  <p className="text-slate-400">Experience</p>
-                  <p className="font-medium text-slate-900 mt-1">{player.years_pro} years</p>
+                  <p className="text-slate-500">Experience</p>
+                  <p className="font-medium text-white mt-1">{player.years_pro} years</p>
                 </div>
               </div>
             </div>
@@ -134,11 +134,11 @@ export default function PlayerDetailPage() {
               <div className={cn('text-4xl md:text-5xl font-bold', getStatColor(player.overall))}>
                 {player.overall}
               </div>
-              <p className="text-xs md:text-sm text-slate-500 mt-1">Overall</p>
+              <p className="text-xs md:text-sm text-slate-400 mt-1">Overall</p>
               <div className={cn('text-xl md:text-2xl font-bold mt-2', getStatColor(player.potential))}>
                 {player.potential}
               </div>
-              <p className="text-xs text-slate-400">Potential</p>
+              <p className="text-xs text-slate-500">Potential</p>
             </div>
           </div>
         </CardContent>

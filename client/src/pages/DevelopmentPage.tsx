@@ -19,11 +19,11 @@ export default function DevelopmentPage() {
   const getPhaseIcon = (phase: string) => {
     switch (phase) {
       case 'development':
-        return <TrendingUp className="w-4 h-4 text-green-600" />;
+        return <TrendingUp className="w-4 h-4 text-green-400" />;
       case 'peak':
-        return <Star className="w-4 h-4 text-yellow-600" />;
+        return <Star className="w-4 h-4 text-yellow-400" />;
       case 'decline':
-        return <TrendingDown className="w-4 h-4 text-red-600" />;
+        return <TrendingDown className="w-4 h-4 text-red-400" />;
       default:
         return <Minus className="w-4 h-4 text-slate-400" />;
     }
@@ -44,7 +44,7 @@ export default function DevelopmentPage() {
 
   const getHiddenStatBar = (value: number, label: string) => {
     const percentage = value;
-    let color = 'bg-slate-200';
+    let color = 'bg-slate-600';
     if (value >= 80) color = 'bg-green-500';
     else if (value >= 60) color = 'bg-blue-500';
     else if (value >= 40) color = 'bg-yellow-500';
@@ -53,10 +53,10 @@ export default function DevelopmentPage() {
     return (
       <div className="flex-1">
         <div className="flex justify-between text-xs mb-1">
-          <span className="text-slate-500">{label}</span>
-          <span className="font-medium">{value}</span>
+          <span className="text-slate-400">{label}</span>
+          <span className="font-medium text-white">{value}</span>
         </div>
-        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+        <div className="h-1.5 bg-slate-700/50 rounded-full overflow-hidden">
           <div
             className={cn('h-full rounded-full transition-all', color)}
             style={{ width: `${percentage}%` }}
@@ -77,23 +77,23 @@ export default function DevelopmentPage() {
       <div className="grid grid-cols-3 gap-4 mb-6">
         <Card>
           <CardContent className="py-4 text-center">
-            <TrendingUp className="w-8 h-8 mx-auto text-green-600 mb-2" />
-            <p className="text-2xl font-bold text-green-600">{developing.length}</p>
-            <p className="text-xs text-slate-500">Developing</p>
+            <TrendingUp className="w-8 h-8 mx-auto text-green-400 mb-2" />
+            <p className="text-2xl font-bold text-green-400">{developing.length}</p>
+            <p className="text-xs text-slate-400">Developing</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-4 text-center">
-            <Star className="w-8 h-8 mx-auto text-yellow-600 mb-2" />
-            <p className="text-2xl font-bold text-yellow-600">{peaking.length}</p>
-            <p className="text-xs text-slate-500">In Prime</p>
+            <Star className="w-8 h-8 mx-auto text-yellow-400 mb-2" />
+            <p className="text-2xl font-bold text-yellow-400">{peaking.length}</p>
+            <p className="text-xs text-slate-400">In Prime</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-4 text-center">
-            <TrendingDown className="w-8 h-8 mx-auto text-red-600 mb-2" />
-            <p className="text-2xl font-bold text-red-600">{declining.length}</p>
-            <p className="text-xs text-slate-500">Declining</p>
+            <TrendingDown className="w-8 h-8 mx-auto text-red-400 mb-2" />
+            <p className="text-2xl font-bold text-red-400">{declining.length}</p>
+            <p className="text-xs text-slate-400">Declining</p>
           </CardContent>
         </Card>
       </div>
@@ -108,36 +108,36 @@ export default function DevelopmentPage() {
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-8 text-center text-slate-500">Loading...</div>
+            <div className="p-8 text-center text-slate-400">Loading...</div>
           ) : !players?.length ? (
-            <div className="p-8 text-center text-slate-500">No players on roster</div>
+            <div className="p-8 text-center text-slate-400">No players on roster</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-slate-50">
+                <thead className="bg-slate-800/50">
                   <tr>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Player</th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold text-slate-500">Age</th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold text-slate-500">OVR</th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold text-slate-500">POT</th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold text-slate-500">Peak</th>
-                    <th className="px-3 py-2 text-center text-xs font-semibold text-slate-500">Phase</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Hidden Stats</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Projection</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-400">Player</th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-slate-400">Age</th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-slate-400">OVR</th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-slate-400">POT</th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-slate-400">Peak</th>
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-slate-400">Phase</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-400">Hidden Stats</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-400">Projection</th>
                   </tr>
                 </thead>
                 <tbody>
                   {players.map((player) => (
-                    <tr key={player.id} className="border-t border-slate-100 hover:bg-slate-50">
+                    <tr key={player.id} className="border-t border-white/5 hover:bg-white/5">
                       <td className="px-3 py-3">
                         <Link
                           to={`/basketball/players/${player.id}`}
-                          className="hover:text-blue-600"
+                          className="hover:text-blue-400"
                         >
-                          <p className="font-medium text-sm">
+                          <p className="font-medium text-sm text-white">
                             {player.first_name} {player.last_name}
                           </p>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-xs text-slate-400">
                             {player.position} - {player.archetype.replace(/_/g, ' ')}
                           </p>
                         </Link>
@@ -145,9 +145,9 @@ export default function DevelopmentPage() {
                       <td className="px-3 py-3 text-center">
                         <span className={cn(
                           'text-sm font-medium',
-                          player.phase === 'development' && 'text-green-600',
-                          player.phase === 'peak' && 'text-yellow-600',
-                          player.phase === 'decline' && 'text-red-600'
+                          player.phase === 'development' && 'text-green-400',
+                          player.phase === 'peak' && 'text-yellow-400',
+                          player.phase === 'decline' && 'text-red-400'
                         )}>
                           {player.age}
                         </span>
@@ -162,13 +162,13 @@ export default function DevelopmentPage() {
                           {player.potential}
                         </span>
                         {player.potential > player.overall && (
-                          <span className="text-xs text-green-600 ml-1">
+                          <span className="text-xs text-green-400 ml-1">
                             (+{player.potential - player.overall})
                           </span>
                         )}
                       </td>
                       <td className="px-3 py-3 text-center text-sm">
-                        <div className="flex items-center justify-center gap-1">
+                        <div className="flex items-center justify-center gap-1 text-white">
                           <Clock className="w-3 h-3 text-slate-400" />
                           {player.peak_age}
                         </div>
@@ -187,7 +187,7 @@ export default function DevelopmentPage() {
                         </div>
                       </td>
                       <td className="px-3 py-3">
-                        <p className="text-xs text-slate-600 max-w-[200px]">
+                        <p className="text-xs text-slate-300 max-w-[200px]">
                           {player.projection}
                         </p>
                       </td>
@@ -208,45 +208,45 @@ export default function DevelopmentPage() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             <div>
-              <h4 className="font-medium text-green-600 flex items-center gap-2 mb-2">
+              <h4 className="font-medium text-green-400 flex items-center gap-2 mb-2">
                 <TrendingUp className="w-4 h-4" />
                 Development Phase
               </h4>
-              <p className="text-slate-600">
+              <p className="text-slate-300">
                 Players improve toward their potential. Work ethic and playing time affect growth rate.
               </p>
             </div>
             <div>
-              <h4 className="font-medium text-yellow-600 flex items-center gap-2 mb-2">
+              <h4 className="font-medium text-yellow-400 flex items-center gap-2 mb-2">
                 <Star className="w-4 h-4" />
                 Peak Phase
               </h4>
-              <p className="text-slate-600">
+              <p className="text-slate-300">
                 Players at peak age (varies by player). Small fluctuations but overall stable performance.
               </p>
             </div>
             <div>
-              <h4 className="font-medium text-red-600 flex items-center gap-2 mb-2">
+              <h4 className="font-medium text-red-400 flex items-center gap-2 mb-2">
                 <TrendingDown className="w-4 h-4" />
                 Decline Phase
               </h4>
-              <p className="text-slate-600">
+              <p className="text-slate-300">
                 Physical attributes decline faster. IQ may improve. Durability affects decline rate.
               </p>
             </div>
           </div>
 
-          <div className="mt-6 pt-4 border-t border-slate-100">
-            <h4 className="font-medium mb-3">Hidden Stats Explained</h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-slate-600">
+          <div className="mt-6 pt-4 border-t border-white/5">
+            <h4 className="font-medium mb-3 text-white">Hidden Stats Explained</h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-slate-300">
               <div>
-                <span className="font-medium text-slate-900">Work Ethic:</span> Affects development speed during growth phase. Higher = faster improvement.
+                <span className="font-medium text-white">Work Ethic:</span> Affects development speed during growth phase. Higher = faster improvement.
               </div>
               <div>
-                <span className="font-medium text-slate-900">Coachability:</span> Multiplies development gains. More coachable players learn faster.
+                <span className="font-medium text-white">Coachability:</span> Multiplies development gains. More coachable players learn faster.
               </div>
               <div>
-                <span className="font-medium text-slate-900">Durability:</span> Affects decline rate. Higher durability = slower aging decline.
+                <span className="font-medium text-white">Durability:</span> Affects decline rate. Higher durability = slower aging decline.
               </div>
             </div>
           </div>

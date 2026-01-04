@@ -24,8 +24,8 @@ export interface TokenPayload {
 
 export interface AuthResult {
   user: User;
-  accessToken: string;
-  refreshToken: string;
+  access_token: string;
+  refresh_token: string;
 }
 
 // Hash password
@@ -103,7 +103,7 @@ export async function signup(
     [user.id, refreshToken, expiresAt]
   );
 
-  return { user, accessToken, refreshToken };
+  return { user, access_token: accessToken, refresh_token: refreshToken };
 }
 
 // Login existing user
@@ -154,13 +154,13 @@ export async function login(
   // Remove password hash from response
   delete user.password_hash;
 
-  return { user, accessToken, refreshToken };
+  return { user, access_token: accessToken, refresh_token: refreshToken };
 }
 
 // Refresh access token
 export async function refreshAccessToken(
   refreshToken: string
-): Promise<{ accessToken: string; refreshToken: string }> {
+): Promise<{ access_token: string; refresh_token: string }> {
   // Find valid session
   const result = await pool.query(
     `SELECT s.*, u.id as user_id, u.email, u.name, u.has_purchased, u.purchased_at, u.is_active, u.created_at
@@ -198,7 +198,8 @@ export async function refreshAccessToken(
     [newRefreshToken, newExpiresAt, session.id]
   );
 
-  return { accessToken: newAccessToken, refreshToken: newRefreshToken };
+  // Return snake_case to match client expectations
+  return { access_token: newAccessToken, refresh_token: newRefreshToken };
 }
 
 // Logout (invalidate refresh token)

@@ -10,7 +10,7 @@ interface TeamCardProps {
 export function TeamCard({ team }: TeamCardProps) {
   return (
     <Link to={`/basketball/teams/${team.id}`}>
-      <Card className="hover:shadow-md transition-shadow cursor-pointer">
+      <Card className="hover:bg-slate-800/70 transition-all cursor-pointer">
         <CardContent className="flex items-center gap-3 md:gap-4 py-3 md:py-4">
           <TeamLogo
             abbreviation={team.abbreviation}
@@ -18,17 +18,17 @@ export function TeamCard({ team }: TeamCardProps) {
             size="lg"
           />
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-slate-900 text-sm md:text-base truncate">
+            <h3 className="font-semibold text-white text-sm md:text-base truncate">
               {team.city} {team.name}
             </h3>
-            <p className="text-xs md:text-sm text-slate-500 truncate">
+            <p className="text-xs md:text-sm text-slate-400 truncate">
               {team.conference} - {team.division}
             </p>
           </div>
           <div className="text-right flex-shrink-0">
-            <p className="text-xs text-slate-400 hidden sm:block">Championships</p>
-            <p className="text-xs text-slate-400 sm:hidden">Champs</p>
-            <p className="text-lg md:text-xl font-bold text-slate-900">{team.championships}</p>
+            <p className="text-xs text-slate-500 hidden sm:block">Championships</p>
+            <p className="text-xs text-slate-500 sm:hidden">Champs</p>
+            <p className="text-lg md:text-xl font-bold text-white">{team.championships}</p>
           </div>
         </CardContent>
       </Card>

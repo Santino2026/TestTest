@@ -26,24 +26,24 @@ export function PricingSection() {
   };
 
   return (
-    <section className="py-20 md:py-28 bg-slate-50">
+    <section className="py-20 md:py-28 bg-slate-900/50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="text-center mb-12 md:mb-16">
-          <p className="text-blue-600 font-semibold text-sm uppercase tracking-wider mb-3">
+          <p className="text-blue-400 font-semibold text-sm uppercase tracking-wider mb-3">
             Simple Pricing
           </p>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-slate-900 mb-4">
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-4">
             One Price. Complete Access.
           </h2>
-          <p className="text-lg text-slate-600 max-w-2xl mx-auto">
+          <p className="text-lg text-slate-400 max-w-2xl mx-auto">
             No subscriptions. No microtransactions. No hidden fees. Just basketball.
           </p>
         </div>
 
         {/* Pricing Card */}
         <div className="max-w-lg mx-auto">
-          <div className="relative bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden">
+          <div className="relative bg-slate-800/50 backdrop-blur-sm rounded-3xl border border-white/10 overflow-hidden">
             {/* Top Banner */}
             <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4">
               <div className="flex items-center justify-between">
@@ -63,12 +63,12 @@ export function PricingSection() {
             </div>
 
             {/* Price */}
-            <div className="px-6 pt-8 pb-6 text-center border-b border-slate-100">
+            <div className="px-6 pt-8 pb-6 text-center border-b border-white/10">
               <div className="flex items-baseline justify-center gap-2">
-                <span className="text-5xl md:text-6xl font-black text-slate-900">$10</span>
-                <span className="text-slate-500 font-medium">USD</span>
+                <span className="text-5xl md:text-6xl font-black text-white">$10</span>
+                <span className="text-slate-400 font-medium">USD</span>
               </div>
-              <p className="text-slate-600 mt-2">One-time payment</p>
+              <p className="text-slate-400 mt-2">One-time payment</p>
             </div>
 
             {/* Features */}
@@ -76,10 +76,10 @@ export function PricingSection() {
               <ul className="space-y-3">
                 {includedFeatures.map((feature) => (
                   <li key={feature} className="flex items-start gap-3">
-                    <div className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Check className="w-3 h-3 text-green-600" />
+                    <div className="w-5 h-5 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Check className="w-3 h-3 text-green-400" />
                     </div>
-                    <span className="text-slate-700">{feature}</span>
+                    <span className="text-slate-300">{feature}</span>
                   </li>
                 ))}
               </ul>
@@ -100,14 +100,14 @@ export function PricingSection() {
             </div>
 
             {/* Guarantees */}
-            <div className="bg-slate-50 px-6 py-4 border-t border-slate-100">
-              <div className="flex items-center justify-center gap-6 text-sm text-slate-600">
+            <div className="bg-slate-900/50 px-6 py-4 border-t border-white/10">
+              <div className="flex items-center justify-center gap-6 text-sm text-slate-400">
                 <div className="flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-slate-400" />
+                  <Shield className="w-4 h-4 text-slate-500" />
                   <span>Secure checkout</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Infinity className="w-4 h-4 text-slate-400" />
+                  <Infinity className="w-4 h-4 text-slate-500" />
                   <span>Lifetime access</span>
                 </div>
               </div>

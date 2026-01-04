@@ -7,18 +7,18 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-slate-100 text-slate-700 border border-slate-200',
-        secondary: 'bg-slate-100 text-slate-600 border border-slate-200',
-        position: 'bg-slate-100 text-slate-700 border border-slate-200',
-        success: 'bg-green-50 text-green-700 border border-green-200',
-        warning: 'bg-amber-50 text-amber-700 border border-amber-200',
-        danger: 'bg-red-50 text-red-700 border border-red-200',
-        info: 'bg-blue-50 text-blue-700 border border-blue-200',
+        default: 'bg-slate-700/50 text-slate-300 border border-white/10',
+        secondary: 'bg-slate-700/50 text-slate-400 border border-white/10',
+        position: 'bg-slate-700/50 text-slate-300 border border-white/10',
+        success: 'bg-green-500/20 text-green-400 border border-green-500/30',
+        warning: 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
+        danger: 'bg-red-500/20 text-red-400 border border-red-500/30',
+        info: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
         // Trait tier badges
-        bronze: 'bg-orange-50 text-orange-700 border border-orange-200',
-        silver: 'bg-slate-50 text-slate-500 border border-slate-200',
-        gold: 'bg-amber-50 text-amber-600 border border-amber-200',
-        hall_of_fame: 'bg-yellow-50 text-yellow-600 border border-yellow-200',
+        bronze: 'bg-orange-500/20 text-orange-400 border border-orange-500/30',
+        silver: 'bg-slate-400/20 text-slate-300 border border-slate-400/30',
+        gold: 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
+        hall_of_fame: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30',
       },
     },
     defaultVariants: {

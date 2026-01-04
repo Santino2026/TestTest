@@ -27,19 +27,19 @@ export function PageHeader({
     <div className={cn('mb-4 md:mb-6', className)}>
       {/* Breadcrumbs */}
       {breadcrumbs && breadcrumbs.length > 0 && (
-        <nav className="flex items-center gap-1 text-xs md:text-sm text-slate-500 mb-2 overflow-x-auto">
+        <nav className="flex items-center gap-1 text-xs md:text-sm text-slate-400 mb-2 overflow-x-auto">
           {breadcrumbs.map((crumb, index) => (
             <span key={crumb.label} className="flex items-center gap-1 whitespace-nowrap">
               {index > 0 && <ChevronRight className="w-3 h-3 md:w-4 md:h-4 flex-shrink-0" />}
               {crumb.href ? (
                 <Link
                   to={crumb.href}
-                  className="hover:text-slate-900 transition-colors"
+                  className="hover:text-white transition-colors"
                 >
                   {crumb.label}
                 </Link>
               ) : (
-                <span className="text-slate-900">{crumb.label}</span>
+                <span className="text-white">{crumb.label}</span>
               )}
             </span>
           ))}
@@ -49,9 +49,9 @@ export function PageHeader({
       {/* Title Row */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <h1 className="text-xl md:text-2xl font-bold text-slate-900 truncate">{title}</h1>
+          <h1 className="text-xl md:text-2xl font-bold text-white truncate">{title}</h1>
           {subtitle && (
-            <p className="text-sm text-slate-500 mt-1 line-clamp-2">{subtitle}</p>
+            <p className="text-sm text-slate-400 mt-1 line-clamp-2">{subtitle}</p>
           )}
         </div>
         {action && <div className="flex-shrink-0">{action}</div>}

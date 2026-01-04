@@ -61,7 +61,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 flex flex-col transform transition-transform duration-200 ease-in-out md:relative md:translate-x-0 md:w-60',
+        'fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 border-r border-white/10 flex flex-col transform transition-transform duration-200 ease-in-out md:relative md:translate-x-0 md:w-60',
         isOpen ? 'translate-x-0' : '-translate-x-full'
       )}
     >
@@ -69,27 +69,27 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       <div className="md:hidden absolute top-2 right-2">
         <button
           onClick={onClose}
-          className="p-3 rounded-lg hover:bg-slate-100 active:bg-slate-200 transition-colors"
+          className="p-3 rounded-lg hover:bg-white/5 active:bg-white/10 transition-colors"
           aria-label="Close menu"
         >
-          <X className="w-6 h-6 text-slate-600" />
+          <X className="w-6 h-6 text-slate-400" />
         </button>
       </div>
 
       {/* Team Header */}
-      <div className="px-4 py-4 border-b border-slate-100">
+      <div className="px-4 py-4 border-b border-white/10">
         <Link to="/basketball" className="flex items-center gap-3" onClick={handleNavClick}>
           <div
-            className="w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-bold shadow"
+            className="w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-bold shadow-lg"
             style={{ backgroundColor: franchise?.primary_color || '#1a56db' }}
           >
             {franchise?.abbreviation || 'TM'}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-slate-900 truncate">
+            <p className="font-semibold text-white truncate">
               {franchise?.city} {franchise?.team_name}
             </p>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-400">
               {franchise?.wins || 0}-{franchise?.losses || 0}
             </p>
           </div>
@@ -97,10 +97,10 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       </div>
 
       {/* Season Info */}
-      <div className="px-4 py-3 border-b border-slate-100">
-        <div className="bg-slate-50 rounded-lg px-3 py-2">
+      <div className="px-4 py-3 border-b border-white/10">
+        <div className="bg-slate-800/50 rounded-lg px-3 py-2 border border-white/5">
           <p className="text-xs text-slate-500">Current Phase</p>
-          <p className="text-sm font-semibold text-slate-900">
+          <p className="text-sm font-semibold text-white">
             {phaseLabels[franchise?.phase || 'preseason'] || 'Preseason'} - Day {franchise?.current_day || 1}
           </p>
         </div>
@@ -120,14 +120,14 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                   className={cn(
                     'flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px]',
                     isActive
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 active:bg-slate-100'
+                      ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
+                      : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 active:bg-white/10'
                   )}
                 >
                   <Icon
                     className={cn(
                       'w-5 h-5',
-                      isActive ? 'text-blue-600' : 'text-slate-400'
+                      isActive ? 'text-blue-400' : 'text-slate-500'
                     )}
                   />
                   {item.label}
@@ -139,15 +139,15 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       </nav>
 
       {/* Bottom Actions */}
-      <div className="px-3 py-4 border-t border-slate-100">
+      <div className="px-3 py-4 border-t border-white/10">
         <button
           onClick={() => {
             logout();
             onClose();
           }}
-          className="w-full flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 active:bg-slate-100 transition-colors min-h-[44px]"
+          className="w-full flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-white/5 hover:text-slate-200 active:bg-white/10 transition-colors min-h-[44px]"
         >
-          <LogOut className="w-5 h-5 text-slate-400" />
+          <LogOut className="w-5 h-5 text-slate-500" />
           Logout
         </button>
       </div>

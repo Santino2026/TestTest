@@ -90,7 +90,7 @@ export default function FranchisesPage() {
       <PageTemplate title="My Franchises" subtitle="Manage your franchise save files">
         <Card>
           <CardContent className="py-12 text-center">
-            <p className="text-slate-500">Loading...</p>
+            <p className="text-slate-400">Loading...</p>
           </CardContent>
         </Card>
       </PageTemplate>
@@ -101,7 +101,7 @@ export default function FranchisesPage() {
     <PageTemplate title="My Franchises" subtitle="Manage your franchise save files">
       {/* Action Bar */}
       <div className="flex justify-between items-center mb-4 md:mb-6">
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-slate-400">
           {franchises.length} franchise{franchises.length !== 1 ? 's' : ''}
         </p>
         <Button onClick={() => setShowNewFranchise(true)}>
@@ -114,9 +114,9 @@ export default function FranchisesPage() {
       {franchises.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <FolderOpen className="w-16 h-16 mx-auto text-slate-300 mb-4" />
-            <h2 className="text-xl font-semibold text-slate-900 mb-2">No Franchises Yet</h2>
-            <p className="text-slate-500 mb-6">
+            <FolderOpen className="w-16 h-16 mx-auto text-slate-500 mb-4" />
+            <h2 className="text-xl font-semibold text-white mb-2">No Franchises Yet</h2>
+            <p className="text-slate-400 mb-6">
               Create your first franchise to start playing.
             </p>
             <Button onClick={() => setShowNewFranchise(true)}>
@@ -152,10 +152,10 @@ export default function FranchisesPage() {
                       {f.abbreviation}
                     </div>
                     <div>
-                      <h3 className="font-semibold text-slate-900">
+                      <h3 className="font-semibold text-white">
                         {f.name || `${f.city} ${f.team_name}`}
                       </h3>
-                      <p className="text-sm text-slate-500">
+                      <p className="text-sm text-slate-400">
                         {f.city} {f.team_name}
                       </p>
                     </div>
@@ -170,34 +170,34 @@ export default function FranchisesPage() {
 
                 {/* Stats */}
                 <div className="grid grid-cols-3 gap-2 mb-4 text-center">
-                  <div className="bg-slate-50 rounded-lg py-2">
-                    <p className="text-xs text-slate-500">Season</p>
-                    <p className="font-semibold">{f.season_number || 1}</p>
+                  <div className="bg-slate-800/50 rounded-lg py-2">
+                    <p className="text-xs text-slate-400">Season</p>
+                    <p className="font-semibold text-white">{f.season_number || 1}</p>
                   </div>
-                  <div className="bg-slate-50 rounded-lg py-2">
-                    <p className="text-xs text-slate-500">Record</p>
-                    <p className="font-semibold">{f.wins}-{f.losses}</p>
+                  <div className="bg-slate-800/50 rounded-lg py-2">
+                    <p className="text-xs text-slate-400">Record</p>
+                    <p className="font-semibold text-white">{f.wins}-{f.losses}</p>
                   </div>
-                  <div className="bg-slate-50 rounded-lg py-2">
-                    <p className="text-xs text-slate-500 flex items-center justify-center gap-1">
+                  <div className="bg-slate-800/50 rounded-lg py-2">
+                    <p className="text-xs text-slate-400 flex items-center justify-center gap-1">
                       <Trophy className="w-3 h-3" />
                       Titles
                     </p>
-                    <p className="font-semibold">{f.championships}</p>
+                    <p className="font-semibold text-white">{f.championships}</p>
                   </div>
                 </div>
 
                 {/* Phase & Day */}
                 <div className="flex items-center gap-2 mb-4 text-sm">
                   <Calendar className="w-4 h-4 text-slate-400" />
-                  <span className="text-slate-600">
+                  <span className="text-slate-300">
                     {phaseLabels[f.phase] || f.phase} - Day {f.current_day}
                   </span>
                 </div>
 
                 {/* Last Played */}
                 {f.last_played_at && (
-                  <p className="text-xs text-slate-400 mb-4">
+                  <p className="text-xs text-slate-500 mb-4">
                     Last played: {formatDate(f.last_played_at)}
                   </p>
                 )}
@@ -223,7 +223,7 @@ export default function FranchisesPage() {
                     variant="secondary"
                     onClick={() => handleDeleteFranchise(f.id)}
                     disabled={isDeleting === f.id}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    className="text-red-400 hover:text-red-300 hover:bg-red-900/30"
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>
@@ -244,7 +244,7 @@ export default function FranchisesPage() {
             <CardContent>
               {/* Franchise Name */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-700 mb-1">
+                <label className="block text-sm font-medium text-slate-300 mb-1">
                   Franchise Name (optional)
                 </label>
                 <input
@@ -252,29 +252,29 @@ export default function FranchisesPage() {
                   value={franchiseName}
                   onChange={(e) => setFranchiseName(e.target.value)}
                   placeholder="My Dynasty"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg min-h-[44px]"
+                  className="w-full px-3 py-2 bg-slate-800/50 border border-white/10 rounded-lg min-h-[44px] text-white placeholder:text-slate-500"
                 />
               </div>
 
               {/* Team Selection */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-slate-700 mb-2">
+                <label className="block text-sm font-medium text-slate-300 mb-2">
                   Select Team
                 </label>
-                <div className="max-h-[300px] overflow-y-auto border border-slate-200 rounded-lg">
+                <div className="max-h-[300px] overflow-y-auto border border-white/10 rounded-lg bg-slate-800/50">
                   {availableTeams.length === 0 ? (
-                    <div className="p-6 text-center text-slate-500">
+                    <div className="p-6 text-center text-slate-400">
                       {teams ? 'All teams already have franchises' : 'Loading teams...'}
                     </div>
                   ) : (
-                    <div className="divide-y divide-slate-100">
+                    <div className="divide-y divide-white/5">
                       {availableTeams.map((team) => (
                         <button
                           key={team.id}
                           onClick={() => setSelectedTeam(team.id)}
                           className={cn(
-                            'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors',
-                            selectedTeam === team.id && 'bg-blue-50'
+                            'w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/5 transition-colors',
+                            selectedTeam === team.id && 'bg-blue-900/30'
                           )}
                         >
                           <div
@@ -284,11 +284,11 @@ export default function FranchisesPage() {
                             {team.abbreviation}
                           </div>
                           <div className="flex-1">
-                            <p className="font-medium">{team.city} {team.name}</p>
-                            <p className="text-xs text-slate-500">{team.conference} - {team.division}</p>
+                            <p className="font-medium text-white">{team.city} {team.name}</p>
+                            <p className="text-xs text-slate-400">{team.conference} - {team.division}</p>
                           </div>
                           {selectedTeam === team.id && (
-                            <Check className="w-5 h-5 text-blue-600" />
+                            <Check className="w-5 h-5 text-blue-400" />
                           )}
                         </button>
                       ))}

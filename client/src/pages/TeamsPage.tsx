@@ -30,7 +30,7 @@ export default function TeamsPage() {
       <PageTemplate title="Teams" subtitle="Loading...">
         <div className="animate-pulse space-y-4">
           {[1, 2, 3].map(i => (
-            <div key={i} className="h-24 bg-slate-200 rounded-xl" />
+            <div key={i} className="h-24 bg-slate-800/50 rounded-xl" />
           ))}
         </div>
       </PageTemplate>
@@ -50,7 +50,7 @@ export default function TeamsPage() {
             <Card key={divisionKey}>
               <CardHeader>
                 <CardTitle>{division} Division</CardTitle>
-                <p className="text-sm text-slate-500">{conference} Conference</p>
+                <p className="text-sm text-slate-400">{conference} Conference</p>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

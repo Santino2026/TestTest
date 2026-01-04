@@ -38,8 +38,8 @@ export default function TeamSelectionPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     );
   }
@@ -55,12 +55,12 @@ export default function TeamSelectionPage() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-24 md:pb-0">
+    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 pb-24 md:pb-0">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 shadow-sm">
+      <div className="bg-slate-800/50 border-b border-white/10 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 md:px-6 py-5 md:py-8">
-          <h1 className="text-2xl md:text-3xl font-bold text-slate-900">Select Your Team</h1>
-          <p className="mt-1 md:mt-2 text-sm md:text-base text-slate-600">
+          <h1 className="text-2xl md:text-3xl font-bold text-white">Select Your Team</h1>
+          <p className="mt-1 md:mt-2 text-sm md:text-base text-slate-300">
             Choose the franchise you want to manage.
           </p>
         </div>
@@ -71,10 +71,10 @@ export default function TeamSelectionPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
           {/* Eastern Conference */}
           <div>
-            <h2 className="text-lg md:text-xl font-semibold text-slate-900 mb-3 md:mb-4">Eastern Conference</h2>
+            <h2 className="text-lg md:text-xl font-semibold text-white mb-3 md:mb-4">Eastern Conference</h2>
             {['Atlantic', 'Central', 'Southeast'].map(division => (
               <div key={division} className="mb-6">
-                <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-3">{division}</h3>
+                <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">{division}</h3>
                 <div className="space-y-2">
                   {teamsByDivision[division]?.map(team => (
                     <TeamCard
@@ -91,10 +91,10 @@ export default function TeamSelectionPage() {
 
           {/* Western Conference */}
           <div>
-            <h2 className="text-lg md:text-xl font-semibold text-slate-900 mb-3 md:mb-4">Western Conference</h2>
+            <h2 className="text-lg md:text-xl font-semibold text-white mb-3 md:mb-4">Western Conference</h2>
             {['Northwest', 'Pacific', 'Southwest'].map(division => (
               <div key={division} className="mb-6">
-                <h3 className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-3">{division}</h3>
+                <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-3">{division}</h3>
                 <div className="space-y-2">
                   {teamsByDivision[division]?.map(team => (
                     <TeamCard
@@ -113,7 +113,7 @@ export default function TeamSelectionPage() {
 
       {/* Selection Footer */}
       {selectedTeam && (
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 shadow-lg z-50">
+        <div className="fixed bottom-0 left-0 right-0 bg-slate-800/95 border-t border-white/10 shadow-lg z-50 backdrop-blur-sm">
           <div className="max-w-6xl mx-auto px-4 md:px-6 py-3 md:py-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
             <div className="flex items-center gap-3 md:gap-4">
               <div
@@ -123,8 +123,8 @@ export default function TeamSelectionPage() {
                 {selectedTeam.abbreviation}
               </div>
               <div className="min-w-0">
-                <p className="font-semibold text-slate-900 truncate">{selectedTeam.city} {selectedTeam.name}</p>
-                <p className="text-xs md:text-sm text-slate-500">{selectedTeam.conference} - {selectedTeam.division}</p>
+                <p className="font-semibold text-white truncate">{selectedTeam.city} {selectedTeam.name}</p>
+                <p className="text-xs md:text-sm text-slate-400">{selectedTeam.conference} - {selectedTeam.division}</p>
               </div>
             </div>
             <button
@@ -155,8 +155,8 @@ function TeamCard({
       onClick={onSelect}
       className={`w-full flex items-center gap-2.5 md:gap-3 p-2.5 md:p-3 rounded-lg border transition-all min-h-[52px] ${
         isSelected
-          ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-500'
-          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+          ? 'border-blue-500 bg-blue-900/30 ring-2 ring-blue-500'
+          : 'border-white/10 bg-slate-800/50 hover:border-white/20 hover:bg-white/5'
       }`}
     >
       <div
@@ -166,11 +166,11 @@ function TeamCard({
         {team.abbreviation}
       </div>
       <div className="flex-1 text-left min-w-0">
-        <p className="font-medium text-slate-900 text-sm md:text-base truncate">{team.city} {team.name}</p>
-        <p className="text-xs text-slate-500 truncate">{team.championships > 0 ? `${team.championships} Championships` : 'No championships yet'}</p>
+        <p className="font-medium text-white text-sm md:text-base truncate">{team.city} {team.name}</p>
+        <p className="text-xs text-slate-400 truncate">{team.championships > 0 ? `${team.championships} Championships` : 'No championships yet'}</p>
       </div>
       {isSelected && (
-        <svg className="w-5 h-5 text-blue-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+        <svg className="w-5 h-5 text-blue-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
         </svg>
       )}

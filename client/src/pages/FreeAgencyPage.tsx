@@ -50,9 +50,9 @@ export default function FreeAgencyPage() {
       <PageTemplate title="Free Agency" subtitle="Sign free agents to your roster">
         <Card>
           <CardContent className="py-12 text-center">
-            <UserPlus className="w-16 h-16 mx-auto text-slate-300 mb-4" />
-            <h2 className="text-xl font-semibold text-slate-900 mb-2">Free Agency Opens Later</h2>
-            <p className="text-slate-500">
+            <UserPlus className="w-16 h-16 mx-auto text-slate-500 mb-4" />
+            <h2 className="text-xl font-semibold text-white mb-2">Free Agency Opens Later</h2>
+            <p className="text-slate-400">
               Free agency is available during the regular season and offseason.
             </p>
           </CardContent>
@@ -69,29 +69,29 @@ export default function FreeAgencyPage() {
           <CardContent>
             <div className="flex flex-wrap gap-4 md:gap-8">
               <div>
-                <p className="text-xs text-slate-500">Cap Space</p>
+                <p className="text-xs text-slate-400">Cap Space</p>
                 <p className={cn(
                   'text-xl font-bold',
-                  teamSalary.cap_space > 0 ? 'text-green-600' : 'text-red-600'
+                  teamSalary.cap_space > 0 ? 'text-green-400' : 'text-red-400'
                 )}>
                   ${(teamSalary.cap_space / 1000000).toFixed(1)}M
                 </p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">Total Salary</p>
-                <p className="text-xl font-bold text-slate-900">
+                <p className="text-xs text-slate-400">Total Salary</p>
+                <p className="text-xl font-bold text-white">
                   ${(teamSalary.total_salary / 1000000).toFixed(1)}M
                 </p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">Salary Cap</p>
-                <p className="text-xl font-bold text-slate-900">
+                <p className="text-xs text-slate-400">Salary Cap</p>
+                <p className="text-xl font-bold text-white">
                   ${(teamSalary.salary_cap / 1000000).toFixed(1)}M
                 </p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">Roster</p>
-                <p className="text-xl font-bold text-slate-900">
+                <p className="text-xs text-slate-400">Roster</p>
+                <p className="text-xl font-bold text-white">
                   {teamSalary.roster_count}/15
                 </p>
               </div>
@@ -110,7 +110,7 @@ export default function FreeAgencyPage() {
               'px-3 py-2 text-sm font-medium rounded-lg whitespace-nowrap min-h-[44px] transition-colors',
               position === pos
                 ? 'bg-blue-600 text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                : 'bg-slate-800/50 text-slate-300 hover:bg-white/5'
             )}
           >
             {pos}
@@ -129,21 +129,21 @@ export default function FreeAgencyPage() {
           </CardHeader>
           <CardContent className="p-0">
             {isLoading ? (
-              <div className="p-8 text-center text-slate-500">Loading...</div>
+              <div className="p-8 text-center text-slate-400">Loading...</div>
             ) : !freeAgents?.length ? (
-              <div className="p-8 text-center text-slate-500">
+              <div className="p-8 text-center text-slate-400">
                 No free agents available
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-slate-50">
+                  <thead className="bg-slate-800/50">
                     <tr>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Player</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Pos</th>
-                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500">Age</th>
-                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500">OVR</th>
-                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500">Asking</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-400">Player</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-400">Pos</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-400">Age</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-400">OVR</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-400">Asking</th>
                       <th className="px-3 py-2"></th>
                     </tr>
                   </thead>
@@ -152,21 +152,21 @@ export default function FreeAgencyPage() {
                       <tr
                         key={player.id}
                         className={cn(
-                          'border-t border-slate-100 hover:bg-slate-50',
-                          selectedPlayer?.id === player.id && 'bg-blue-50'
+                          'border-t border-white/5 hover:bg-white/5',
+                          selectedPlayer?.id === player.id && 'bg-blue-900/30'
                         )}
                       >
                         <td className="px-3 py-2">
-                          <p className="font-medium text-sm">{player.first_name} {player.last_name}</p>
+                          <p className="font-medium text-sm text-white">{player.first_name} {player.last_name}</p>
                         </td>
                         <td className="px-3 py-2">
                           <Badge variant="secondary">{player.position}</Badge>
                         </td>
-                        <td className="px-3 py-2 text-sm text-right">{player.age}</td>
+                        <td className="px-3 py-2 text-sm text-right text-white">{player.age}</td>
                         <td className={cn('px-3 py-2 text-sm text-right font-bold', getStatColor(player.overall))}>
                           {player.overall}
                         </td>
-                        <td className="px-3 py-2 text-sm text-right">
+                        <td className="px-3 py-2 text-sm text-right text-white">
                           ${(player.asking_salary / 1000000).toFixed(1)}M/{player.asking_years}yr
                         </td>
                         <td className="px-3 py-2 text-right">
@@ -202,19 +202,19 @@ export default function FreeAgencyPage() {
               </CardHeader>
               <CardContent>
                 <div className="mb-4">
-                  <p className="font-semibold">{selectedPlayer.first_name} {selectedPlayer.last_name}</p>
-                  <p className="text-sm text-slate-500">{selectedPlayer.position} · {selectedPlayer.overall} OVR</p>
+                  <p className="font-semibold text-white">{selectedPlayer.first_name} {selectedPlayer.last_name}</p>
+                  <p className="text-sm text-slate-400">{selectedPlayer.position} · {selectedPlayer.overall} OVR</p>
                 </div>
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                    <label className="block text-sm font-medium text-slate-300 mb-1">
                       Years
                     </label>
                     <select
                       value={offerYears}
                       onChange={(e) => setOfferYears(Number(e.target.value))}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg min-h-[44px]"
+                      className="w-full px-3 py-2 bg-slate-800/50 border border-white/10 rounded-lg min-h-[44px] text-white"
                     >
                       {[1, 2, 3, 4].map((y) => (
                         <option key={y} value={y}>{y} year{y > 1 ? 's' : ''}</option>
@@ -223,20 +223,20 @@ export default function FreeAgencyPage() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                    <label className="block text-sm font-medium text-slate-300 mb-1">
                       Salary (per year)
                     </label>
                     <div className="flex items-center gap-2">
-                      <span className="text-slate-500">$</span>
+                      <span className="text-slate-400">$</span>
                       <input
                         type="number"
                         value={offerSalary}
                         onChange={(e) => setOfferSalary(Number(e.target.value))}
                         min={1}
                         max={50}
-                        className="flex-1 px-3 py-2 border border-slate-200 rounded-lg min-h-[44px]"
+                        className="flex-1 px-3 py-2 bg-slate-800/50 border border-white/10 rounded-lg min-h-[44px] text-white"
                       />
-                      <span className="text-slate-500">M</span>
+                      <span className="text-slate-400">M</span>
                     </div>
                   </div>
 
@@ -271,15 +271,15 @@ export default function FreeAgencyPage() {
             </CardHeader>
             <CardContent className="p-0 max-h-[300px] overflow-y-auto">
               {!transactions?.length ? (
-                <div className="p-6 text-center text-slate-500 text-sm">
+                <div className="p-6 text-center text-slate-400 text-sm">
                   No transactions yet
                 </div>
               ) : (
-                <div className="divide-y divide-slate-100">
+                <div className="divide-y divide-white/5">
                   {transactions.slice(0, 10).map((tx) => (
                     <div key={tx.id} className="px-4 py-3">
-                      <p className="font-medium text-sm">{tx.player_name}</p>
-                      <p className="text-xs text-slate-500">
+                      <p className="font-medium text-sm text-white">{tx.player_name}</p>
+                      <p className="text-xs text-slate-400">
                         {tx.type === 'signed' ? 'Signed with' : 'Released by'} {tx.team_name}
                         {tx.salary && ` - $${(tx.salary / 1000000).toFixed(1)}M/${tx.years}yr`}
                       </p>

@@ -68,20 +68,20 @@ const features = [
 ];
 
 const colorClasses: Record<string, { bg: string; icon: string; border: string }> = {
-  blue: { bg: 'bg-blue-50', icon: 'text-blue-600', border: 'group-hover:border-blue-200' },
-  green: { bg: 'bg-green-50', icon: 'text-green-600', border: 'group-hover:border-green-200' },
-  amber: { bg: 'bg-amber-50', icon: 'text-amber-600', border: 'group-hover:border-amber-200' },
-  purple: { bg: 'bg-purple-50', icon: 'text-purple-600', border: 'group-hover:border-purple-200' },
-  cyan: { bg: 'bg-cyan-50', icon: 'text-cyan-600', border: 'group-hover:border-cyan-200' },
-  emerald: { bg: 'bg-emerald-50', icon: 'text-emerald-600', border: 'group-hover:border-emerald-200' },
-  orange: { bg: 'bg-orange-50', icon: 'text-orange-600', border: 'group-hover:border-orange-200' },
-  pink: { bg: 'bg-pink-50', icon: 'text-pink-600', border: 'group-hover:border-pink-200' },
-  yellow: { bg: 'bg-yellow-50', icon: 'text-yellow-600', border: 'group-hover:border-yellow-200' },
+  blue: { bg: 'bg-blue-500/20', icon: 'text-blue-400', border: 'group-hover:border-blue-500/30' },
+  green: { bg: 'bg-green-500/20', icon: 'text-green-400', border: 'group-hover:border-green-500/30' },
+  amber: { bg: 'bg-amber-500/20', icon: 'text-amber-400', border: 'group-hover:border-amber-500/30' },
+  purple: { bg: 'bg-purple-500/20', icon: 'text-purple-400', border: 'group-hover:border-purple-500/30' },
+  cyan: { bg: 'bg-cyan-500/20', icon: 'text-cyan-400', border: 'group-hover:border-cyan-500/30' },
+  emerald: { bg: 'bg-emerald-500/20', icon: 'text-emerald-400', border: 'group-hover:border-emerald-500/30' },
+  orange: { bg: 'bg-orange-500/20', icon: 'text-orange-400', border: 'group-hover:border-orange-500/30' },
+  pink: { bg: 'bg-pink-500/20', icon: 'text-pink-400', border: 'group-hover:border-pink-500/30' },
+  yellow: { bg: 'bg-yellow-500/20', icon: 'text-yellow-400', border: 'group-hover:border-yellow-500/30' },
 };
 
 export function FeaturesGrid() {
   return (
-    <section id="features" className="pt-24 md:pt-32 pb-20 md:pb-28 bg-gradient-to-b from-slate-900 via-slate-100 to-white">
+    <section id="features" className="py-20 md:py-28 bg-slate-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="text-center mb-12 md:mb-16">
@@ -91,7 +91,7 @@ export function FeaturesGrid() {
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-4">
             Everything You Need to Dominate
           </h2>
-          <p className="text-lg text-slate-300 max-w-2xl mx-auto">
+          <p className="text-lg text-slate-400 max-w-2xl mx-auto">
             From draft day to championship parade, every tool you need to build a basketball empire.
           </p>
         </div>
@@ -105,7 +105,7 @@ export function FeaturesGrid() {
             return (
               <div
                 key={feature.title}
-                className={`group relative bg-white border border-slate-200 rounded-2xl p-6 md:p-8 transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${colors.border}`}
+                className={`group relative bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-2xl p-6 md:p-8 transition-all duration-300 hover:bg-slate-800/70 hover:-translate-y-1 ${colors.border}`}
               >
                 {/* Icon */}
                 <div className={`w-12 h-12 md:w-14 md:h-14 ${colors.bg} rounded-xl flex items-center justify-center mb-5`}>
@@ -113,10 +113,10 @@ export function FeaturesGrid() {
                 </div>
 
                 {/* Content */}
-                <h3 className="text-lg md:text-xl font-bold text-slate-900 mb-2">
+                <h3 className="text-lg md:text-xl font-bold text-white mb-2">
                   {feature.title}
                 </h3>
-                <p className="text-slate-600 leading-relaxed">
+                <p className="text-slate-400 leading-relaxed">
                   {feature.description}
                 </p>
               </div>

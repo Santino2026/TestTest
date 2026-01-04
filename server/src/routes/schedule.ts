@@ -67,6 +67,7 @@ router.post('/generate', authMiddleware(true), async (req: any, res) => {
 router.get('/', async (req, res) => {
   try {
     const teamId = req.query.team_id as string;
+    const seasonId = req.query.season_id as string;
     const date = req.query.date as string;
     const month = req.query.month as string;
 
@@ -84,6 +85,12 @@ router.get('/', async (req, res) => {
        WHERE 1=1
     `;
     const params: any[] = [];
+
+    // Filter by season_id (required for proper data isolation)
+    if (seasonId) {
+      params.push(seasonId);
+      query += ` AND s.season_id = $${params.length}`;
+    }
 
     if (teamId) {
       params.push(teamId);

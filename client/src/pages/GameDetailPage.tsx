@@ -15,8 +15,8 @@ export default function GameDetailPage() {
     return (
       <PageTemplate title="Loading..." subtitle="">
         <div className="animate-pulse space-y-4">
-          <div className="h-32 bg-slate-200 rounded-xl" />
-          <div className="h-64 bg-slate-200 rounded-xl" />
+          <div className="h-32 bg-slate-800/50 rounded-xl" />
+          <div className="h-64 bg-slate-800/50 rounded-xl" />
         </div>
       </PageTemplate>
     );
@@ -25,7 +25,7 @@ export default function GameDetailPage() {
   if (!game) {
     return (
       <PageTemplate title="Game Not Found" subtitle="">
-        <p>The game you're looking for doesn't exist.</p>
+        <p className="text-slate-400">The game you're looking for doesn't exist.</p>
       </PageTemplate>
     );
   }
@@ -62,10 +62,10 @@ export default function GameDetailPage() {
                 primaryColor={homeTeam?.primary_color || '#666'}
                 size="md"
               />
-              <p className="font-bold text-sm md:text-lg mt-1 md:mt-2 truncate">{game.home_team_name}</p>
+              <p className="font-bold text-sm md:text-lg mt-1 md:mt-2 truncate text-slate-200">{game.home_team_name}</p>
               <p className={cn(
                 'text-3xl md:text-4xl font-bold',
-                game.winner_id === game.home_team_id ? 'text-green-600' : 'text-slate-900'
+                game.winner_id === game.home_team_id ? 'text-green-400' : 'text-white'
               )}>
                 {game.home_score}
               </p>
@@ -86,10 +86,10 @@ export default function GameDetailPage() {
                 primaryColor={awayTeam?.primary_color || '#666'}
                 size="md"
               />
-              <p className="font-bold text-sm md:text-lg mt-1 md:mt-2 truncate">{game.away_team_name}</p>
+              <p className="font-bold text-sm md:text-lg mt-1 md:mt-2 truncate text-slate-200">{game.away_team_name}</p>
               <p className={cn(
                 'text-3xl md:text-4xl font-bold',
-                game.winner_id === game.away_team_id ? 'text-green-600' : 'text-slate-900'
+                game.winner_id === game.away_team_id ? 'text-green-400' : 'text-white'
               )}>
                 {game.away_score}
               </p>
@@ -104,36 +104,36 @@ export default function GameDetailPage() {
             <div className="mt-4 md:mt-6 overflow-x-auto">
               <table className="text-xs md:text-sm mx-auto">
                 <thead>
-                  <tr className="text-slate-500">
+                  <tr className="text-slate-400">
                     <th className="px-2 md:px-4 py-2"></th>
                     {game.quarters.map((q: any) => (
                       <th key={q.quarter} className="px-2 md:px-4 py-2 text-center">
                         {q.quarter <= 4 ? `Q${q.quarter}` : `OT${q.quarter - 4}`}
                       </th>
                     ))}
-                    <th className="px-2 md:px-4 py-2 text-center font-bold border-l border-slate-200">T</th>
+                    <th className="px-2 md:px-4 py-2 text-center font-bold border-l border-white/10">T</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="border-t border-slate-100">
-                    <td className="px-2 md:px-4 py-2 font-medium">{homeTeam?.abbreviation}</td>
+                  <tr className="border-t border-white/5">
+                    <td className="px-2 md:px-4 py-2 font-medium text-slate-200">{homeTeam?.abbreviation}</td>
                     {game.quarters.map((q: any) => (
-                      <td key={q.quarter} className="px-2 md:px-4 py-2 text-center">
+                      <td key={q.quarter} className="px-2 md:px-4 py-2 text-center text-slate-300">
                         {q.home_points}
                       </td>
                     ))}
-                    <td className="px-2 md:px-4 py-2 text-center font-bold border-l border-slate-200">
+                    <td className="px-2 md:px-4 py-2 text-center font-bold border-l border-white/10 text-white">
                       {game.home_score}
                     </td>
                   </tr>
-                  <tr className="border-t border-slate-100">
-                    <td className="px-2 md:px-4 py-2 font-medium">{awayTeam?.abbreviation}</td>
+                  <tr className="border-t border-white/5">
+                    <td className="px-2 md:px-4 py-2 font-medium text-slate-200">{awayTeam?.abbreviation}</td>
                     {game.quarters.map((q: any) => (
-                      <td key={q.quarter} className="px-2 md:px-4 py-2 text-center">
+                      <td key={q.quarter} className="px-2 md:px-4 py-2 text-center text-slate-300">
                         {q.away_points}
                       </td>
                     ))}
-                    <td className="px-2 md:px-4 py-2 text-center font-bold border-l border-slate-200">
+                    <td className="px-2 md:px-4 py-2 text-center font-bold border-l border-white/10 text-white">
                       {game.away_score}
                     </td>
                   </tr>
@@ -224,10 +224,10 @@ function StatCompare({
   const awayWins = isLowerBetter ? awayNum < homeNum : awayNum > homeNum;
 
   return (
-    <div className="flex items-center justify-between py-1.5 md:py-2 border-b border-slate-100">
-      <span className={cn('font-medium text-xs md:text-sm', homeWins && 'text-green-600')}>{home}</span>
+    <div className="flex items-center justify-between py-1.5 md:py-2 border-b border-white/5">
+      <span className={cn('font-medium text-xs md:text-sm', homeWins ? 'text-green-400' : 'text-slate-300')}>{home}</span>
       <span className="text-slate-500 text-xs md:text-sm">{label}</span>
-      <span className={cn('font-medium text-xs md:text-sm', awayWins && 'text-green-600')}>{away}</span>
+      <span className={cn('font-medium text-xs md:text-sm', awayWins ? 'text-green-400' : 'text-slate-300')}>{away}</span>
     </div>
   );
 }
@@ -252,7 +252,7 @@ function BoxScoreTable({ players }: { players: PlayerGameStats[] }) {
             <TableRow key={p.player_id}>
               <TableCell className="py-2">
                 <div className="flex items-center gap-1">
-                  <span className="font-medium text-xs md:text-sm truncate max-w-[80px] md:max-w-none">
+                  <span className="font-medium text-xs md:text-sm truncate max-w-[80px] md:max-w-none text-slate-200">
                     {p.first_name?.charAt(0)}. {p.last_name}
                   </span>
                   {p.is_starter && (
@@ -261,14 +261,14 @@ function BoxScoreTable({ players }: { players: PlayerGameStats[] }) {
                 </div>
                 <span className="text-xs text-slate-500">{p.position}</span>
               </TableCell>
-              <TableCell className="text-center text-xs md:text-sm hidden sm:table-cell">{p.minutes?.toFixed(0)}</TableCell>
-              <TableCell className="text-center font-bold text-xs md:text-sm">{p.points}</TableCell>
-              <TableCell className="text-center text-xs md:text-sm">{p.rebounds}</TableCell>
-              <TableCell className="text-center text-xs md:text-sm">{p.assists}</TableCell>
-              <TableCell className="text-center text-xs hidden sm:table-cell">
+              <TableCell className="text-center text-xs md:text-sm hidden sm:table-cell text-slate-300">{p.minutes?.toFixed(0)}</TableCell>
+              <TableCell className="text-center font-bold text-xs md:text-sm text-white">{p.points}</TableCell>
+              <TableCell className="text-center text-xs md:text-sm text-slate-300">{p.rebounds}</TableCell>
+              <TableCell className="text-center text-xs md:text-sm text-slate-300">{p.assists}</TableCell>
+              <TableCell className="text-center text-xs hidden sm:table-cell text-slate-400">
                 {p.fgm}/{p.fga}
               </TableCell>
-              <TableCell className="text-center text-xs hidden md:table-cell">
+              <TableCell className="text-center text-xs hidden md:table-cell text-slate-400">
                 {p.three_pm}/{p.three_pa}
               </TableCell>
             </TableRow>
