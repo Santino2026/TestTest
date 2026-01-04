@@ -51,7 +51,8 @@ router.post('/login', async (req, res) => {
 // Logout
 router.post('/logout', async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    // Support both snake_case (client) and camelCase
+    const refreshToken = req.body.refresh_token || req.body.refreshToken;
     if (refreshToken) {
       await logout(refreshToken);
     }
@@ -64,7 +65,8 @@ router.post('/logout', async (req, res) => {
 // Refresh token
 router.post('/refresh', async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    // Support both snake_case (client) and camelCase
+    const refreshToken = req.body.refresh_token || req.body.refreshToken;
 
     if (!refreshToken) {
       return res.status(400).json({ error: 'Refresh token required' });

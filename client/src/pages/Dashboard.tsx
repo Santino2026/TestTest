@@ -53,18 +53,18 @@ export default function Dashboard() {
 
             {/* Team Info */}
             <div className="flex-1 min-w-0">
-              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">
+              <h2 className="text-xl sm:text-2xl font-bold text-white truncate">
                 {franchise?.city} {franchise?.team_name}
               </h2>
-              <p className="text-sm text-slate-500 truncate">{franchise?.conference} Conference - {franchise?.division} Division</p>
+              <p className="text-sm text-slate-400 truncate">{franchise?.conference} Conference - {franchise?.division} Division</p>
               <div className="flex items-center gap-4 sm:gap-6 mt-2">
                 <div>
-                  <span className="text-2xl sm:text-3xl font-bold text-slate-900">{franchise?.wins || 0}</span>
-                  <span className="text-lg sm:text-xl text-slate-400"> - </span>
-                  <span className="text-2xl sm:text-3xl font-bold text-slate-900">{franchise?.losses || 0}</span>
+                  <span className="text-2xl sm:text-3xl font-bold text-white">{franchise?.wins || 0}</span>
+                  <span className="text-lg sm:text-xl text-slate-500"> - </span>
+                  <span className="text-2xl sm:text-3xl font-bold text-white">{franchise?.losses || 0}</span>
                 </div>
                 {userConferenceRank !== undefined && userConferenceRank >= 0 && (
-                  <div className="text-sm text-slate-500">
+                  <div className="text-sm text-slate-400">
                     #{userConferenceRank + 1} in {franchise?.conference}
                   </div>
                 )}
@@ -83,7 +83,7 @@ export default function Dashboard() {
               </Link>
               <Link
                 to={`/basketball/teams/${franchise?.team_id}`}
-                className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-200 active:bg-slate-300 transition-colors min-h-[44px]"
+                className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-700/50 text-slate-200 text-sm font-medium rounded-lg hover:bg-slate-700 border border-white/10 active:bg-slate-600 transition-colors min-h-[44px]"
               >
                 View Roster
                 <ChevronRight className="w-4 h-4" />
@@ -97,48 +97,48 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
         <Card>
           <CardContent className="flex items-center gap-3 md:gap-4">
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-              <Users className="w-5 h-5 md:w-6 md:h-6 text-blue-600" />
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+              <Users className="w-5 h-5 md:w-6 md:h-6 text-blue-400" />
             </div>
             <div className="min-w-0">
-              <p className="text-xl md:text-2xl font-bold text-slate-900">{teams?.length || 0}</p>
-              <p className="text-xs md:text-sm text-slate-500">Teams</p>
+              <p className="text-xl md:text-2xl font-bold text-white">{teams?.length || 0}</p>
+              <p className="text-xs md:text-sm text-slate-400">Teams</p>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="flex items-center gap-3 md:gap-4">
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
-              <TrendingUp className="w-5 h-5 md:w-6 md:h-6 text-green-600" />
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-green-500/20 flex items-center justify-center flex-shrink-0">
+              <TrendingUp className="w-5 h-5 md:w-6 md:h-6 text-green-400" />
             </div>
             <div className="min-w-0">
-              <p className="text-xl md:text-2xl font-bold text-slate-900">{playersData?.pagination.total || 0}</p>
-              <p className="text-xs md:text-sm text-slate-500">Players</p>
+              <p className="text-xl md:text-2xl font-bold text-white">{playersData?.pagination.total || 0}</p>
+              <p className="text-xs md:text-sm text-slate-400">Players</p>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="flex items-center gap-3 md:gap-4">
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
-              <Calendar className="w-5 h-5 md:w-6 md:h-6 text-amber-600" />
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+              <Calendar className="w-5 h-5 md:w-6 md:h-6 text-amber-400" />
             </div>
             <div className="min-w-0">
-              <p className="text-xl md:text-2xl font-bold text-slate-900">Day {season?.current_day || 0}</p>
-              <p className="text-xs md:text-sm text-slate-500">Current</p>
+              <p className="text-xl md:text-2xl font-bold text-white">Day {season?.current_day || 0}</p>
+              <p className="text-xs md:text-sm text-slate-400">Current</p>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="flex items-center gap-3 md:gap-4">
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
-              <Trophy className="w-5 h-5 md:w-6 md:h-6 text-purple-600" />
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
+              <Trophy className="w-5 h-5 md:w-6 md:h-6 text-purple-400" />
             </div>
             <div className="min-w-0">
-              <p className="text-xl md:text-2xl font-bold text-slate-900 capitalize truncate">{season?.status || 'Preseason'}</p>
-              <p className="text-xs md:text-sm text-slate-500">Phase</p>
+              <p className="text-xl md:text-2xl font-bold text-white capitalize truncate">{season?.status || 'Preseason'}</p>
+              <p className="text-xs md:text-sm text-slate-400">Phase</p>
             </div>
           </CardContent>
         </Card>
@@ -154,30 +154,30 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="p-0">
               <table className="w-full">
-                <thead className="bg-slate-50">
+                <thead className="bg-slate-800/50">
                   <tr>
-                    <th className="px-3 md:px-4 py-2 text-left text-xs font-semibold text-slate-500">#</th>
-                    <th className="px-3 md:px-4 py-2 text-left text-xs font-semibold text-slate-500">Team</th>
-                    <th className="px-3 md:px-4 py-2 text-right text-xs font-semibold text-slate-500">W-L</th>
+                    <th className="px-3 md:px-4 py-2 text-left text-xs font-semibold text-slate-400">#</th>
+                    <th className="px-3 md:px-4 py-2 text-left text-xs font-semibold text-slate-400">Team</th>
+                    <th className="px-3 md:px-4 py-2 text-right text-xs font-semibold text-slate-400">W-L</th>
                   </tr>
                 </thead>
                 <tbody>
                   {easternStandings?.map((team, idx) => (
-                    <tr key={team.team_id} className="border-t border-slate-100">
-                      <td className="px-3 md:px-4 py-2 text-sm text-slate-500">{idx + 1}</td>
+                    <tr key={team.team_id} className="border-t border-white/5">
+                      <td className="px-3 md:px-4 py-2 text-sm text-slate-400">{idx + 1}</td>
                       <td className="px-3 md:px-4 py-2">
-                        <Link to={`/basketball/teams/${team.team_id}`} className="flex items-center gap-2 hover:text-blue-600">
+                        <Link to={`/basketball/teams/${team.team_id}`} className="flex items-center gap-2 hover:text-blue-400 text-slate-200">
                           <TeamLogo abbreviation={team.abbreviation} primaryColor={team.primary_color} size="sm" />
                           <span className="text-sm font-medium truncate">{team.city}</span>
                         </Link>
                       </td>
-                      <td className="px-3 md:px-4 py-2 text-sm text-right whitespace-nowrap">{team.wins}-{team.losses}</td>
+                      <td className="px-3 md:px-4 py-2 text-sm text-right whitespace-nowrap text-slate-200">{team.wins}-{team.losses}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <div className="px-3 md:px-4 py-3 border-t border-slate-100">
-                <Link to="/basketball/standings" className="text-sm text-blue-600 hover:text-blue-700">
+              <div className="px-3 md:px-4 py-3 border-t border-white/5">
+                <Link to="/basketball/standings" className="text-sm text-blue-400 hover:text-blue-300">
                   View full standings →
                 </Link>
               </div>
@@ -191,30 +191,30 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="p-0">
               <table className="w-full">
-                <thead className="bg-slate-50">
+                <thead className="bg-slate-800/50">
                   <tr>
-                    <th className="px-3 md:px-4 py-2 text-left text-xs font-semibold text-slate-500">#</th>
-                    <th className="px-3 md:px-4 py-2 text-left text-xs font-semibold text-slate-500">Team</th>
-                    <th className="px-3 md:px-4 py-2 text-right text-xs font-semibold text-slate-500">W-L</th>
+                    <th className="px-3 md:px-4 py-2 text-left text-xs font-semibold text-slate-400">#</th>
+                    <th className="px-3 md:px-4 py-2 text-left text-xs font-semibold text-slate-400">Team</th>
+                    <th className="px-3 md:px-4 py-2 text-right text-xs font-semibold text-slate-400">W-L</th>
                   </tr>
                 </thead>
                 <tbody>
                   {westernStandings?.map((team, idx) => (
-                    <tr key={team.team_id} className="border-t border-slate-100">
-                      <td className="px-3 md:px-4 py-2 text-sm text-slate-500">{idx + 1}</td>
+                    <tr key={team.team_id} className="border-t border-white/5">
+                      <td className="px-3 md:px-4 py-2 text-sm text-slate-400">{idx + 1}</td>
                       <td className="px-3 md:px-4 py-2">
-                        <Link to={`/basketball/teams/${team.team_id}`} className="flex items-center gap-2 hover:text-blue-600">
+                        <Link to={`/basketball/teams/${team.team_id}`} className="flex items-center gap-2 hover:text-blue-400 text-slate-200">
                           <TeamLogo abbreviation={team.abbreviation} primaryColor={team.primary_color} size="sm" />
                           <span className="text-sm font-medium truncate">{team.city}</span>
                         </Link>
                       </td>
-                      <td className="px-3 md:px-4 py-2 text-sm text-right whitespace-nowrap">{team.wins}-{team.losses}</td>
+                      <td className="px-3 md:px-4 py-2 text-sm text-right whitespace-nowrap text-slate-200">{team.wins}-{team.losses}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <div className="px-3 md:px-4 py-3 border-t border-slate-100">
-                <Link to="/basketball/standings" className="text-sm text-blue-600 hover:text-blue-700">
+              <div className="px-3 md:px-4 py-3 border-t border-white/5">
+                <Link to="/basketball/standings" className="text-sm text-blue-400 hover:text-blue-300">
                   View full standings →
                 </Link>
               </div>
@@ -228,22 +228,22 @@ export default function Dashboard() {
             <CardTitle className="text-base md:text-lg">Top Players</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-white/5">
               {playersData?.players.map((player, idx) => (
                 <Link
                   key={player.id}
                   to={`/basketball/players/${player.id}`}
-                  className="flex items-center gap-3 px-3 md:px-4 py-3 hover:bg-slate-50 transition-colors"
+                  className="flex items-center gap-3 px-3 md:px-4 py-3 hover:bg-white/5 transition-colors"
                 >
-                  <span className="text-sm font-medium text-slate-400 w-4">{idx + 1}</span>
-                  <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-bold text-slate-500 flex-shrink-0">
+                  <span className="text-sm font-medium text-slate-500 w-4">{idx + 1}</span>
+                  <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold text-slate-300 flex-shrink-0">
                     {player.jersey_number}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-900 truncate">
+                    <p className="text-sm font-medium text-white truncate">
                       {player.first_name} {player.last_name}
                     </p>
-                    <p className="text-xs text-slate-500">{player.team_abbrev} · {player.position}</p>
+                    <p className="text-xs text-slate-400">{player.team_abbrev} · {player.position}</p>
                   </div>
                   <span className={cn('text-lg font-bold', getStatColor(player.overall))}>
                     {player.overall}
@@ -251,8 +251,8 @@ export default function Dashboard() {
                 </Link>
               ))}
             </div>
-            <div className="px-3 md:px-4 py-3 border-t border-slate-100">
-              <Link to="/basketball/players" className="text-sm text-blue-600 hover:text-blue-700">
+            <div className="px-3 md:px-4 py-3 border-t border-white/5">
+              <Link to="/basketball/players" className="text-sm text-blue-400 hover:text-blue-300">
                 View all players →
               </Link>
             </div>

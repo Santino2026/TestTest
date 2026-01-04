@@ -9,16 +9,16 @@ export default function Layout() {
   const { franchise } = useFranchise();
 
   return (
-    <div className="min-h-screen flex bg-slate-50">
+    <div className="min-h-screen flex bg-slate-900">
       {/* Mobile Header */}
-      <div className="fixed top-0 left-0 right-0 z-40 md:hidden bg-white border-b border-slate-200">
+      <div className="fixed top-0 left-0 right-0 z-40 md:hidden bg-slate-900 border-b border-white/10">
         <div className="flex items-center justify-between px-4 py-3">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="p-2 -ml-2 rounded-lg hover:bg-slate-100 transition-colors"
+            className="p-2 -ml-2 rounded-lg hover:bg-white/5 transition-colors"
             aria-label="Open menu"
           >
-            <Menu className="w-6 h-6 text-slate-600" />
+            <Menu className="w-6 h-6 text-slate-300" />
           </button>
           <div className="flex items-center gap-2">
             <div
@@ -27,7 +27,7 @@ export default function Layout() {
             >
               {franchise?.abbreviation || 'TM'}
             </div>
-            <span className="font-semibold text-slate-900 text-sm">
+            <span className="font-semibold text-white text-sm">
               {franchise?.abbreviation || 'Team'}
             </span>
           </div>
@@ -38,7 +38,7 @@ export default function Layout() {
       {/* Mobile Backdrop */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          className="fixed inset-0 z-40 bg-black/60 md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}

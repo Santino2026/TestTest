@@ -47,7 +47,7 @@ export default function StandingsPage() {
       <PageTemplate title="Standings" subtitle="Loading...">
         <div className="animate-pulse space-y-4">
           {[1, 2, 3].map(i => (
-            <div key={i} className="h-48 bg-slate-200 rounded-xl" />
+            <div key={i} className="h-48 bg-slate-800/50 rounded-xl" />
           ))}
         </div>
       </PageTemplate>
@@ -65,7 +65,7 @@ export default function StandingsPage() {
             <Card key={key}>
               <CardHeader>
                 <CardTitle>{group.division} Division</CardTitle>
-                <p className="text-sm text-slate-500">{group.conference} Conference</p>
+                <p className="text-sm text-slate-400">{group.conference} Conference</p>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
@@ -90,7 +90,7 @@ export default function StandingsPage() {
                           <TableCell>
                             <Link
                               to={`/basketball/teams/${team.team_id}`}
-                              className="flex items-center gap-1.5 md:gap-2 hover:text-blue-600"
+                              className="flex items-center gap-1.5 md:gap-2 hover:text-blue-400 text-slate-200"
                             >
                               <TeamLogo
                                 abbreviation={team.abbreviation}
@@ -103,19 +103,19 @@ export default function StandingsPage() {
                               </span>
                             </Link>
                           </TableCell>
-                          <TableCell className="text-center font-medium text-green-600 text-sm md:text-base">
+                          <TableCell className="text-center font-medium text-green-400 text-sm md:text-base">
                             {team.wins}
                           </TableCell>
-                          <TableCell className="text-center font-medium text-red-600 text-sm md:text-base">
+                          <TableCell className="text-center font-medium text-red-400 text-sm md:text-base">
                             {team.losses}
                           </TableCell>
-                          <TableCell className="text-center text-sm hidden sm:table-cell">
+                          <TableCell className="text-center text-sm text-slate-300 hidden sm:table-cell">
                             {calculateWinPct(team.wins, team.losses)}
                           </TableCell>
-                          <TableCell className="text-center text-slate-500 text-sm hidden md:table-cell">
+                          <TableCell className="text-center text-slate-400 text-sm hidden md:table-cell">
                             {team.home_wins}-{team.home_losses}
                           </TableCell>
-                          <TableCell className="text-center text-slate-500 text-sm hidden md:table-cell">
+                          <TableCell className="text-center text-slate-400 text-sm hidden md:table-cell">
                             {team.away_wins}-{team.away_losses}
                           </TableCell>
                         </TableRow>

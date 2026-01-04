@@ -27,9 +27,13 @@ export default function SchedulePage() {
 
   // Fetch schedule
   const { data: schedule, isLoading: scheduleLoading } = useQuery({
-    queryKey: ['schedule', franchise?.team_id, selectedMonth],
-    queryFn: () => api.getSchedule({ team_id: franchise?.team_id, month: selectedMonth }),
-    enabled: !!franchise?.team_id,
+    queryKey: ['schedule', franchise?.team_id, franchise?.season_id, selectedMonth],
+    queryFn: () => api.getSchedule({
+      team_id: franchise?.team_id,
+      season_id: franchise?.season_id,
+      month: selectedMonth
+    }),
+    enabled: !!franchise?.team_id && !!franchise?.season_id,
   });
 
   // Fetch season progress
@@ -170,7 +174,7 @@ export default function SchedulePage() {
                 <ChevronLeft className="w-5 h-5" />
               </Button>
 
-              <h3 className="text-lg font-bold">
+              <h3 className="text-lg font-bold text-white">
                 {months[currentMonthIndex]?.label} {selectedMonth.startsWith('2024') ? '2024' : '2025'}
               </h3>
 
@@ -189,15 +193,15 @@ export default function SchedulePage() {
       {/* Schedule List */}
       {scheduleLoading ? (
         <div className="animate-pulse space-y-4">
-          <div className="h-20 bg-slate-200 rounded-xl" />
-          <div className="h-20 bg-slate-200 rounded-xl" />
+          <div className="h-20 bg-slate-800/50 rounded-xl" />
+          <div className="h-20 bg-slate-800/50 rounded-xl" />
         </div>
       ) : schedule && schedule.length > 0 ? (
         <div className="space-y-4">
           {Object.entries(scheduleByDate).map(([date, games]) => (
             <Card key={date}>
               <CardHeader className="py-3">
-                <CardTitle className="text-sm text-slate-500">
+                <CardTitle className="text-sm text-slate-400">
                   {new Date(date).toLocaleDateString('en-US', {
                     weekday: 'long',
                     month: 'long',
@@ -227,7 +231,7 @@ export default function SchedulePage() {
                         key={game.id}
                         className={cn(
                           'flex items-center justify-between p-2.5 md:p-3 rounded-lg gap-2 min-h-[48px]',
-                          game.is_user_game && 'bg-blue-50'
+                          game.is_user_game && 'bg-blue-900/30'
                         )}
                       >
                         <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
@@ -237,10 +241,10 @@ export default function SchedulePage() {
                             size="sm"
                           />
                           <div className="min-w-0">
-                            <p className="font-medium text-sm md:text-base truncate">
+                            <p className="font-medium text-sm md:text-base truncate text-white">
                               {isHome ? 'vs' : '@'} <span className="hidden sm:inline">{opponent}</span><span className="sm:hidden">{opponentAbbrev}</span>
                             </p>
-                            <p className="text-xs text-slate-500">
+                            <p className="text-xs text-slate-400">
                               Game {game.game_number}
                             </p>
                           </div>
@@ -252,7 +256,7 @@ export default function SchedulePage() {
                               <Badge variant={result.won ? 'success' : 'danger'}>
                                 {result.won ? 'W' : 'L'}
                               </Badge>
-                              <span className="font-mono font-medium text-sm md:text-base">
+                              <span className="font-mono font-medium text-sm md:text-base text-white">
                                 {result.myScore}-{result.oppScore}
                               </span>
                               {game.game_id && (
@@ -279,7 +283,7 @@ export default function SchedulePage() {
       ) : (
         <Card>
           <CardContent className="py-8 text-center">
-            <p className="text-slate-500">
+            <p className="text-slate-400">
               {franchise?.phase === 'preseason'
                 ? 'Generate a schedule to see your games.'
                 : 'No games scheduled for this month.'}
@@ -306,18 +310,18 @@ function PreseasonPanel({
   hasSchedule: boolean;
 }) {
   return (
-    <Card className="mb-4 md:mb-6 border-2 border-blue-200 bg-blue-50">
+    <Card className="mb-4 md:mb-6 border-2 border-blue-500/30 bg-blue-900/20">
       <CardContent className="py-4 md:py-6">
         <div className="text-center">
-          <h2 className="text-lg md:text-xl font-bold text-slate-900 mb-2">Welcome to the Preseason!</h2>
-          <p className="text-sm md:text-base text-slate-600 mb-4 md:mb-6">
+          <h2 className="text-lg md:text-xl font-bold text-white mb-2">Welcome to the Preseason!</h2>
+          <p className="text-sm md:text-base text-slate-300 mb-4 md:mb-6">
             Follow these steps to start your season:
           </p>
 
           <div className="flex flex-col sm:flex-row justify-center items-center gap-3 sm:gap-4">
             <div className={cn(
               'flex flex-col items-center p-3 md:p-4 rounded-lg w-full sm:w-auto',
-              hasSchedule ? 'bg-green-100 text-green-800' : 'bg-white'
+              hasSchedule ? 'bg-green-900/30 text-green-400' : 'bg-slate-800/50'
             )}>
               <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold mb-2 text-sm md:text-base">
                 1
@@ -337,7 +341,7 @@ function PreseasonPanel({
               <ArrowRight className="w-5 h-5 md:w-6 md:h-6 text-slate-400 rotate-90 sm:rotate-0" />
             </div>
 
-            <div className="flex flex-col items-center p-3 md:p-4 rounded-lg bg-white w-full sm:w-auto">
+            <div className="flex flex-col items-center p-3 md:p-4 rounded-lg bg-slate-800/50 w-full sm:w-auto">
               <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold mb-2 text-sm md:text-base">
                 2
               </div>
@@ -384,17 +388,17 @@ function RegularSeasonPanel({
         {/* Progress Bar */}
         {progress && (
           <div className="mb-4">
-            <div className="flex justify-between text-sm text-slate-600 mb-1">
+            <div className="flex justify-between text-sm text-slate-300 mb-1">
               <span>Season Progress</span>
               <span>Day {progress.current_day} of {progress.total_days}</span>
             </div>
-            <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
+            <div className="h-3 bg-slate-700/50 rounded-full overflow-hidden">
               <div
                 className="h-full bg-blue-600 transition-all duration-500"
                 style={{ width: `${progressPct}%` }}
               />
             </div>
-            <div className="flex justify-between text-xs text-slate-500 mt-1">
+            <div className="flex justify-between text-xs text-slate-400 mt-1">
               <span>Your Games: {progress.user_games_completed} of {progress.user_games_total}</span>
               <span>{Math.round(gamesProgressPct)}% complete</span>
             </div>
@@ -403,26 +407,26 @@ function RegularSeasonPanel({
 
         {/* Sim Result */}
         {simResult && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+          <div className="mb-4 p-3 bg-green-900/30 border border-green-500/30 rounded-lg">
             <div className="flex justify-between items-start">
               <div>
                 {simResult.type === 'day' && (
-                  <p className="text-green-800">
+                  <p className="text-green-400">
                     Simulated Day {simResult.data.day}: {simResult.data.games_played} games played
                   </p>
                 )}
                 {simResult.type === 'week' && (
-                  <p className="text-green-800">
+                  <p className="text-green-400">
                     Simulated {simResult.data.days_simulated} days: {simResult.data.games_played} games played
                   </p>
                 )}
                 {simResult.type === 'playoffs' && (
-                  <p className="text-green-800 font-bold">
+                  <p className="text-green-400 font-bold">
                     Regular Season Complete! Your Record: {simResult.data.user_record.wins}-{simResult.data.user_record.losses}
                   </p>
                 )}
               </div>
-              <button onClick={onClearResult} className="text-slate-400 hover:text-slate-600">
+              <button onClick={onClearResult} className="text-slate-400 hover:text-slate-300">
                 &times;
               </button>
             </div>
@@ -454,11 +458,11 @@ function RegularSeasonPanel({
 // Playoffs Panel Component
 function PlayoffsPanel({ onGoToPlayoffs }: { onGoToPlayoffs: () => void }) {
   return (
-    <Card className="mb-4 md:mb-6 border-2 border-amber-200 bg-amber-50">
+    <Card className="mb-4 md:mb-6 border-2 border-amber-500/30 bg-amber-900/20">
       <CardContent className="py-5 md:py-6 text-center">
-        <Trophy className="w-10 h-10 md:w-12 md:h-12 text-amber-600 mx-auto mb-2 md:mb-3" />
-        <h2 className="text-lg md:text-xl font-bold text-slate-900 mb-2">Playoffs Time!</h2>
-        <p className="text-sm md:text-base text-slate-600 mb-3 md:mb-4 px-2">
+        <Trophy className="w-10 h-10 md:w-12 md:h-12 text-amber-500 mx-auto mb-2 md:mb-3" />
+        <h2 className="text-lg md:text-xl font-bold text-white mb-2">Playoffs Time!</h2>
+        <p className="text-sm md:text-base text-slate-300 mb-3 md:mb-4 px-2">
           The regular season is over. Continue to the playoffs!
         </p>
         <Button onClick={onGoToPlayoffs} size="lg" className="w-full sm:w-auto">
@@ -479,9 +483,9 @@ function SeasonSummaryPanel() {
 
   if (isLoading) {
     return (
-      <Card className="mb-4 md:mb-6 border-2 border-amber-200 bg-gradient-to-b from-amber-50 to-yellow-50">
+      <Card className="mb-4 md:mb-6 border-2 border-amber-500/30 bg-gradient-to-b from-amber-900/20 to-yellow-900/20">
         <CardContent className="py-6 md:py-8 text-center">
-          <div className="animate-pulse text-sm md:text-base">Loading season summary...</div>
+          <div className="animate-pulse text-sm md:text-base text-slate-400">Loading season summary...</div>
         </CardContent>
       </Card>
     );
@@ -497,19 +501,19 @@ function SeasonSummaryPanel() {
     <Card className={cn(
       "mb-4 md:mb-6 border-2",
       isChampion
-        ? "border-yellow-400 bg-gradient-to-b from-yellow-50 via-amber-50 to-orange-50"
-        : "border-slate-200 bg-slate-50"
+        ? "border-yellow-500/50 bg-gradient-to-b from-yellow-900/30 via-amber-900/20 to-orange-900/20"
+        : "border-white/10 bg-slate-800/50"
     )}>
       <CardContent className="py-5 md:py-8 text-center">
         {/* Champion Banner */}
         <div className="mb-4 md:mb-6">
           <Trophy className={cn(
             "w-12 h-12 md:w-16 md:h-16 mx-auto mb-2 md:mb-3",
-            isChampion ? "text-yellow-500" : "text-slate-400"
+            isChampion ? "text-yellow-500" : "text-slate-500"
           )} />
           <h2 className={cn(
             "text-xl md:text-2xl font-bold mb-2",
-            isChampion ? "text-yellow-700" : "text-slate-700"
+            isChampion ? "text-yellow-400" : "text-slate-300"
           )}>
             Season {summary.season_number} Complete
           </h2>
@@ -519,59 +523,59 @@ function SeasonSummaryPanel() {
         {summary.champion && (
           <div className={cn(
             "p-4 md:p-6 rounded-xl mb-4 md:mb-6",
-            isChampion ? "bg-yellow-100" : "bg-white"
+            isChampion ? "bg-yellow-900/30" : "bg-slate-800/50"
           )}>
-            <p className="text-xs md:text-sm font-medium text-slate-500 mb-1">
+            <p className="text-xs md:text-sm font-medium text-slate-400 mb-1">
               {isChampion ? 'CONGRATULATIONS!' : 'NBA CHAMPIONS'}
             </p>
             <h3 className={cn(
               "text-2xl md:text-3xl font-bold mb-2 truncate",
-              isChampion ? "text-yellow-700" : "text-slate-900"
+              isChampion ? "text-yellow-400" : "text-white"
             )}>
               {summary.champion.city} {summary.champion.name}
             </h3>
-            <p className="text-sm md:text-base text-slate-600">
+            <p className="text-sm md:text-base text-slate-300">
               Won NBA Finals {summary.champion.series_score}
             </p>
           </div>
         )}
 
         {/* User Team Summary */}
-        <div className="bg-white p-3 md:p-4 rounded-xl mb-4 md:mb-6">
-          <h4 className="font-bold text-slate-900 mb-2 md:mb-3 text-sm md:text-base">Your Season</h4>
+        <div className="bg-slate-800/50 p-3 md:p-4 rounded-xl mb-4 md:mb-6">
+          <h4 className="font-bold text-white mb-2 md:mb-3 text-sm md:text-base">Your Season</h4>
           <div className="grid grid-cols-2 gap-3 md:gap-4 text-center">
             <div>
-              <p className="text-xl md:text-2xl font-bold text-slate-900">
+              <p className="text-xl md:text-2xl font-bold text-white">
                 {summary.user_team?.wins}-{summary.user_team?.losses}
               </p>
-              <p className="text-xs md:text-sm text-slate-500">Regular Season</p>
+              <p className="text-xs md:text-sm text-slate-400">Regular Season</p>
             </div>
             <div>
               <p className={cn(
                 "text-base md:text-lg font-bold truncate",
-                isChampion ? "text-yellow-600" : "text-slate-900"
+                isChampion ? "text-yellow-400" : "text-white"
               )}>
                 {summary.user_team?.playoff_finish}
               </p>
-              <p className="text-xs md:text-sm text-slate-500">Playoff Result</p>
+              <p className="text-xs md:text-sm text-slate-400">Playoff Result</p>
             </div>
           </div>
         </div>
 
         {/* Top Teams */}
-        <div className="bg-white p-3 md:p-4 rounded-xl">
-          <h4 className="font-bold text-slate-900 mb-2 md:mb-3 text-sm md:text-base">Final Standings (Top 8)</h4>
+        <div className="bg-slate-800/50 p-3 md:p-4 rounded-xl">
+          <h4 className="font-bold text-white mb-2 md:mb-3 text-sm md:text-base">Final Standings (Top 8)</h4>
           <div className="space-y-1 text-xs md:text-sm">
             {summary.top_standings?.map((team, idx) => (
               <div
                 key={team.abbreviation}
                 className={cn(
                   "flex justify-between px-2 py-1 rounded",
-                  team.abbreviation === summary.user_team?.abbreviation && "bg-blue-50"
+                  team.abbreviation === summary.user_team?.abbreviation && "bg-blue-900/30"
                 )}
               >
-                <span className="truncate">{idx + 1}. {team.name}</span>
-                <span className="text-slate-500 flex-shrink-0 ml-2">{team.wins}-{team.losses}</span>
+                <span className="truncate text-white">{idx + 1}. {team.name}</span>
+                <span className="text-slate-400 flex-shrink-0 ml-2">{team.wins}-{team.losses}</span>
               </div>
             ))}
           </div>
@@ -605,17 +609,17 @@ function OffseasonPanel() {
   });
 
   return (
-    <Card className="mb-4 md:mb-6 border-2 border-purple-200 bg-purple-50">
+    <Card className="mb-4 md:mb-6 border-2 border-purple-500/30 bg-purple-900/20">
       <CardContent className="py-5 md:py-6 text-center">
-        <h2 className="text-lg md:text-xl font-bold text-slate-900 mb-2">Offseason</h2>
-        <p className="text-sm md:text-base text-slate-600 mb-3 md:mb-4 px-2">
+        <h2 className="text-lg md:text-xl font-bold text-white mb-2">Offseason</h2>
+        <p className="text-sm md:text-base text-slate-300 mb-3 md:mb-4 px-2">
           Process player development, aging, and prepare for the next season.
         </p>
 
         {processOffseason.data ? (
-          <div className="mb-4 p-3 md:p-4 bg-white rounded-lg text-left">
-            <h3 className="font-bold mb-2 text-sm md:text-base">Offseason Summary</h3>
-            <ul className="text-xs md:text-sm text-slate-600 space-y-1">
+          <div className="mb-4 p-3 md:p-4 bg-slate-800/50 rounded-lg text-left">
+            <h3 className="font-bold mb-2 text-sm md:text-base text-white">Offseason Summary</h3>
+            <ul className="text-xs md:text-sm text-slate-300 space-y-1">
               <li>Players improved: {processOffseason.data.summary.improved}</li>
               <li>Players declined: {processOffseason.data.summary.declined}</li>
               <li>Retirements: {processOffseason.data.summary.retirements}</li>

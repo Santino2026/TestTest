@@ -16,7 +16,7 @@ Table.displayName = 'Table';
 
 const TableHeader = forwardRef<HTMLTableSectionElement, HTMLAttributes<HTMLTableSectionElement>>(
   ({ className, ...props }, ref) => (
-    <thead ref={ref} className={cn('bg-slate-50', className)} {...props} />
+    <thead ref={ref} className={cn('bg-slate-800/50', className)} {...props} />
   )
 );
 TableHeader.displayName = 'TableHeader';
@@ -33,7 +33,7 @@ const TableRow = forwardRef<HTMLTableRowElement, HTMLAttributes<HTMLTableRowElem
     <tr
       ref={ref}
       className={cn(
-        'border-b border-slate-100 hover:bg-slate-50 transition-colors',
+        'border-b border-white/5 hover:bg-white/5 transition-colors',
         className
       )}
       {...props}
@@ -47,7 +47,7 @@ const TableHead = forwardRef<HTMLTableCellElement, ThHTMLAttributes<HTMLTableCel
     <th
       ref={ref}
       className={cn(
-        'px-2 md:px-4 py-2 md:py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider',
+        'px-2 md:px-4 py-2 md:py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider',
         className
       )}
       {...props}
@@ -60,7 +60,7 @@ const TableCell = forwardRef<HTMLTableCellElement, TdHTMLAttributes<HTMLTableCel
   ({ className, ...props }, ref) => (
     <td
       ref={ref}
-      className={cn('px-2 md:px-4 py-2 md:py-3 text-sm text-slate-900', className)}
+      className={cn('px-2 md:px-4 py-2 md:py-3 text-sm text-slate-200', className)}
       {...props}
     />
   )

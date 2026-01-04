@@ -61,9 +61,9 @@ export default function DraftPage() {
       <PageTemplate title="Draft" subtitle="NBA Draft prospects and selections">
         <Card>
           <CardContent className="py-12 text-center">
-            <Trophy className="w-16 h-16 mx-auto text-slate-300 mb-4" />
-            <h2 className="text-xl font-semibold text-slate-900 mb-2">Draft Available in Offseason</h2>
-            <p className="text-slate-500">
+            <Trophy className="w-16 h-16 mx-auto text-slate-500 mb-4" />
+            <h2 className="text-xl font-semibold text-white mb-2">Draft Available in Offseason</h2>
+            <p className="text-slate-400">
               Complete the current season to access the draft.
             </p>
           </CardContent>
@@ -105,27 +105,27 @@ export default function DraftPage() {
           </CardHeader>
           <CardContent className="p-0 max-h-[500px] overflow-y-auto">
             {!draftOrder?.length ? (
-              <div className="p-6 text-center text-slate-500 text-sm">
+              <div className="p-6 text-center text-slate-400 text-sm">
                 Run the lottery to determine draft order
               </div>
             ) : (
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-white/5">
                 {draftOrder.map((pick) => (
                   <div
                     key={pick.pick_number}
                     className={cn(
                       'flex items-center gap-3 px-4 py-3',
-                      pick.team_id === franchise?.team_id && 'bg-blue-50',
+                      pick.team_id === franchise?.team_id && 'bg-blue-900/30',
                       currentPick?.pick_number === pick.pick_number && !pick.player_id && 'ring-2 ring-blue-500'
                     )}
                   >
-                    <span className="w-6 text-center font-bold text-slate-500">
+                    <span className="w-6 text-center font-bold text-slate-400">
                       {pick.pick_number}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{pick.team_name}</p>
+                      <p className="font-medium text-sm truncate text-white">{pick.team_name}</p>
                       {pick.player_name && (
-                        <p className="text-xs text-green-600">{pick.player_name}</p>
+                        <p className="text-xs text-green-400">{pick.player_name}</p>
                       )}
                     </div>
                     {currentPick?.pick_number === pick.pick_number && !pick.player_id && (
@@ -147,21 +147,21 @@ export default function DraftPage() {
           </CardHeader>
           <CardContent className="p-0">
             {prospectsLoading ? (
-              <div className="p-8 text-center text-slate-500">Loading prospects...</div>
+              <div className="p-8 text-center text-slate-400">Loading prospects...</div>
             ) : !prospects?.length ? (
-              <div className="p-8 text-center text-slate-500">
+              <div className="p-8 text-center text-slate-400">
                 Generate a draft class to see prospects
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-slate-50">
+                  <thead className="bg-slate-800/50">
                     <tr>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Proj</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Name</th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Pos</th>
-                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500">OVR</th>
-                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500">POT</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-400">Proj</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-400">Name</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-slate-400">Pos</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-400">OVR</th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-slate-400">POT</th>
                       {isUserPick && <th className="px-3 py-2"></th>}
                     </tr>
                   </thead>
@@ -170,15 +170,15 @@ export default function DraftPage() {
                       <tr
                         key={prospect.id}
                         className={cn(
-                          'border-t border-slate-100 hover:bg-slate-50 cursor-pointer',
-                          selectedProspect === prospect.id && 'bg-blue-50'
+                          'border-t border-white/5 hover:bg-white/5 cursor-pointer',
+                          selectedProspect === prospect.id && 'bg-blue-900/30'
                         )}
                         onClick={() => isUserPick && setSelectedProspect(prospect.id)}
                       >
-                        <td className="px-3 py-2 text-sm text-slate-500">#{prospect.projected_pick}</td>
+                        <td className="px-3 py-2 text-sm text-slate-400">#{prospect.projected_pick}</td>
                         <td className="px-3 py-2">
-                          <p className="font-medium text-sm">{prospect.first_name} {prospect.last_name}</p>
-                          <p className="text-xs text-slate-500">{prospect.archetype}</p>
+                          <p className="font-medium text-sm text-white">{prospect.first_name} {prospect.last_name}</p>
+                          <p className="text-xs text-slate-400">{prospect.archetype}</p>
                         </td>
                         <td className="px-3 py-2">
                           <Badge variant="secondary">{prospect.position}</Badge>
@@ -223,11 +223,11 @@ export default function DraftPage() {
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-slate-50">
+                <thead className="bg-slate-800/50">
                   <tr>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Team</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Record</th>
-                    <th className="px-3 py-2 text-right text-xs font-semibold text-slate-500">Odds</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-400">Team</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-400">Record</th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold text-slate-400">Odds</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -235,13 +235,13 @@ export default function DraftPage() {
                     <tr
                       key={team.team_id}
                       className={cn(
-                        'border-t border-slate-100',
-                        team.team_id === franchise?.team_id && 'bg-blue-50'
+                        'border-t border-white/5',
+                        team.team_id === franchise?.team_id && 'bg-blue-900/30'
                       )}
                     >
-                      <td className="px-3 py-2 font-medium text-sm">{team.team_name}</td>
-                      <td className="px-3 py-2 text-sm text-slate-500">{team.record}</td>
-                      <td className="px-3 py-2 text-sm text-right font-medium">{team.odds_pct}%</td>
+                      <td className="px-3 py-2 font-medium text-sm text-white">{team.team_name}</td>
+                      <td className="px-3 py-2 text-sm text-slate-400">{team.record}</td>
+                      <td className="px-3 py-2 text-sm text-right font-medium text-white">{team.odds_pct}%</td>
                     </tr>
                   ))}
                 </tbody>

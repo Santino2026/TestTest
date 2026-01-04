@@ -678,9 +678,10 @@ export const api = {
     fetchAPI<{ message: string; total_games: number }>('/schedule/generate', {
       method: 'POST',
     }),
-  getSchedule: (params?: { team_id?: string; date?: string; month?: string }) => {
+  getSchedule: (params?: { team_id?: string; season_id?: number; date?: string; month?: string }) => {
     const searchParams = new URLSearchParams();
     if (params?.team_id) searchParams.set('team_id', params.team_id);
+    if (params?.season_id) searchParams.set('season_id', params.season_id.toString());
     if (params?.date) searchParams.set('date', params.date);
     if (params?.month) searchParams.set('month', params.month);
     const query = searchParams.toString();

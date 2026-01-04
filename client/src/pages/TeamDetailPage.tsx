@@ -13,8 +13,8 @@ export default function TeamDetailPage() {
     return (
       <PageTemplate title="Loading..." subtitle="">
         <div className="animate-pulse space-y-4">
-          <div className="h-32 bg-slate-200 rounded-xl" />
-          <div className="h-64 bg-slate-200 rounded-xl" />
+          <div className="h-32 bg-slate-800/50 rounded-xl" />
+          <div className="h-64 bg-slate-800/50 rounded-xl" />
         </div>
       </PageTemplate>
     );
@@ -23,7 +23,7 @@ export default function TeamDetailPage() {
   if (!team) {
     return (
       <PageTemplate title="Team Not Found" subtitle="">
-        <p>The team you're looking for doesn't exist.</p>
+        <p className="text-slate-400">The team you're looking for doesn't exist.</p>
       </PageTemplate>
     );
   }
@@ -50,14 +50,14 @@ export default function TeamDetailPage() {
               size="lg"
             />
             <div className="flex-1 min-w-0">
-              <h2 className="text-lg md:text-xl lg:text-2xl font-bold text-slate-900 truncate">
+              <h2 className="text-lg md:text-xl lg:text-2xl font-bold text-white truncate">
                 {team.city} {team.name}
               </h2>
-              <p className="text-xs md:text-sm lg:text-base text-slate-500 truncate">{team.arena_name}</p>
+              <p className="text-xs md:text-sm lg:text-base text-slate-400 truncate">{team.arena_name}</p>
             </div>
             <div className="text-left sm:text-right flex-shrink-0">
-              <p className="text-2xl md:text-3xl lg:text-4xl font-bold text-slate-900">{team.championships}</p>
-              <p className="text-xs md:text-sm text-slate-500">Championships</p>
+              <p className="text-2xl md:text-3xl lg:text-4xl font-bold text-white">{team.championships}</p>
+              <p className="text-xs md:text-sm text-slate-400">Championships</p>
             </div>
           </div>
         </CardContent>
@@ -92,7 +92,7 @@ export default function TeamDetailPage() {
                     <TableCell>
                       <a
                         href={`/basketball/players/${player.id}`}
-                        className="font-medium text-slate-900 hover:text-blue-600 text-sm md:text-base"
+                        className="font-medium text-slate-200 hover:text-blue-400 text-sm md:text-base"
                       >
                         <span className="hidden sm:inline">{player.first_name} </span>
                         <span className="sm:hidden">{player.first_name.charAt(0)}. </span>
@@ -105,11 +105,11 @@ export default function TeamDetailPage() {
                     <TableCell>
                       <Badge variant="position" className="text-xs">{player.position}</Badge>
                     </TableCell>
-                    <TableCell className="text-slate-600 text-sm hidden md:table-cell">
+                    <TableCell className="text-slate-400 text-sm hidden md:table-cell">
                       {formatArchetype(player.archetype)}
                     </TableCell>
-                    <TableCell className="text-sm hidden sm:table-cell">{player.age}</TableCell>
-                    <TableCell className="text-sm hidden lg:table-cell">{formatHeight(player.height_inches)}</TableCell>
+                    <TableCell className="text-sm text-slate-300 hidden sm:table-cell">{player.age}</TableCell>
+                    <TableCell className="text-sm text-slate-300 hidden lg:table-cell">{formatHeight(player.height_inches)}</TableCell>
                     <TableCell className="text-right">
                       <span className={cn('font-bold text-sm md:text-base', getStatColor(player.overall))}>
                         {player.overall}

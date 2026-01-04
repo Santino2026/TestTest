@@ -105,13 +105,13 @@ export default function PlayoffsPage() {
                             key={team.team_id}
                             className={cn(
                               'flex items-center justify-between p-2 rounded gap-2',
-                              isPlayoffTeam && 'bg-green-50',
-                              isPlayIn && 'bg-amber-50',
+                              isPlayoffTeam && 'bg-green-900/30',
+                              isPlayIn && 'bg-amber-900/30',
                               team.team_id === franchise?.team_id && 'ring-2 ring-blue-500'
                             )}
                           >
                             <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
-                              <span className="w-5 md:w-6 text-xs md:text-sm font-medium text-slate-500 flex-shrink-0">
+                              <span className="w-5 md:w-6 text-xs md:text-sm font-medium text-slate-400 flex-shrink-0">
                                 {idx + 1}
                               </span>
                               <TeamLogo
@@ -119,18 +119,18 @@ export default function PlayoffsPage() {
                                 primaryColor={teamInfo?.primary_color || '#666'}
                                 size="sm"
                               />
-                              <span className="font-medium text-sm md:text-base truncate">{team.name}</span>
+                              <span className="font-medium text-sm md:text-base truncate text-white">{team.name}</span>
                             </div>
-                            <span className="text-xs md:text-sm text-slate-600 flex-shrink-0">
+                            <span className="text-xs md:text-sm text-slate-300 flex-shrink-0">
                               {team.wins}-{team.losses}
                             </span>
                           </div>
                         );
                       })}
                     </div>
-                    <div className="mt-4 text-xs text-slate-500">
-                      <span className="inline-block w-3 h-3 bg-green-50 rounded mr-1" /> Playoff Berth
-                      <span className="inline-block w-3 h-3 bg-amber-50 rounded ml-3 mr-1" /> Play-In
+                    <div className="mt-4 text-xs text-slate-400">
+                      <span className="inline-block w-3 h-3 bg-green-900/30 rounded mr-1" /> Playoff Berth
+                      <span className="inline-block w-3 h-3 bg-amber-900/30 rounded ml-3 mr-1" /> Play-In
                     </div>
                   </CardContent>
                 </Card>
@@ -144,8 +144,8 @@ export default function PlayoffsPage() {
           <Card>
             <CardContent className="py-8 text-center">
               <Trophy className="w-16 h-16 mx-auto text-amber-500 mb-4" />
-              <h2 className="text-2xl font-bold mb-2">Start Playoffs</h2>
-              <p className="text-slate-500 mb-6">
+              <h2 className="text-2xl font-bold mb-2 text-white">Start Playoffs</h2>
+              <p className="text-slate-400 mb-6">
                 Begin the playoff tournament with the Play-In games
               </p>
               <Button
@@ -162,7 +162,7 @@ export default function PlayoffsPage() {
 
         {(franchise?.phase === 'preseason' || franchise?.phase === 'regular_season') && (
           <Card>
-            <CardContent className="py-8 text-center text-slate-500">
+            <CardContent className="py-8 text-center text-slate-400">
               Complete the regular season to access playoffs
             </CardContent>
           </Card>
@@ -190,13 +190,13 @@ export default function PlayoffsPage() {
     >
       {/* Champion Banner */}
       {playoffs?.isComplete && (
-        <Card className="mb-4 md:mb-6 bg-gradient-to-r from-amber-50 to-yellow-50 border-amber-200">
+        <Card className="mb-4 md:mb-6 bg-gradient-to-r from-amber-900/30 to-yellow-900/30 border-amber-500/30">
           <CardContent className="py-6 md:py-8 text-center">
             <Trophy className="w-14 h-14 md:w-20 md:h-20 mx-auto text-amber-500 mb-3 md:mb-4" />
-            <h2 className="text-2xl md:text-3xl font-bold text-amber-800 mb-2 truncate px-2">
+            <h2 className="text-2xl md:text-3xl font-bold text-amber-400 mb-2 truncate px-2">
               {playoffs.series.find(s => s.round === 4)?.winner_name}
             </h2>
-            <p className="text-amber-600 mb-4 md:mb-6">Champions!</p>
+            <p className="text-amber-300 mb-4 md:mb-6">Champions!</p>
             <Button
               onClick={() => finalizePlayoffs.mutate()}
               disabled={finalizePlayoffs.isPending}
@@ -229,7 +229,7 @@ export default function PlayoffsPage() {
                   {/* Eastern Conference */}
                   {parseInt(round) < 4 && (
                     <div>
-                      <h4 className="text-sm font-medium text-slate-500 mb-3">
+                      <h4 className="text-sm font-medium text-slate-400 mb-3">
                         Eastern Conference
                       </h4>
                       <div className="space-y-3">
@@ -252,7 +252,7 @@ export default function PlayoffsPage() {
                   {/* Western Conference */}
                   {parseInt(round) < 4 && (
                     <div>
-                      <h4 className="text-sm font-medium text-slate-500 mb-3">
+                      <h4 className="text-sm font-medium text-slate-400 mb-3">
                         Western Conference
                       </h4>
                       <div className="space-y-3">
@@ -275,7 +275,7 @@ export default function PlayoffsPage() {
                   {/* Finals */}
                   {parseInt(round) === 4 && (
                     <div className="md:col-span-2">
-                      <h4 className="text-sm font-medium text-slate-500 mb-3 text-center">
+                      <h4 className="text-sm font-medium text-slate-400 mb-3 text-center">
                         NBA Finals
                       </h4>
                       <div className="max-w-md mx-auto">
@@ -319,8 +319,8 @@ function SeriesCard({ series, teams, franchise, onSimulate, isSimulating }: Seri
   return (
     <div
       className={cn(
-        'p-2.5 md:p-3 rounded-lg border',
-        series.status === 'completed' && 'bg-slate-50',
+        'p-2.5 md:p-3 rounded-lg border border-white/10',
+        series.status === 'completed' && 'bg-slate-800/50',
         isUserSeries && 'ring-2 ring-blue-500'
       )}
     >
@@ -335,12 +335,12 @@ function SeriesCard({ series, teams, franchise, onSimulate, isSimulating }: Seri
             primaryColor={higherTeam?.primary_color || '#666'}
             size="sm"
           />
-          <span className="truncate text-sm md:text-base">{series.higher_seed_name}</span>
+          <span className="truncate text-sm md:text-base text-white">{series.higher_seed_name}</span>
         </div>
         <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0 ml-2">
-          <span className="text-base md:text-lg font-bold">{series.higher_seed_wins}</span>
+          <span className="text-base md:text-lg font-bold text-white">{series.higher_seed_wins}</span>
           {series.winner_id === series.higher_seed_id && (
-            <ChevronRight className="w-4 h-4 text-green-500" />
+            <ChevronRight className="w-4 h-4 text-green-400" />
           )}
         </div>
       </div>
@@ -356,12 +356,12 @@ function SeriesCard({ series, teams, franchise, onSimulate, isSimulating }: Seri
             primaryColor={lowerTeam?.primary_color || '#666'}
             size="sm"
           />
-          <span className="truncate text-sm md:text-base">{series.lower_seed_name}</span>
+          <span className="truncate text-sm md:text-base text-white">{series.lower_seed_name}</span>
         </div>
         <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0 ml-2">
-          <span className="text-base md:text-lg font-bold">{series.lower_seed_wins}</span>
+          <span className="text-base md:text-lg font-bold text-white">{series.lower_seed_wins}</span>
           {series.winner_id === series.lower_seed_id && (
-            <ChevronRight className="w-4 h-4 text-green-500" />
+            <ChevronRight className="w-4 h-4 text-green-400" />
           )}
         </div>
       </div>

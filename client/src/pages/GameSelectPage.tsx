@@ -26,7 +26,7 @@ export default function GameSelectPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800">
       {/* Header */}
-      <header className="border-b border-slate-700">
+      <header className="border-b border-white/10">
         <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <div className="w-10 h-10 bg-orange-500 rounded-lg flex items-center justify-center">
