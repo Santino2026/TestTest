@@ -104,7 +104,7 @@ export async function getAllStarCandidates(
   const confKey = conference === 'Eastern' ? 'east' : 'west';
 
   return result.rows
-    .filter((p: any) => p.games_played >= 10) // Minimum games requirement
+    .filter((p: any) => p.games_played >= 5 || p.overall >= 85) // Lower threshold + allow stars
     .map((p: any) => ({
       player_id: p.player_id,
       first_name: p.first_name,
@@ -142,6 +142,11 @@ export async function selectAllStars(
   const candidates = await getAllStarCandidates(seasonId, conference);
   const confKey = conference === 'Eastern' ? 'east' : 'west';
 
+  // Validate we have enough candidates
+  if (candidates.length < 15) {
+    throw new Error(`Insufficient All-Star candidates for ${conference} conference (found ${candidates.length}, need 15)`);
+  }
+
   // Select top 15 players
   // Ensure positional balance: at least 2 guards, 2 forwards, 1 center as starters
   const selected: AllStarCandidate[] = [];
@@ -151,6 +156,11 @@ export async function selectAllStars(
   const guards = candidates.filter(c => c.position === 'PG' || c.position === 'SG');
   const forwards = candidates.filter(c => c.position === 'SF' || c.position === 'PF');
   const centers = candidates.filter(c => c.position === 'C');
+
+  // Validate positional distribution
+  if (guards.length < 2 || forwards.length < 2 || centers.length < 1) {
+    throw new Error(`Insufficient positional distribution for ${conference} All-Star selection (G:${guards.length}, F:${forwards.length}, C:${centers.length})`)
+  }
 
   // Select starters (5): 2 guards, 2 forwards, 1 center
   // Enforce one-per-team rule for starters to ensure variety
