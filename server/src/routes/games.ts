@@ -105,22 +105,56 @@ router.post('/simulate', async (req, res) => {
         }
       }
 
-      // Update standings
+      // Update standings with wins/losses, points, and division/conference records
       if (seasonId) {
-        // Update winner
-        await pool.query(
-          `UPDATE standings SET wins = wins + 1
-           WHERE season_id = $1 AND team_id = $2`,
-          [seasonId, result.winner_id]
+        const homeWon = result.winner_id === result.home_team_id;
+
+        // Get conference/division info for both teams
+        const teamsInfoResult = await pool.query(
+          `SELECT id, conference, division FROM teams WHERE id IN ($1, $2)`,
+          [result.home_team_id, result.away_team_id]
         );
-        // Update loser
-        const loserId = result.winner_id === result.home_team_id
-          ? result.away_team_id
-          : result.home_team_id;
+        const teamsInfo = teamsInfoResult.rows.reduce((acc: any, t: any) => {
+          acc[t.id] = t;
+          return acc;
+        }, {});
+        const homeInfo = teamsInfo[result.home_team_id];
+        const awayInfo = teamsInfo[result.away_team_id];
+        const sameConference = homeInfo?.conference === awayInfo?.conference;
+        const sameDivision = homeInfo?.division === awayInfo?.division;
+
+        // Update home team
         await pool.query(
-          `UPDATE standings SET losses = losses + 1
+          `UPDATE standings SET
+             wins = wins + $3,
+             losses = losses + $4,
+             points_for = COALESCE(points_for, 0) + $5,
+             points_against = COALESCE(points_against, 0) + $6,
+             conference_wins = conference_wins + $7,
+             conference_losses = conference_losses + $8,
+             division_wins = division_wins + $9,
+             division_losses = division_losses + $10
            WHERE season_id = $1 AND team_id = $2`,
-          [seasonId, loserId]
+          [seasonId, result.home_team_id, homeWon ? 1 : 0, homeWon ? 0 : 1, result.home_score, result.away_score,
+           sameConference && homeWon ? 1 : 0, sameConference && !homeWon ? 1 : 0,
+           sameDivision && homeWon ? 1 : 0, sameDivision && !homeWon ? 1 : 0]
+        );
+
+        // Update away team
+        await pool.query(
+          `UPDATE standings SET
+             wins = wins + $3,
+             losses = losses + $4,
+             points_for = COALESCE(points_for, 0) + $5,
+             points_against = COALESCE(points_against, 0) + $6,
+             conference_wins = conference_wins + $7,
+             conference_losses = conference_losses + $8,
+             division_wins = division_wins + $9,
+             division_losses = division_losses + $10
+           WHERE season_id = $1 AND team_id = $2`,
+          [seasonId, result.away_team_id, homeWon ? 0 : 1, homeWon ? 1 : 0, result.away_score, result.home_score,
+           sameConference && !homeWon ? 1 : 0, sameConference && homeWon ? 1 : 0,
+           sameDivision && !homeWon ? 1 : 0, sameDivision && homeWon ? 1 : 0]
         );
       }
     }

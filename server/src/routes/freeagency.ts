@@ -95,8 +95,9 @@ router.get('/team/:teamId/salary', async (req, res) => {
 
     // Calculate payroll
     const payroll = contractsResult.rows.reduce((sum, c) => {
-      // Use current year salary
-      const yearSalary = c[`year_${6 - c.years_remaining}_salary`] || c.base_salary;
+      // Use current year salary: current_year = total_years - years_remaining + 1
+      const currentYear = c.total_years - c.years_remaining + 1;
+      const yearSalary = c[`year_${currentYear}_salary`] || c.base_salary;
       return sum + parseInt(yearSalary);
     }, 0);
 
@@ -523,8 +524,8 @@ router.post('/simulate', async (req, res) => {
 
         // Update free agent status
         await pool.query(
-          `UPDATE free_agents SET status = 'signed', signed_at = NOW() WHERE player_id = $1`,
-          [playerId]
+          `UPDATE free_agents SET status = 'signed', signed_at = NOW() WHERE player_id = $1 AND season_id = $2`,
+          [playerId, seasonId]
         );
 
         // Update all offers for this player

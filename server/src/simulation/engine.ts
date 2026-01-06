@@ -17,6 +17,7 @@ import {
   SHOT_CLOCK
 } from './types';
 import { simulatePossession } from './possession';
+import { initializeHotColdState } from './hotcold';
 
 // Initialize empty player game stats
 function initPlayerStats(): PlayerGameStats {
@@ -362,14 +363,30 @@ function simulateQuarter(
       plays.push(play);
     }
 
-    // Update scores
+    // Update scores and plus/minus
     if (result.points_scored > 0) {
       if (isHome) {
         currentHomeScore += result.points_scored;
         quarterHomePoints += result.points_scored;
+        // Home team on court gets positive plus/minus
+        for (const player of homeTeam.on_court) {
+          player.stats.plus_minus += result.points_scored;
+        }
+        // Away team on court gets negative plus/minus
+        for (const player of awayTeam.on_court) {
+          player.stats.plus_minus -= result.points_scored;
+        }
       } else {
         currentAwayScore += result.points_scored;
         quarterAwayPoints += result.points_scored;
+        // Away team on court gets positive plus/minus
+        for (const player of awayTeam.on_court) {
+          player.stats.plus_minus += result.points_scored;
+        }
+        // Home team on court gets negative plus/minus
+        for (const player of homeTeam.on_court) {
+          player.stats.plus_minus -= result.points_scored;
+        }
       }
     }
 
@@ -449,6 +466,7 @@ export function simulateGame(homeTeam: SimTeam, awayTeam: SimTeam): GameResult {
     player.minutes_played = 0;
     player.fouls = 0;
     player.is_on_court = false;
+    player.hot_cold_state = initializeHotColdState();
   }
 
   // Set starters on court
@@ -508,10 +526,6 @@ export function simulateGame(homeTeam: SimTeam, awayTeam: SimTeam): GameResult {
     // Safety limit
     if (overtimePeriods > 5) break;
   }
-
-  // Calculate plus/minus for each player
-  const homePointsWhileOn: Map<string, number> = new Map();
-  const awayPointsWhileOn: Map<string, number> = new Map();
 
   // Calculate team stats
   const homeStats = calculateTeamStats(homeTeam.roster);

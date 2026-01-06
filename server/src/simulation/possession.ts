@@ -23,6 +23,48 @@ import {
 } from './shots';
 import { updateHotColdState } from './hotcold';
 
+// Simulate free throw attempts
+function simulateFreeThrows(
+  shooter: SimPlayer,
+  numAttempts: number,
+  context: PossessionContext
+): { plays: Play[]; points: number } {
+  const plays: Play[] = [];
+  let points = 0;
+
+  // Base free throw percentage from player attribute (0-99 -> 0-1 scale)
+  const baseFTPct = shooter.attributes.free_throw / 100;
+
+  // Apply fatigue modifier (slight reduction when tired)
+  const fatigueModifier = shooter.fatigue > 70 ? 0.95 : (shooter.fatigue > 50 ? 0.98 : 1.0);
+
+  for (let i = 0; i < numAttempts; i++) {
+    const ftChance = baseFTPct * fatigueModifier;
+    const made = Math.random() < ftChance;
+
+    const ftPlay: Play = {
+      id: uuidv4(),
+      type: made ? 'free_throw_made' : 'free_throw_missed',
+      quarter: context.quarter,
+      game_clock: context.game_clock - 2 - i, // Each FT takes ~1 second
+      shot_clock: 0, // No shot clock on free throws
+      primary_player_id: shooter.id,
+      team_id: context.team.id,
+      points: made ? 1 : 0,
+      home_score: 0, // Updated by engine
+      away_score: 0, // Updated by engine
+      description: made
+        ? `${shooter.first_name} ${shooter.last_name} makes free throw ${i + 1} of ${numAttempts}`
+        : `${shooter.first_name} ${shooter.last_name} misses free throw ${i + 1} of ${numAttempts}`
+    };
+
+    plays.push(ftPlay);
+    if (made) points += 1;
+  }
+
+  return { plays, points };
+}
+
 // Select primary ball handler based on position and skills
 function selectBallHandler(players: SimPlayer[]): SimPlayer {
   // Guard against empty array
@@ -531,8 +573,9 @@ export function simulatePossession(context: PossessionContext): PossessionResult
         // Drive to basket - leads to layup/dunk or foul
         const defender = getMatchupDefender(ballHandler, context.defenders);
 
-        // Chance to draw foul
-        if (Math.random() < 0.12) {
+        // Chance to draw foul (use draw_foul attribute if available)
+        const drawFoulChance = (ballHandler.attributes.draw_foul || 50) / 99 * 0.15;
+        if (Math.random() < drawFoulChance) {
           const foulPlay: Play = {
             id: uuidv4(),
             type: 'foul',
@@ -549,10 +592,14 @@ export function simulatePossession(context: PossessionContext): PossessionResult
           };
           plays.push(foulPlay);
 
+          // Simulate 2 free throws for driving foul
+          const ftResult = simulateFreeThrows(ballHandler, 2, context);
+          plays.push(...ftResult.plays);
+
           return {
             plays,
-            points_scored: 0,
-            time_elapsed: SHOT_CLOCK - shotClock + 2,
+            points_scored: ftResult.points,
+            time_elapsed: SHOT_CLOCK - shotClock + 4, // Extra time for free throws
             possession_ended: true,
             ending: 'foul'
           };

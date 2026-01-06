@@ -85,17 +85,21 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
           }
           return retryResponse.json();
         } else {
+          // Token refresh failed - clear auth and don't throw (will redirect to login)
           clearTokens();
           onAuthError?.();
+          throw new Error('Session expired. Please log in again.');
         }
-      } catch {
+      } catch (refreshError) {
         clearTokens();
         onAuthError?.();
+        throw new Error('Session expired. Please log in again.');
       }
     } else {
       // No refresh token - clear and redirect
       clearTokens();
       onAuthError?.();
+      throw new Error('Please log in to continue.');
     }
   }
 
