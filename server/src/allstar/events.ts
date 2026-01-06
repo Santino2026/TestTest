@@ -35,9 +35,14 @@ export async function simulateRisingStars(seasonId: number): Promise<EventResult
   const rookies = result.rows.filter((r: any) => r.years_pro === 0).slice(0, 10);
   const sophomores = result.rows.filter((r: any) => r.years_pro === 1).slice(0, 10);
 
+  // Verify we have enough players
+  if (rookies.length === 0 || sophomores.length === 0) {
+    throw new Error('Not enough rookies or sophomores for Rising Stars Challenge');
+  }
+
   // Calculate team strength
   const rookieStrength = rookies.reduce((sum: number, p: any) => sum + p.overall, 0) / rookies.length;
-  const sophStrength = sophomores.reduce((sum: number, p: any) => sum + p.overall, 0) / (sophomores.length || 1);
+  const sophStrength = sophomores.reduce((sum: number, p: any) => sum + p.overall, 0) / sophomores.length;
 
   // Simulate game (simplified)
   const baseScore = 150;
@@ -219,9 +224,12 @@ export async function simulateThreePointContest(seasonId: number): Promise<Event
      JOIN player_attributes pa ON p.id = pa.player_id
      WHERE p.team_id IS NOT NULL
      ORDER BY pa.three_point DESC
-     LIMIT 8`,
-    []
+     LIMIT 8`
   );
+
+  if (result.rows.length < 3) {
+    throw new Error('Not enough shooters available for Three-Point Contest (need at least 3)');
+  }
 
   const participants = result.rows.map((p: any) => ({
     ...p,
@@ -312,9 +320,12 @@ export async function simulateDunkContest(seasonId: number): Promise<EventResult
      JOIN player_attributes pa ON p.id = pa.player_id
      WHERE p.team_id IS NOT NULL
      ORDER BY (pa.driving_dunk + pa.standing_dunk + pa.vertical) DESC
-     LIMIT 4`,
-    []
+     LIMIT 4`
   );
+
+  if (result.rows.length < 2) {
+    throw new Error('Not enough dunkers available for Dunk Contest (need at least 2)');
+  }
 
   const participants = result.rows.map((p: any) => ({
     ...p,

@@ -104,6 +104,11 @@ function getMatchupDefender(
   offensive_player: SimPlayer,
   defenders: SimPlayer[]
 ): SimPlayer {
+  // Guard against empty defenders array
+  if (!defenders || defenders.length === 0) {
+    throw new Error('getMatchupDefender called with no defenders');
+  }
+
   // Try to find positional matchup first
   const positionalMatch = defenders.find(d => d.position === offensive_player.position);
   if (positionalMatch) return positionalMatch;
