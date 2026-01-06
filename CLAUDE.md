@@ -14,6 +14,15 @@ Premium single-player basketball franchise simulation. $10 one-time purchase via
 
 ---
 
+## Quick Commands
+
+When user says **"commit to github and deploy to prod"** (or similar), automatically:
+```bash
+git add -A && git commit -m "<descriptive message>" && git push origin main && ./deploy.sh
+```
+
+---
+
 ## Tech Stack
 
 | Layer | Tech |
