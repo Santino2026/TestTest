@@ -235,7 +235,7 @@ router.post('/lottery/run', async (req, res) => {
     const firstRoundOrder: string[] = [];
 
     // Add lottery picks in their post-lottery order
-    const sortedLottery = results.sort((a, b) => a.post_lottery_position - b.post_lottery_position);
+    const sortedLottery = results.sort((a, b) => (a.post_lottery_position || 0) - (b.post_lottery_position || 0));
     for (const r of sortedLottery) {
       firstRoundOrder.push(r.team_id);
     }
