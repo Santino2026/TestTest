@@ -93,20 +93,70 @@ export function FranchiseProvider({ children }: { children: ReactNode }) {
 
     // Only reload if this is the first load OR auth state changed
     if (!hasLoadedRef.current || authStateChanged) {
+      // Track if component is still mounted to prevent setState after unmount
+      let isMounted = true;
+
       const loadAll = async () => {
+        if (!isMounted) return;
         setIsLoading(true);
-        const [didCheck] = await Promise.all([refreshFranchise(), refreshFranchises()]);
-        setIsLoading(false);
-        // Only mark as checked if we actually made an API call (auth was ready)
-        // This prevents redirect to select-team before auth finishes loading
-        if (didCheck) {
-          setHasCheckedOnce(true);
+
+        try {
+          // Inline the fetch logic to avoid circular dependency with useCallback
+          let didCheck = false;
+
+          if (isAuthenticated && hasPurchased) {
+            const [franchiseData, franchisesData] = await Promise.all([
+              api.getFranchise().catch((error) => {
+                console.error('Failed to fetch franchise:', error);
+                if ((error as Error).message?.includes('401') || (error as Error).message?.includes('403')) {
+                  return null;
+                }
+                return undefined; // Keep existing state on network errors
+              }),
+              api.getFranchises().catch((error) => {
+                console.error('Failed to fetch franchises:', error);
+                return [];
+              }),
+            ]);
+
+            if (!isMounted) return;
+
+            if (franchiseData !== undefined) {
+              setFranchise(franchiseData);
+            }
+            setFranchises(franchisesData);
+            didCheck = true;
+          } else {
+            if (!isMounted) return;
+            setFranchise(null);
+            setFranchises([]);
+          }
+
+          if (!isMounted) return;
+          setIsLoading(false);
+
+          // Only mark as checked if we actually made an API call (auth was ready)
+          if (didCheck) {
+            setHasCheckedOnce(true);
+          }
+        } catch (error) {
+          console.error('Failed to load franchise data:', error);
+          if (isMounted) {
+            setIsLoading(false);
+          }
         }
+
         hasLoadedRef.current = true;
       };
+
       loadAll();
+
+      // Cleanup function to prevent setState on unmounted component
+      return () => {
+        isMounted = false;
+      };
     }
-  }, [refreshFranchise, refreshFranchises, isAuthenticated, hasPurchased]);
+  }, [isAuthenticated, hasPurchased]); // Only depend on auth state, not callbacks
 
   const selectTeam = async (teamId: string) => {
     if (!isAuthenticated || !hasPurchased) {

@@ -132,8 +132,12 @@ export async function simulateSkillsChallenge(seasonId: number): Promise<EventRe
      WHERE p.position IN ('PG', 'SG') AND p.team_id IS NOT NULL
      ORDER BY (pa.ball_handling + pa.passing_accuracy + pa.speed) DESC
      LIMIT 8`,
-    [seasonId]
+    []
   );
+
+  if (result.rows.length < 2) {
+    throw new Error('Not enough guards available for Skills Challenge (need at least 2)');
+  }
 
   const participants = result.rows.map((p: any) => ({
     ...p,
@@ -429,8 +433,13 @@ export async function simulateAllStarGame(seasonId: number): Promise<EventResult
     [seasonId]
   );
 
-  const eastTeam = result.rows.filter((r: any) => r.conference === 'east');
-  const westTeam = result.rows.filter((r: any) => r.conference === 'west');
+  const eastTeam = result.rows.filter((r: any) => r.conference === 'east' || r.conference === 'Eastern');
+  const westTeam = result.rows.filter((r: any) => r.conference === 'west' || r.conference === 'Western');
+
+  // Verify we have All-Stars selected
+  if (eastTeam.length === 0 || westTeam.length === 0) {
+    throw new Error('All-Star selections must be made before simulating the game');
+  }
 
   // Calculate team strengths
   const eastStrength = eastTeam.reduce((sum: number, p: any) => sum + p.overall, 0) / eastTeam.length;

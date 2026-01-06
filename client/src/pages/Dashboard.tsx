@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Users, Trophy, Calendar, TrendingUp, Play, ChevronRight, FastForward, SkipForward, Loader2, Star, Award } from 'lucide-react';
+import { Users, Trophy, Calendar, TrendingUp, Play, ChevronRight, FastForward, SkipForward, Loader2, Star, Award, AlertTriangle, Clock } from 'lucide-react';
 import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import { TeamLogo } from '@/components/team/TeamLogo';
-import { useTeams, useStandings, useSeason, usePlayers, useAdvancePreseasonDay, useAdvancePreseasonAll, useAdvanceDay, useSimulatePlayoffRound, useSimulatePlayoffAll, useAdvanceOffseasonPhase, useStartNewSeason, useStartPlayoffsFromAwards } from '@/api/hooks';
+import { useTeams, useStandings, useSeason, usePlayers, useAdvancePreseasonDay, useAdvancePreseasonAll, useAdvanceDay, useSimulatePlayoffRound, useSimulatePlayoffAll, useAdvanceOffseasonPhase, useStartNewSeason, useStartPlayoffsFromAwards, useTradeDeadlineStatus } from '@/api/hooks';
 import { useFranchise } from '@/context/FranchiseContext';
 import { cn, getStatColor } from '@/lib/utils';
 
@@ -16,6 +16,7 @@ export default function Dashboard() {
   );
   const { data: season } = useSeason();
   const { data: playersData } = usePlayers({ limit: 5 });
+  const { data: tradeDeadline } = useTradeDeadlineStatus();
 
   // Season advancement hooks
   const advancePreseasonDay = useAdvancePreseasonDay();
@@ -168,6 +169,44 @@ export default function Dashboard() {
       title={`${franchise?.city} ${franchise?.team_name}`}
       subtitle={`Season ${season?.season_number || 1} - ${getCurrentPhaseLabel()}`}
     >
+      {/* Trade Deadline Notification Banner */}
+      {franchise?.phase === 'regular_season' && tradeDeadline && (
+        <>
+          {/* Deadline approaching (within 5 days) */}
+          {tradeDeadline.trades_allowed && typeof tradeDeadline.days_until_deadline === 'number' && tradeDeadline.days_until_deadline <= 5 && tradeDeadline.days_until_deadline > 0 && (
+            <div className="mb-4 p-3 bg-amber-500/20 border border-amber-500/30 rounded-lg flex items-center gap-3">
+              <Clock className="w-5 h-5 text-amber-400 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-amber-200">Trade Deadline Approaching</p>
+                <p className="text-xs text-amber-300/80">
+                  {tradeDeadline.days_until_deadline === 1
+                    ? 'Last day to make trades!'
+                    : `${tradeDeadline.days_until_deadline} days until the trade deadline (Day ${tradeDeadline.deadline_day})`}
+                </p>
+              </div>
+              <Link
+                to="/basketball/trades"
+                className="text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-md font-medium transition-colors"
+              >
+                Make Trades
+              </Link>
+            </div>
+          )}
+          {/* Deadline passed */}
+          {!tradeDeadline.trades_allowed && (
+            <div className="mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-lg flex items-center gap-3">
+              <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-red-200">Trade Deadline Passed</p>
+                <p className="text-xs text-red-300/80">
+                  No more trades until the offseason. Deadline was Day {tradeDeadline.deadline_day}.
+                </p>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
       {/* Franchise Header Card */}
       <Card className="mb-4 md:mb-6">
         <CardContent>
@@ -506,7 +545,11 @@ export default function Dashboard() {
                   : `Day ${franchise?.current_day || 0}`}
               </p>
               <p className="text-xs md:text-sm text-slate-400">
-                {franchise?.phase === 'preseason' ? 'Preseason' : 'Current'}
+                {franchise?.phase === 'preseason' ? 'Preseason' : (
+                  franchise?.phase === 'regular_season' && tradeDeadline?.deadline_day
+                    ? `Trade deadline: Day ${tradeDeadline.deadline_day}`
+                    : 'Current'
+                )}
               </p>
             </div>
           </CardContent>

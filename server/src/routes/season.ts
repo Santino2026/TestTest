@@ -46,7 +46,9 @@ async function simulateDayGames(franchise: any) {
   const gamesResult = await pool.query(
     `SELECT s.*,
             ht.name as home_team_name, ht.abbreviation as home_abbrev,
-            at.name as away_team_name, at.abbreviation as away_abbrev
+            ht.conference as home_conference, ht.division as home_division,
+            at.name as away_team_name, at.abbreviation as away_abbrev,
+            at.conference as away_conference, at.division as away_division
      FROM schedule s
      JOIN teams ht ON s.home_team_id = ht.id
      JOIN teams at ON s.away_team_id = at.id
@@ -93,31 +95,61 @@ async function simulateDayGames(franchise: any) {
       );
     }
 
-    // Update standings with home/away breakdown
+    // Update standings with home/away breakdown, points, and division/conference records
     const homeWon = result.winner_id === result.home_team_id;
+    const sameConference = scheduledGame.home_conference === scheduledGame.away_conference;
+    const sameDivision = scheduledGame.home_division === scheduledGame.away_division;
 
-    // Update home team standings
+    // Update home team standings (home team's points_for = home_score, points_against = away_score)
     if (homeWon) {
       await pool.query(
-        `UPDATE standings SET wins = wins + 1, home_wins = COALESCE(home_wins, 0) + 1
+        `UPDATE standings SET
+           wins = wins + 1,
+           home_wins = COALESCE(home_wins, 0) + 1,
+           points_for = COALESCE(points_for, 0) + $3,
+           points_against = COALESCE(points_against, 0) + $4,
+           conference_wins = conference_wins + $5,
+           division_wins = division_wins + $6
          WHERE season_id = $1 AND team_id = $2`,
-        [seasonId, result.home_team_id]
+        [seasonId, result.home_team_id, result.home_score, result.away_score,
+         sameConference ? 1 : 0, sameDivision ? 1 : 0]
       );
       await pool.query(
-        `UPDATE standings SET losses = losses + 1, away_losses = COALESCE(away_losses, 0) + 1
+        `UPDATE standings SET
+           losses = losses + 1,
+           away_losses = COALESCE(away_losses, 0) + 1,
+           points_for = COALESCE(points_for, 0) + $3,
+           points_against = COALESCE(points_against, 0) + $4,
+           conference_losses = conference_losses + $5,
+           division_losses = division_losses + $6
          WHERE season_id = $1 AND team_id = $2`,
-        [seasonId, result.away_team_id]
+        [seasonId, result.away_team_id, result.away_score, result.home_score,
+         sameConference ? 1 : 0, sameDivision ? 1 : 0]
       );
     } else {
       await pool.query(
-        `UPDATE standings SET losses = losses + 1, home_losses = COALESCE(home_losses, 0) + 1
+        `UPDATE standings SET
+           losses = losses + 1,
+           home_losses = COALESCE(home_losses, 0) + 1,
+           points_for = COALESCE(points_for, 0) + $3,
+           points_against = COALESCE(points_against, 0) + $4,
+           conference_losses = conference_losses + $5,
+           division_losses = division_losses + $6
          WHERE season_id = $1 AND team_id = $2`,
-        [seasonId, result.home_team_id]
+        [seasonId, result.home_team_id, result.home_score, result.away_score,
+         sameConference ? 1 : 0, sameDivision ? 1 : 0]
       );
       await pool.query(
-        `UPDATE standings SET wins = wins + 1, away_wins = COALESCE(away_wins, 0) + 1
+        `UPDATE standings SET
+           wins = wins + 1,
+           away_wins = COALESCE(away_wins, 0) + 1,
+           points_for = COALESCE(points_for, 0) + $3,
+           points_against = COALESCE(points_against, 0) + $4,
+           conference_wins = conference_wins + $5,
+           division_wins = division_wins + $6
          WHERE season_id = $1 AND team_id = $2`,
-        [seasonId, result.away_team_id]
+        [seasonId, result.away_team_id, result.away_score, result.home_score,
+         sameConference ? 1 : 0, sameDivision ? 1 : 0]
       );
     }
 
