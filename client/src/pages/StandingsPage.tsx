@@ -2,11 +2,14 @@ import { Link } from 'react-router-dom';
 import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, CardHeader, CardTitle, Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui';
 import { TeamLogo } from '@/components/team/TeamLogo';
-import { useStandings } from '@/api/hooks';
+import { useStandings, useFranchise } from '@/api/hooks';
 import { calculateWinPct } from '@/lib/utils';
 
 export default function StandingsPage() {
-  const { data: standings, isLoading } = useStandings();
+  const { data: franchise } = useFranchise();
+  const { data: standings, isLoading } = useStandings(
+    franchise?.season_id ? { season_id: franchise.season_id } : undefined
+  );
 
   // Group by conference and division
   const grouped = standings?.reduce((acc, team) => {

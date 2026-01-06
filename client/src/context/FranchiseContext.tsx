@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { api, Franchise } from '@/api/client';
 import { useAuth } from './AuthContext';
 
@@ -9,6 +9,7 @@ interface FranchiseContextType {
   franchises: Franchise[];
   isLoading: boolean;
   hasFranchise: boolean;
+  hasCheckedOnce: boolean;
   // Actions
   selectTeam: (teamId: string) => Promise<void>;
   createFranchise: (teamId: string, name?: string) => Promise<void>;
@@ -26,7 +27,10 @@ export function FranchiseProvider({ children }: { children: ReactNode }) {
   const [franchise, setFranchise] = useState<Franchise | null>(null);
   const [franchises, setFranchises] = useState<Franchise[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasCheckedOnce, setHasCheckedOnce] = useState(false);
   const { isAuthenticated, hasPurchased } = useAuth();
+  const hasLoadedRef = useRef(false);
+  const lastAuthStateRef = useRef({ isAuthenticated, hasPurchased });
 
   const refreshFranchises = useCallback(async () => {
     if (!isAuthenticated || !hasPurchased) {
@@ -55,20 +59,37 @@ export function FranchiseProvider({ children }: { children: ReactNode }) {
       setFranchise(data);
     } catch (error) {
       console.error('Failed to fetch franchise:', error);
-      setFranchise(null);
+      // Only clear franchise on explicit API errors, not network issues
+      // This prevents navigation issues when the API temporarily fails
+      if ((error as Error).message?.includes('401') || (error as Error).message?.includes('403')) {
+        setFranchise(null);
+      }
+      // Otherwise keep existing franchise state to prevent redirect loops
     } finally {
       setIsLoading(false);
     }
   }, [isAuthenticated, hasPurchased]);
 
   useEffect(() => {
-    const loadAll = async () => {
-      setIsLoading(true);
-      await Promise.all([refreshFranchise(), refreshFranchises()]);
-      setIsLoading(false);
-    };
-    loadAll();
-  }, [refreshFranchise, refreshFranchises]);
+    // Check if auth state actually changed to avoid unnecessary re-fetches during navigation
+    const authStateChanged =
+      lastAuthStateRef.current.isAuthenticated !== isAuthenticated ||
+      lastAuthStateRef.current.hasPurchased !== hasPurchased;
+
+    lastAuthStateRef.current = { isAuthenticated, hasPurchased };
+
+    // Only reload if this is the first load OR auth state changed
+    if (!hasLoadedRef.current || authStateChanged) {
+      const loadAll = async () => {
+        setIsLoading(true);
+        await Promise.all([refreshFranchise(), refreshFranchises()]);
+        setIsLoading(false);
+        setHasCheckedOnce(true);
+        hasLoadedRef.current = true;
+      };
+      loadAll();
+    }
+  }, [refreshFranchise, refreshFranchises, isAuthenticated, hasPurchased]);
 
   const selectTeam = async (teamId: string) => {
     if (!isAuthenticated || !hasPurchased) {
@@ -127,6 +148,7 @@ export function FranchiseProvider({ children }: { children: ReactNode }) {
     franchises,
     isLoading,
     hasFranchise: !!franchise,
+    hasCheckedOnce,
     selectTeam,
     createFranchise,
     switchFranchise,

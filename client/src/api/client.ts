@@ -307,7 +307,9 @@ export interface Franchise {
   team_id: string;
   season_id: number;
   current_day: number;
-  phase: 'preseason' | 'regular_season' | 'playoffs' | 'offseason';
+  phase: 'preseason' | 'regular_season' | 'all_star' | 'playoffs' | 'offseason';
+  offseason_phase?: 'review' | 'lottery' | 'draft' | 'free_agency' | 'training_camp' | null;
+  all_star_complete?: boolean;
   seasons_played: number;
   championships: number;
   playoff_appearances: number;
@@ -583,6 +585,23 @@ export interface TradeEvaluation {
   reasoning: string;
 }
 
+export interface Award {
+  id: string;
+  season_id: number;
+  award_type: string;
+  player_id: string;
+  team_id: string;
+  votes: number;
+  stat_value: number;
+  first_name: string;
+  last_name: string;
+  position: string;
+  team_name: string;
+  team_abbrev: string;
+  primary_color: string;
+  label: string;
+}
+
 // Player Development Types
 export interface PlayerDevelopment {
   id: string;
@@ -623,15 +642,21 @@ export const api = {
   getTeamDevelopment: (teamId: string) => fetchAPI<PlayerDevelopment[]>(`/players/team/${teamId}/development`),
 
   // League
-  getStandings: () => fetchAPI<Standing[]>('/standings'),
+  getStandings: (params?: { season_id?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.season_id) searchParams.set('season_id', params.season_id.toString());
+    const query = searchParams.toString();
+    return fetchAPI<Standing[]>(`/standings${query ? `?${query}` : ''}`);
+  },
   getSeason: () => fetchAPI<Season>('/season'),
   getTraits: () => fetchAPI<Trait[]>('/traits'),
 
   // Games
-  getGames: (params?: { limit?: number; team_id?: string }) => {
+  getGames: (params?: { limit?: number; team_id?: string; season_id?: string }) => {
     const searchParams = new URLSearchParams();
     if (params?.limit) searchParams.set('limit', params.limit.toString());
     if (params?.team_id) searchParams.set('team_id', params.team_id);
+    if (params?.season_id) searchParams.set('season_id', params.season_id);
     const query = searchParams.toString();
     return fetchAPI<Game[]>(`/games${query ? `?${query}` : ''}`);
   },
@@ -728,6 +753,24 @@ export const api = {
   // Season Advancement
   startSeason: () =>
     fetchAPI<{ message: string; phase: string }>('/season/start', { method: 'POST' }),
+  advancePreseasonDay: () =>
+    fetchAPI<{
+      day: number;
+      date: string;
+      phase: string;
+      games_played: number;
+      results: any[];
+      preseason_complete: boolean;
+    }>('/season/advance/preseason', { method: 'POST' }),
+  advancePreseasonAll: () =>
+    fetchAPI<{
+      message: string;
+      days_simulated: number;
+      phase: string;
+      current_day: number;
+      games_played: number;
+      user_games: any[];
+    }>('/season/advance/preseason/all', { method: 'POST' }),
   finalizePlayoffs: () =>
     fetchAPI<{ message: string; champion_id: string; user_is_champion: boolean; phase: string }>(
       '/season/finalize-playoffs',
@@ -769,7 +812,37 @@ export const api = {
       retirements: any[];
     }>('/season/offseason', { method: 'POST' }),
   startNewSeason: () =>
-    fetchAPI<{ message: string; season_id: number; season_number: number }>('/season/new', { method: 'POST' }),
+    fetchAPI<{ message: string; season_id: number; season_number: number; phase: string; current_day: number }>(
+      '/season/new',
+      { method: 'POST' }
+    ),
+
+  // Offseason
+  getOffseasonState: () =>
+    fetchAPI<{
+      phase: string;
+      offseason_phase: string;
+      next_phase: string | null;
+      can_start_new_season: boolean;
+    }>('/season/offseason'),
+  advanceOffseasonPhase: () =>
+    fetchAPI<{
+      message: string;
+      previous_phase: string;
+      offseason_phase: string;
+      phase_label: string;
+      can_start_new_season: boolean;
+    }>('/season/offseason/advance', { method: 'POST' }),
+  skipToOffseasonPhase: (targetPhase: string) =>
+    fetchAPI<{
+      message: string;
+      offseason_phase: string;
+      phase_label: string;
+      can_start_new_season: boolean;
+    }>('/season/offseason/skip-to', {
+      method: 'POST',
+      body: JSON.stringify({ target_phase: targetPhase }),
+    }),
 
   // Playoffs
   getPlayoffs: () => fetchAPI<PlayoffState>('/playoffs'),
@@ -792,6 +865,51 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ series_id: seriesId }),
     }),
+  simulatePlayoffSeries: (seriesId: string) =>
+    fetchAPI<{
+      series_id: string;
+      winner_id: string;
+      winner_name: string;
+      final_score: string;
+      games_played: number;
+      games: Array<{
+        game_id: string;
+        home_team: string;
+        away_team: string;
+        home_score: number;
+        away_score: number;
+        winner: string;
+      }>;
+    }>('/playoffs/simulate/series', {
+      method: 'POST',
+      body: JSON.stringify({ series_id: seriesId }),
+    }),
+  simulatePlayoffRound: () =>
+    fetchAPI<{
+      round: number;
+      round_name: string;
+      series_completed: number;
+      results: Array<{
+        series_id: string;
+        winner_id: string;
+        winner_name: string;
+        final_score: string;
+      }>;
+      playoffs_complete: boolean;
+      next_round?: number;
+      next_round_name?: string;
+    }>('/playoffs/simulate/round', { method: 'POST' }),
+  simulatePlayoffAll: () =>
+    fetchAPI<{
+      champion_id: string;
+      champion_name: string;
+      rounds_simulated: number;
+      finals_result: {
+        winner_name: string;
+        loser_name: string;
+        final_score: string;
+      };
+    }>('/playoffs/simulate/all', { method: 'POST' }),
 
   // Auth
   signup: (email: string, password: string, name?: string) =>
@@ -864,6 +982,14 @@ export const api = {
   getFATransactions: () => fetchAPI<FATransaction[]>('/freeagency/transactions'),
 
   // Trades
+  getTradeDeadlineStatus: () =>
+    fetchAPI<{
+      trades_allowed: boolean;
+      message?: string;
+      deadline_day: number;
+      current_day: number;
+      days_until_deadline?: number;
+    }>('/trades/deadline'),
   getTradeProposals: (teamId: string) => fetchAPI<Trade[]>(`/trades/team/${teamId}`),
   proposeTrade: (offer: TradeOffer) =>
     fetchAPI<{ trade_id: string; message: string }>('/trades/propose', {
@@ -910,4 +1036,276 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ user_team_id: userTeamId }),
     }),
+
+  // Awards
+  getAwards: (params?: { season_id?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.season_id) searchParams.set('season_id', params.season_id.toString());
+    const query = searchParams.toString();
+    return fetchAPI<Record<string, Award[]>>(`/awards${query ? `?${query}` : ''}`);
+  },
+  calculateAwards: () =>
+    fetchAPI<{
+      message: string;
+      awards_count: number;
+      awards: Array<{ type: string; label: string }>;
+    }>('/awards/calculate', { method: 'POST' }),
+  setFinalsMvp: (playerId: string) =>
+    fetchAPI<{ message: string }>('/awards/fmvp', {
+      method: 'POST',
+      body: JSON.stringify({ player_id: playerId }),
+    }),
+
+  // Draft AI
+  getDraftState: () =>
+    fetchAPI<{
+      picks_made: number;
+      current_pick: number;
+      current_round: number;
+      pick_in_round: number;
+      is_draft_complete: boolean;
+      current_team: { team_id: string; team_name: string; abbreviation: string } | null;
+      is_user_pick: boolean;
+      user_team_id: string;
+    }>('/draft/state'),
+  getTeamNeeds: () =>
+    fetchAPI<{
+      needs: Array<{
+        position: string;
+        need_score: number;
+        starter_overall: number;
+        depth: number;
+      }>;
+    }>('/draft/needs'),
+  makeAIPick: () =>
+    fetchAPI<{
+      pick: number;
+      round: number;
+      team_name: string;
+      team_abbreviation: string;
+      player_name: string;
+      position: string;
+      overall: number;
+      potential: number;
+      next_pick: number;
+      is_next_user_pick: boolean;
+      is_draft_complete: boolean;
+    }>('/draft/ai-pick', { method: 'POST' }),
+  simToPick: () =>
+    fetchAPI<{
+      picks_made: number;
+      picks: Array<{
+        pick: number;
+        round: number;
+        team_name: string;
+        team_abbreviation: string;
+        player_name: string;
+        position: string;
+        overall: number;
+        potential: number;
+      }>;
+      current_pick: number;
+      is_user_pick: boolean;
+      is_draft_complete: boolean;
+    }>('/draft/sim-to-pick', { method: 'POST' }),
+  autoDraft: () =>
+    fetchAPI<{
+      message: string;
+      total_picks: number;
+      user_picks: Array<{
+        pick: number;
+        round: number;
+        team_name: string;
+        player_name: string;
+        position: string;
+        overall: number;
+        potential: number;
+      }>;
+      all_picks: Array<{
+        pick: number;
+        round: number;
+        team_name: string;
+        player_name: string;
+        position: string;
+        overall: number;
+        potential: number;
+        is_user_pick: boolean;
+      }>;
+    }>('/draft/auto-draft', { method: 'POST' }),
+
+  // All-Star Weekend
+  getAllStarState: () =>
+    fetchAPI<{
+      season_id: number;
+      all_star_day: number;
+      current_day: number;
+      is_all_star_weekend: boolean;
+      all_star_complete: boolean;
+      selections_made: boolean;
+      events_complete: {
+        rising_stars: boolean;
+        skills: boolean;
+        three_point: boolean;
+        dunk: boolean;
+        game: boolean;
+      };
+      all_events_complete: boolean;
+    }>('/allstar/state'),
+  selectAllStars: () =>
+    fetchAPI<{
+      message: string;
+      east: Array<{
+        player_id: string;
+        name: string;
+        team: string;
+        position: string;
+        is_starter: boolean;
+        is_captain: boolean;
+      }>;
+      west: Array<{
+        player_id: string;
+        name: string;
+        team: string;
+        position: string;
+        is_starter: boolean;
+        is_captain: boolean;
+      }>;
+    }>('/allstar/select', { method: 'POST' }),
+  getAllStarRosters: () =>
+    fetchAPI<{
+      east: Array<{
+        player_id: string;
+        first_name: string;
+        last_name: string;
+        position: string;
+        overall: number;
+        team_name: string;
+        team_abbr: string;
+        is_starter: boolean;
+        is_captain: boolean;
+        votes: number;
+      }>;
+      west: Array<{
+        player_id: string;
+        first_name: string;
+        last_name: string;
+        position: string;
+        overall: number;
+        team_name: string;
+        team_abbr: string;
+        is_starter: boolean;
+        is_captain: boolean;
+        votes: number;
+      }>;
+      east_captain: any;
+      west_captain: any;
+    }>('/allstar/rosters'),
+  getRisingStars: () =>
+    fetchAPI<{
+      rookies: Array<{
+        player_id: string;
+        first_name: string;
+        last_name: string;
+        position: string;
+        overall: number;
+        team_name: string;
+        ppg: number;
+        rpg: number;
+        apg: number;
+      }>;
+      sophomores: Array<{
+        player_id: string;
+        first_name: string;
+        last_name: string;
+        position: string;
+        overall: number;
+        team_name: string;
+        ppg: number;
+        rpg: number;
+        apg: number;
+      }>;
+    }>('/allstar/rising-stars'),
+  simulateRisingStars: () =>
+    fetchAPI<{
+      event_type: string;
+      mvp_id: string;
+      mvp_name: string;
+      winning_team: string;
+      winning_score: number;
+      losing_score: number;
+      details: any;
+    }>('/allstar/simulate/rising-stars', { method: 'POST' }),
+  simulateSkillsChallenge: () =>
+    fetchAPI<{
+      event_type: string;
+      winner_id: string;
+      winner_name: string;
+      runner_up_id: string;
+      runner_up_name: string;
+      details: any;
+    }>('/allstar/simulate/skills', { method: 'POST' }),
+  simulateThreePointContest: () =>
+    fetchAPI<{
+      event_type: string;
+      winner_id: string;
+      winner_name: string;
+      runner_up_id: string;
+      runner_up_name: string;
+      details: any;
+    }>('/allstar/simulate/three-point', { method: 'POST' }),
+  simulateDunkContest: () =>
+    fetchAPI<{
+      event_type: string;
+      winner_id: string;
+      winner_name: string;
+      runner_up_id: string;
+      runner_up_name: string;
+      details: any;
+    }>('/allstar/simulate/dunk', { method: 'POST' }),
+  simulateAllStarGame: () =>
+    fetchAPI<{
+      event_type: string;
+      mvp_id: string;
+      mvp_name: string;
+      winning_team: string;
+      winning_score: number;
+      losing_score: number;
+      details: any;
+    }>('/allstar/simulate/game', { method: 'POST' }),
+  simulateAllStarWeekend: () =>
+    fetchAPI<{
+      message: string;
+      events_simulated: number;
+      results: Array<{
+        event_type: string;
+        winner_name?: string;
+        mvp_name?: string;
+        winning_team?: string;
+        winning_score?: number;
+        losing_score?: number;
+      }>;
+    }>('/allstar/simulate/all', { method: 'POST' }),
+  getAllStarResults: () =>
+    fetchAPI<{
+      events: Array<{
+        event_type: string;
+        winner_id?: string;
+        winner_name?: string;
+        runner_up_id?: string;
+        runner_up_name?: string;
+        mvp_id?: string;
+        mvp_name?: string;
+        winning_team?: string;
+        winning_score?: number;
+        losing_score?: number;
+        details: any;
+        simulated_at: string;
+      }>;
+    }>('/allstar/results'),
+  completeAllStar: () =>
+    fetchAPI<{
+      message: string;
+      new_phase: string;
+      current_day: number;
+    }>('/allstar/complete', { method: 'POST' }),
 };

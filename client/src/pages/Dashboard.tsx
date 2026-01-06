@@ -1,18 +1,120 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Users, Trophy, Calendar, TrendingUp, Play, ChevronRight } from 'lucide-react';
+import { Users, Trophy, Calendar, TrendingUp, Play, ChevronRight, FastForward, SkipForward, Loader2, Star } from 'lucide-react';
 import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import { TeamLogo } from '@/components/team/TeamLogo';
-import { useTeams, useStandings, useSeason, usePlayers } from '@/api/hooks';
+import { useTeams, useStandings, useSeason, usePlayers, useAdvancePreseasonDay, useAdvancePreseasonAll, useAdvanceDay, useSimulatePlayoffRound, useSimulatePlayoffAll, useAdvanceOffseasonPhase, useStartNewSeason } from '@/api/hooks';
 import { useFranchise } from '@/context/FranchiseContext';
 import { cn, getStatColor } from '@/lib/utils';
 
 export default function Dashboard() {
-  const { franchise } = useFranchise();
+  const { franchise, refreshFranchise } = useFranchise();
   const { data: teams } = useTeams();
-  const { data: standings } = useStandings();
+  const { data: standings } = useStandings(
+    franchise?.season_id ? { season_id: franchise.season_id } : undefined
+  );
   const { data: season } = useSeason();
   const { data: playersData } = usePlayers({ limit: 5 });
+
+  // Season advancement hooks
+  const advancePreseasonDay = useAdvancePreseasonDay();
+  const advancePreseasonAll = useAdvancePreseasonAll();
+  const advanceDay = useAdvanceDay();
+  const simulatePlayoffRound = useSimulatePlayoffRound();
+  const simulatePlayoffAll = useSimulatePlayoffAll();
+  const advanceOffseasonPhase = useAdvanceOffseasonPhase();
+  const startNewSeason = useStartNewSeason();
+
+  const [simResult, setSimResult] = useState<string | null>(null);
+
+  const handleAdvancePreseasonDay = async () => {
+    try {
+      const result = await advancePreseasonDay.mutateAsync();
+      if (result.preseason_complete) {
+        setSimResult('Preseason complete! Regular season begins.');
+      } else {
+        const userGame = result.results.find((r: any) => r.is_user_game);
+        if (userGame) {
+          setSimResult(`${userGame.home_team} ${userGame.home_score} - ${userGame.away_score} ${userGame.away_team}`);
+        } else {
+          setSimResult(`Day ${result.day}: ${result.games_played} games simulated`);
+        }
+      }
+      refreshFranchise();
+    } catch {
+      setSimResult('Failed to advance day');
+    }
+  };
+
+  const handleSimAllPreseason = async () => {
+    try {
+      const result = await advancePreseasonAll.mutateAsync();
+      setSimResult(`${result.message} ${result.games_played} games played.`);
+      refreshFranchise();
+    } catch {
+      setSimResult('Failed to simulate preseason');
+    }
+  };
+
+  const handleAdvanceDay = async () => {
+    try {
+      const result = await advanceDay.mutateAsync();
+      const userGame = result.results.find((r: any) => r.is_user_game);
+      if (userGame) {
+        setSimResult(`${userGame.home_team} ${userGame.home_score} - ${userGame.away_score} ${userGame.away_team}`);
+      } else {
+        setSimResult(`Day ${result.day}: ${result.games_played} games simulated`);
+      }
+      refreshFranchise();
+    } catch {
+      setSimResult('Failed to advance day');
+    }
+  };
+
+  const handleSimulatePlayoffRound = async () => {
+    try {
+      const result = await simulatePlayoffRound.mutateAsync();
+      setSimResult(`${result.round_name}: ${result.series_completed} series completed`);
+      refreshFranchise();
+    } catch {
+      setSimResult('Failed to simulate round');
+    }
+  };
+
+  const handleSimulatePlayoffAll = async () => {
+    try {
+      const result = await simulatePlayoffAll.mutateAsync();
+      setSimResult(`Playoffs complete! Champion: ${result.champion_name || 'TBD'}`);
+      refreshFranchise();
+    } catch {
+      setSimResult('Failed to simulate playoffs');
+    }
+  };
+
+  const handleAdvanceOffseasonPhase = async () => {
+    try {
+      const result = await advanceOffseasonPhase.mutateAsync();
+      setSimResult(`${result.message}`);
+      refreshFranchise();
+    } catch {
+      setSimResult('Failed to advance offseason phase');
+    }
+  };
+
+  const handleStartNewSeason = async () => {
+    try {
+      const result = await startNewSeason.mutateAsync();
+      setSimResult(`Season ${result.season_number} started!`);
+      refreshFranchise();
+    } catch {
+      setSimResult('Failed to start new season');
+    }
+  };
+
+  const isSimulating = advancePreseasonDay.isPending || advancePreseasonAll.isPending ||
+                       advanceDay.isPending || simulatePlayoffRound.isPending || simulatePlayoffAll.isPending ||
+                       advanceOffseasonPhase.isPending || startNewSeason.isPending;
 
   // Get top 5 from each conference
   const easternStandings = standings
@@ -30,14 +132,30 @@ export default function Dashboard() {
   const phaseLabels: Record<string, string> = {
     preseason: 'Preseason',
     regular_season: 'Regular Season',
+    all_star: 'All-Star Weekend',
     playoffs: 'Playoffs',
     offseason: 'Offseason',
+  };
+
+  const offseasonPhaseLabels: Record<string, string> = {
+    review: 'Season Review',
+    lottery: 'Draft Lottery',
+    draft: 'NBA Draft',
+    free_agency: 'Free Agency',
+    training_camp: 'Training Camp',
+  };
+
+  const getCurrentPhaseLabel = () => {
+    if (franchise?.phase === 'offseason' && franchise?.offseason_phase) {
+      return offseasonPhaseLabels[franchise.offseason_phase] || 'Offseason';
+    }
+    return phaseLabels[franchise?.phase || 'preseason'] || 'Preseason';
   };
 
   return (
     <PageTemplate
       title={`${franchise?.city} ${franchise?.team_name}`}
-      subtitle={`Season ${season?.season_number || 1} - ${phaseLabels[franchise?.phase || 'preseason'] || 'Preseason'}`}
+      subtitle={`Season ${season?.season_number || 1} - ${getCurrentPhaseLabel()}`}
     >
       {/* Franchise Header Card */}
       <Card className="mb-4 md:mb-6">
@@ -71,18 +189,229 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Action Buttons */}
+            {/* Phase-aware Action Buttons */}
             <div className="flex flex-col sm:flex-col gap-2 w-full sm:w-auto">
+              {/* Preseason Actions */}
+              {franchise?.phase === 'preseason' && (
+                <>
+                  <button
+                    onClick={handleAdvancePreseasonDay}
+                    disabled={isSimulating}
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSimulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                    Play Preseason Game
+                  </button>
+                  <button
+                    onClick={handleSimAllPreseason}
+                    disabled={isSimulating}
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 active:bg-amber-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSimulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <FastForward className="w-4 h-4" />}
+                    Sim All Preseason
+                  </button>
+                </>
+              )}
+
+              {/* Regular Season Actions */}
+              {franchise?.phase === 'regular_season' && (
+                <>
+                  <button
+                    onClick={handleAdvanceDay}
+                    disabled={isSimulating}
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSimulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                    Play Next Game
+                  </button>
+                  <Link
+                    to="/basketball/schedule"
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-700/50 text-slate-200 text-sm font-medium rounded-lg hover:bg-slate-700 border border-white/10 active:bg-slate-600 transition-colors min-h-[44px]"
+                  >
+                    View Schedule
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                </>
+              )}
+
+              {/* All-Star Weekend Actions */}
+              {franchise?.phase === 'all_star' && (
+                <>
+                  <Link
+                    to="/basketball/all-star"
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 active:bg-amber-800 transition-colors min-h-[44px]"
+                  >
+                    <Star className="w-4 h-4" />
+                    All-Star Weekend
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                </>
+              )}
+
+              {/* Playoffs Actions */}
+              {franchise?.phase === 'playoffs' && (
+                <>
+                  <Link
+                    to="/basketball/playoffs"
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 active:bg-purple-800 transition-colors min-h-[44px]"
+                  >
+                    <Trophy className="w-4 h-4" />
+                    View Playoffs
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                  <button
+                    onClick={handleSimulatePlayoffRound}
+                    disabled={isSimulating}
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 active:bg-amber-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSimulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <FastForward className="w-4 h-4" />}
+                    Sim Round
+                  </button>
+                  <button
+                    onClick={handleSimulatePlayoffAll}
+                    disabled={isSimulating}
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 active:bg-red-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSimulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <SkipForward className="w-4 h-4" />}
+                    Sim All
+                  </button>
+                </>
+              )}
+
+              {/* Offseason Actions */}
+              {franchise?.phase === 'offseason' && (
+                <>
+                  {/* Season Review phase */}
+                  {franchise?.offseason_phase === 'review' && (
+                    <>
+                      <Link
+                        to="/basketball/awards"
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 active:bg-amber-800 transition-colors min-h-[44px]"
+                      >
+                        <Trophy className="w-4 h-4" />
+                        View Awards
+                      </Link>
+                      <button
+                        onClick={handleAdvanceOffseasonPhase}
+                        disabled={isSimulating}
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSimulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
+                        Continue to Lottery
+                      </button>
+                    </>
+                  )}
+
+                  {/* Draft Lottery phase */}
+                  {franchise?.offseason_phase === 'lottery' && (
+                    <>
+                      <Link
+                        to="/basketball/draft"
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 active:bg-purple-800 transition-colors min-h-[44px]"
+                      >
+                        Run Lottery
+                        <ChevronRight className="w-4 h-4" />
+                      </Link>
+                      <button
+                        onClick={handleAdvanceOffseasonPhase}
+                        disabled={isSimulating}
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSimulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
+                        Continue to Draft
+                      </button>
+                    </>
+                  )}
+
+                  {/* NBA Draft phase */}
+                  {franchise?.offseason_phase === 'draft' && (
+                    <>
+                      <Link
+                        to="/basketball/draft"
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 active:bg-green-800 transition-colors min-h-[44px]"
+                      >
+                        Enter Draft
+                        <ChevronRight className="w-4 h-4" />
+                      </Link>
+                      <button
+                        onClick={handleAdvanceOffseasonPhase}
+                        disabled={isSimulating}
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSimulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
+                        Continue to Free Agency
+                      </button>
+                    </>
+                  )}
+
+                  {/* Free Agency phase */}
+                  {franchise?.offseason_phase === 'free_agency' && (
+                    <>
+                      <Link
+                        to="/basketball/free-agency"
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-cyan-600 text-white text-sm font-medium rounded-lg hover:bg-cyan-700 active:bg-cyan-800 transition-colors min-h-[44px]"
+                      >
+                        Free Agency
+                        <ChevronRight className="w-4 h-4" />
+                      </Link>
+                      <button
+                        onClick={handleAdvanceOffseasonPhase}
+                        disabled={isSimulating}
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSimulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
+                        Continue to Training Camp
+                      </button>
+                    </>
+                  )}
+
+                  {/* Training Camp phase */}
+                  {franchise?.offseason_phase === 'training_camp' && (
+                    <>
+                      <Link
+                        to="/basketball/roster"
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 active:bg-orange-800 transition-colors min-h-[44px]"
+                      >
+                        Set Roster
+                        <ChevronRight className="w-4 h-4" />
+                      </Link>
+                      <button
+                        onClick={handleStartNewSeason}
+                        disabled={isSimulating}
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 active:bg-green-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSimulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                        Start New Season
+                      </button>
+                    </>
+                  )}
+
+                  {/* Fallback for null offseason_phase */}
+                  {!franchise?.offseason_phase && (
+                    <>
+                      <Link
+                        to="/basketball/awards"
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 active:bg-amber-800 transition-colors min-h-[44px]"
+                      >
+                        <Trophy className="w-4 h-4" />
+                        View Awards
+                      </Link>
+                      <button
+                        onClick={handleAdvanceOffseasonPhase}
+                        disabled={isSimulating}
+                        className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSimulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
+                        Continue
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+
+              {/* Always show roster link */}
               <Link
-                to="/basketball/schedule"
-                className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors min-h-[44px]"
-              >
-                <Play className="w-4 h-4" />
-                Play Next Game
-                <ChevronRight className="w-4 h-4" />
-              </Link>
-              <Link
-                to={`/basketball/teams/${franchise?.team_id}`}
+                to={`/basketball/roster`}
                 className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-700/50 text-slate-200 text-sm font-medium rounded-lg hover:bg-slate-700 border border-white/10 active:bg-slate-600 transition-colors min-h-[44px]"
               >
                 View Roster
@@ -90,6 +419,19 @@ export default function Dashboard() {
               </Link>
             </div>
           </div>
+
+          {/* Simulation Result */}
+          {simResult && (
+            <div className="mt-4 p-3 bg-slate-800/50 rounded-lg border border-white/10">
+              <p className="text-sm text-slate-300">{simResult}</p>
+              <button
+                onClick={() => setSimResult(null)}
+                className="text-xs text-slate-500 hover:text-slate-400 mt-1"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -125,8 +467,14 @@ export default function Dashboard() {
               <Calendar className="w-5 h-5 md:w-6 md:h-6 text-amber-400" />
             </div>
             <div className="min-w-0">
-              <p className="text-xl md:text-2xl font-bold text-white">Day {season?.current_day || 0}</p>
-              <p className="text-xs md:text-sm text-slate-400">Current</p>
+              <p className="text-xl md:text-2xl font-bold text-white">
+                {franchise?.phase === 'preseason'
+                  ? `Game ${(franchise?.current_day ?? -7) + 8}/8`
+                  : `Day ${franchise?.current_day || 0}`}
+              </p>
+              <p className="text-xs md:text-sm text-slate-400">
+                {franchise?.phase === 'preseason' ? 'Preseason' : 'Current'}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -137,7 +485,7 @@ export default function Dashboard() {
               <Trophy className="w-5 h-5 md:w-6 md:h-6 text-purple-400" />
             </div>
             <div className="min-w-0">
-              <p className="text-xl md:text-2xl font-bold text-white capitalize truncate">{season?.status || 'Preseason'}</p>
+              <p className="text-xl md:text-2xl font-bold text-white capitalize truncate">{getCurrentPhaseLabel()}</p>
               <p className="text-xs md:text-sm text-slate-400">Phase</p>
             </div>
           </CardContent>

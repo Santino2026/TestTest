@@ -236,6 +236,7 @@ router.get('/', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
     const teamId = req.query.team_id as string;
+    const seasonId = req.query.season_id as string;
 
     let query = `
       SELECT g.*,
@@ -248,9 +249,15 @@ router.get('/', async (req, res) => {
     `;
     const params: any[] = [];
 
+    // Filter by season_id if provided
+    if (seasonId) {
+      params.push(seasonId);
+      query += ` AND g.season_id = $${params.length}`;
+    }
+
     if (teamId) {
-      query += ` AND (g.home_team_id = $1 OR g.away_team_id = $1)`;
       params.push(teamId);
+      query += ` AND (g.home_team_id = $${params.length} OR g.away_team_id = $${params.length})`;
     }
 
     query += ` ORDER BY g.completed_at DESC LIMIT $${params.length + 1}`;

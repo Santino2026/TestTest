@@ -15,43 +15,77 @@ const router = Router();
 // Get league leaders for various categories
 router.get('/leaders', async (req, res) => {
   try {
-    const { category = 'ppg', limit = 20 } = req.query;
+    // Support both 'stat' (from client) and 'category' (legacy) parameters
+    const stat = (req.query.stat as string) || (req.query.category as string) || 'points';
+    const limit = parseInt(req.query.limit as string) || 20;
 
     const seasonResult = await pool.query(
       `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
     );
     const seasonId = seasonResult.rows[0]?.id;
 
-    // Map category to column
-    const categoryMap: Record<string, string> = {
+    if (!seasonId) {
+      return res.json([]);
+    }
+
+    // Map stat name to database column
+    const statMap: Record<string, string> = {
+      points: 'ppg',
       ppg: 'ppg',
+      rebounds: 'rpg',
       rpg: 'rpg',
+      assists: 'apg',
       apg: 'apg',
+      steals: 'spg',
       spg: 'spg',
+      blocks: 'bpg',
       bpg: 'bpg',
+      fg_pct: 'CASE WHEN pss.fga > 0 THEN pss.fgm::float / pss.fga ELSE 0 END',
+      three_pct: 'CASE WHEN pss.three_pa > 0 THEN pss.three_pm::float / pss.three_pa ELSE 0 END',
       per: 'per',
       true_shooting: 'true_shooting_pct',
       win_shares: 'win_shares',
       bpm: 'box_plus_minus'
     };
 
-    const column = categoryMap[category as string] || 'ppg';
+    const column = statMap[stat] || 'ppg';
+    const isPercentage = stat === 'fg_pct' || stat === 'three_pct';
 
-    const result = await pool.query(
-      `SELECT pss.*, p.first_name, p.last_name, p.position, t.name as team_name, t.abbreviation
-       FROM player_season_stats pss
-       JOIN players p ON pss.player_id = p.id
-       LEFT JOIN teams t ON pss.team_id = t.id
-       WHERE pss.season_id = $1 AND pss.games_played >= 10
-       ORDER BY ${column} DESC NULLS LAST
-       LIMIT $2`,
-      [seasonId, limit]
-    );
+    // Build the query based on whether we need calculated percentages
+    let query: string;
+    if (isPercentage) {
+      query = `
+        SELECT pss.player_id, p.first_name, p.last_name, p.position,
+               t.name as team_name, t.abbreviation as team_abbrev,
+               pss.games_played,
+               ${column} as stat_value
+        FROM player_season_stats pss
+        JOIN players p ON pss.player_id = p.id
+        LEFT JOIN teams t ON pss.team_id = t.id
+        WHERE pss.season_id = $1 AND pss.games_played >= 5
+          AND pss.${stat === 'fg_pct' ? 'fga' : 'three_pa'} >= 50
+        ORDER BY ${column} DESC NULLS LAST
+        LIMIT $2
+      `;
+    } else {
+      query = `
+        SELECT pss.player_id, p.first_name, p.last_name, p.position,
+               t.name as team_name, t.abbreviation as team_abbrev,
+               pss.games_played,
+               COALESCE(pss.${column}, 0) as stat_value
+        FROM player_season_stats pss
+        JOIN players p ON pss.player_id = p.id
+        LEFT JOIN teams t ON pss.team_id = t.id
+        WHERE pss.season_id = $1 AND pss.games_played >= 5
+        ORDER BY ${column} DESC NULLS LAST
+        LIMIT $2
+      `;
+    }
 
-    res.json({
-      category,
-      leaders: result.rows
-    });
+    const result = await pool.query(query, [seasonId, limit]);
+
+    // Return array directly for client compatibility
+    res.json(result.rows);
   } catch (error) {
     console.error('League leaders error:', error);
     res.status(500).json({ error: 'Failed to fetch league leaders' });
@@ -148,8 +182,12 @@ router.get('/rankings', async (req, res) => {
     );
     const seasonId = seasonResult.rows[0]?.id;
 
+    if (!seasonId) {
+      return res.json([]);
+    }
+
     const result = await pool.query(
-      `SELECT tss.*, t.name, t.abbreviation,
+      `SELECT tss.*, t.name, t.abbreviation, t.primary_color,
               ROW_NUMBER() OVER (ORDER BY tss.offensive_rating DESC) as off_rank,
               ROW_NUMBER() OVER (ORDER BY tss.defensive_rating ASC) as def_rank,
               ROW_NUMBER() OVER (ORDER BY tss.net_rating DESC) as net_rank,
@@ -161,7 +199,8 @@ router.get('/rankings', async (req, res) => {
       [seasonId]
     );
 
-    res.json({ rankings: result.rows });
+    // Return array directly for client compatibility
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch team rankings' });
   }

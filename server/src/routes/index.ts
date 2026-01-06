@@ -15,6 +15,8 @@ import freeagencyRouter from './freeagency';
 import tradesRouter from './trades';
 import statsRouter from './stats';
 import aiRouter from './ai';
+import awardsRouter from './awards';
+import allstarRouter from './allstar';
 
 const router = Router();
 
@@ -35,5 +37,7 @@ router.use('/freeagency', freeagencyRouter);
 router.use('/trades', tradesRouter);
 router.use('/stats', statsRouter);
 router.use('/ai', aiRouter);
+router.use('/awards', awardsRouter);
+router.use('/allstar', allstarRouter);
 
 export default router;

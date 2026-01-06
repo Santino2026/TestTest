@@ -4,8 +4,9 @@ import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge } from '@/components/ui';
 import { api } from '@/api/client';
 import { useFranchise } from '@/context/FranchiseContext';
+import { useDraftState, useTeamNeeds, useSimToPick, useAutoDraft } from '@/api/hooks';
 import { cn, getStatColor } from '@/lib/utils';
-import { Trophy, Users } from 'lucide-react';
+import { Trophy, Users, FastForward, Bot } from 'lucide-react';
 
 export default function DraftPage() {
   const queryClient = useQueryClient();
@@ -27,6 +28,12 @@ export default function DraftPage() {
     queryFn: api.getLotteryOdds,
   });
 
+  // AI Draft hooks
+  const { data: draftState } = useDraftState();
+  const { data: teamNeeds } = useTeamNeeds();
+  const simToPick = useSimToPick();
+  const autoDraft = useAutoDraft();
+
   const generateDraft = useMutation({
     mutationFn: api.generateDraftClass,
     onSuccess: () => {
@@ -47,6 +54,7 @@ export default function DraftPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['draftProspects'] });
       queryClient.invalidateQueries({ queryKey: ['draftOrder'] });
+      queryClient.invalidateQueries({ queryKey: ['draft'] });
       setSelectedProspect(null);
     },
   });
@@ -91,6 +99,34 @@ export default function DraftPage() {
           >
             {runLottery.isPending ? 'Running...' : 'Run Draft Lottery'}
           </Button>
+        )}
+        {/* AI Draft Controls - only show when draft is in progress */}
+        {(draftOrder?.length ?? 0) > 0 && !draftState?.is_draft_complete && (
+          <>
+            {!isUserPick && (
+              <Button
+                onClick={() => simToPick.mutate()}
+                disabled={simToPick.isPending}
+                variant="secondary"
+              >
+                <FastForward className="w-4 h-4 mr-2" />
+                {simToPick.isPending ? 'Simulating...' : 'Sim to My Pick'}
+              </Button>
+            )}
+            <Button
+              onClick={() => autoDraft.mutate()}
+              disabled={autoDraft.isPending}
+              variant="outline"
+            >
+              <Bot className="w-4 h-4 mr-2" />
+              {autoDraft.isPending ? 'Drafting...' : 'Auto-Draft All'}
+            </Button>
+          </>
+        )}
+        {draftState?.is_draft_complete && (
+          <Badge variant="success" className="text-sm px-3 py-1.5">
+            Draft Complete
+          </Badge>
         )}
       </div>
 
@@ -141,9 +177,39 @@ export default function DraftPage() {
         {/* Prospects */}
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="text-base md:text-lg">
-              {isUserPick ? 'Make Your Selection' : 'Draft Prospects'}
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base md:text-lg">
+                {isUserPick ? 'Make Your Selection' : 'Draft Prospects'}
+              </CardTitle>
+              {draftState && !draftState.is_draft_complete && (
+                <Badge variant="secondary" className="text-xs">
+                  Round {draftState.current_round} - Pick {draftState.pick_in_round}
+                </Badge>
+              )}
+            </div>
+            {/* Team Needs - show when user is picking */}
+            {isUserPick && teamNeeds?.needs && (
+              <div className="mt-3 pt-3 border-t border-white/10">
+                <p className="text-xs font-medium text-slate-400 mb-2">Team Needs:</p>
+                <div className="flex flex-wrap gap-2">
+                  {teamNeeds.needs
+                    .sort((a: any, b: any) => b.need_score - a.need_score)
+                    .map((need: any) => (
+                      <div
+                        key={need.position}
+                        className={cn(
+                          'px-2 py-1 rounded text-xs font-medium',
+                          need.need_score >= 70 ? 'bg-red-900/50 text-red-300' :
+                          need.need_score >= 40 ? 'bg-yellow-900/50 text-yellow-300' :
+                          'bg-green-900/50 text-green-300'
+                        )}
+                      >
+                        {need.position}: {Math.round(need.need_score)}
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
           </CardHeader>
           <CardContent className="p-0">
             {prospectsLoading ? (

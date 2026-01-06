@@ -12,7 +12,7 @@ import {
 import { useFranchise as useFranchiseContext } from '@/context/FranchiseContext';
 import { api } from '@/api/client';
 import { cn } from '@/lib/utils';
-import { Trophy, Play, ChevronRight, ArrowRight } from 'lucide-react';
+import { Trophy, Play, ChevronRight, ArrowRight, FastForward, SkipForward } from 'lucide-react';
 import type { PlayoffSeries } from '@/api/client';
 
 const ROUND_NAMES: Record<number, string> = {
@@ -40,6 +40,10 @@ export default function PlayoffsPage() {
       queryClient.invalidateQueries({ queryKey: ['franchise'] });
       refreshFranchise();
     },
+    onError: (error: Error) => {
+      console.error('Start playoffs failed:', error);
+      alert(`Failed to start playoffs: ${error.message}`);
+    },
   });
 
   const simulateGame = useMutation({
@@ -49,6 +53,49 @@ export default function PlayoffsPage() {
       queryClient.invalidateQueries({ queryKey: ['games'] });
       refreshFranchise();
     },
+    onError: (error: Error) => {
+      console.error('Simulate playoff game failed:', error);
+      alert(`Failed to simulate game: ${error.message}`);
+    },
+  });
+
+  const simulateSeries = useMutation({
+    mutationFn: (seriesId: string) => api.simulatePlayoffSeries(seriesId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['playoffs'] });
+      queryClient.invalidateQueries({ queryKey: ['games'] });
+      refreshFranchise();
+    },
+    onError: (error: Error) => {
+      console.error('Simulate playoff series failed:', error);
+      alert(`Failed to simulate series: ${error.message}`);
+    },
+  });
+
+  const simulateRound = useMutation({
+    mutationFn: api.simulatePlayoffRound,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['playoffs'] });
+      queryClient.invalidateQueries({ queryKey: ['games'] });
+      refreshFranchise();
+    },
+    onError: (error: Error) => {
+      console.error('Simulate playoff round failed:', error);
+      alert(`Failed to simulate round: ${error.message}`);
+    },
+  });
+
+  const simulateAll = useMutation({
+    mutationFn: api.simulatePlayoffAll,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['playoffs'] });
+      queryClient.invalidateQueries({ queryKey: ['games'] });
+      refreshFranchise();
+    },
+    onError: (error: Error) => {
+      console.error('Simulate all playoffs failed:', error);
+      alert(`Failed to simulate playoffs: ${error.message}`);
+    },
   });
 
   const finalizePlayoffs = useMutation({
@@ -57,6 +104,10 @@ export default function PlayoffsPage() {
       queryClient.invalidateQueries({ queryKey: ['playoffs'] });
       refreshFranchise();
       navigate('/basketball/schedule');
+    },
+    onError: (error: Error) => {
+      console.error('Finalize playoffs failed:', error);
+      alert(`Failed to continue to offseason: ${error.message}`);
     },
   });
 
@@ -75,6 +126,33 @@ export default function PlayoffsPage() {
       console.error('Failed to simulate game:', error);
     }
   };
+
+  const handleSimulateSeries = async (seriesId: string) => {
+    try {
+      await simulateSeries.mutateAsync(seriesId);
+    } catch (error) {
+      console.error('Failed to simulate series:', error);
+    }
+  };
+
+  const handleSimulateRound = async () => {
+    try {
+      await simulateRound.mutateAsync();
+    } catch (error) {
+      console.error('Failed to simulate round:', error);
+    }
+  };
+
+  const handleSimulateAll = async () => {
+    try {
+      await simulateAll.mutateAsync();
+    } catch (error) {
+      console.error('Failed to simulate playoffs:', error);
+    }
+  };
+
+  const isAnySimulating = simulateGame.isPending || simulateSeries.isPending ||
+                          simulateRound.isPending || simulateAll.isPending;
 
   // Pre-playoffs: Show standings and start button (no series yet)
   if (!playoffs?.series.length) {
@@ -188,6 +266,44 @@ export default function PlayoffsPage() {
         : ROUND_NAMES[currentRound]
       }
     >
+      {/* Quick Actions Bar */}
+      {!playoffs?.isComplete && (
+        <Card className="mb-4 md:mb-6">
+          <CardContent className="py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm text-slate-400">
+                <span className="font-medium text-white">{ROUND_NAMES[currentRound]}</span>
+                {' · '}
+                {seriesByRound[currentRound]?.filter(s => s.status === 'completed').length || 0}/
+                {seriesByRound[currentRound]?.length || 0} series complete
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleSimulateRound}
+                  disabled={isAnySimulating}
+                  variant="secondary"
+                  size="md"
+                >
+                  <FastForward className="w-4 h-4 mr-1.5" />
+                  <span className="hidden sm:inline">{simulateRound.isPending ? 'Simulating...' : 'Sim Round'}</span>
+                  <span className="sm:hidden">{simulateRound.isPending ? '...' : 'Round'}</span>
+                </Button>
+                <Button
+                  onClick={handleSimulateAll}
+                  disabled={isAnySimulating}
+                  variant="primary"
+                  size="md"
+                >
+                  <SkipForward className="w-4 h-4 mr-1.5" />
+                  <span className="hidden sm:inline">{simulateAll.isPending ? 'Simulating...' : 'Sim All Playoffs'}</span>
+                  <span className="sm:hidden">{simulateAll.isPending ? '...' : 'All'}</span>
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Champion Banner */}
       {playoffs?.isComplete && (
         <Card className="mb-4 md:mb-6 bg-gradient-to-r from-amber-900/30 to-yellow-900/30 border-amber-500/30">
@@ -241,8 +357,9 @@ export default function PlayoffsPage() {
                               series={series}
                               teams={teams || []}
                               franchise={franchise}
-                              onSimulate={handleSimulateGame}
-                              isSimulating={simulateGame.isPending}
+                              onSimulateGame={handleSimulateGame}
+                              onSimulateSeries={handleSimulateSeries}
+                              isSimulating={isAnySimulating}
                             />
                           ))}
                       </div>
@@ -264,8 +381,9 @@ export default function PlayoffsPage() {
                               series={series}
                               teams={teams || []}
                               franchise={franchise}
-                              onSimulate={handleSimulateGame}
-                              isSimulating={simulateGame.isPending}
+                              onSimulateGame={handleSimulateGame}
+                              onSimulateSeries={handleSimulateSeries}
+                              isSimulating={isAnySimulating}
                             />
                           ))}
                       </div>
@@ -285,8 +403,9 @@ export default function PlayoffsPage() {
                             series={series}
                             teams={teams || []}
                             franchise={franchise}
-                            onSimulate={handleSimulateGame}
-                            isSimulating={simulateGame.isPending}
+                            onSimulateGame={handleSimulateGame}
+                            onSimulateSeries={handleSimulateSeries}
+                            isSimulating={isAnySimulating}
                           />
                         ))}
                       </div>
@@ -305,11 +424,12 @@ interface SeriesCardProps {
   series: PlayoffSeries;
   teams: any[];
   franchise: any;
-  onSimulate: (seriesId: string) => void;
+  onSimulateGame: (seriesId: string) => void;
+  onSimulateSeries: (seriesId: string) => void;
   isSimulating: boolean;
 }
 
-function SeriesCard({ series, teams, franchise, onSimulate, isSimulating }: SeriesCardProps) {
+function SeriesCard({ series, teams, franchise, onSimulateGame, onSimulateSeries, isSimulating }: SeriesCardProps) {
   const higherTeam = teams.find(t => t.id === series.higher_seed_id);
   const lowerTeam = teams.find(t => t.id === series.lower_seed_id);
   const isUserSeries = series.higher_seed_id === franchise?.team_id ||
@@ -366,18 +486,32 @@ function SeriesCard({ series, teams, franchise, onSimulate, isSimulating }: Seri
         </div>
       </div>
 
-      {/* Simulate Button */}
+      {/* Simulate Buttons */}
       {canSimulate && (
-        <Button
-          onClick={() => onSimulate(series.id)}
-          disabled={isSimulating}
-          variant="secondary"
-          size="md"
-          className="w-full mt-3 min-h-[44px]"
-        >
-          <Play className="w-4 h-4 mr-1.5" />
-          {isSimulating ? 'Simulating...' : 'Simulate Game'}
-        </Button>
+        <div className="flex gap-2 mt-3">
+          <Button
+            onClick={() => onSimulateGame(series.id)}
+            disabled={isSimulating}
+            variant="secondary"
+            size="md"
+            className="flex-1 min-h-[44px]"
+          >
+            <Play className="w-4 h-4 mr-1.5" />
+            <span className="hidden sm:inline">{isSimulating ? 'Simulating...' : 'Play Game'}</span>
+            <span className="sm:hidden">{isSimulating ? '...' : 'Game'}</span>
+          </Button>
+          <Button
+            onClick={() => onSimulateSeries(series.id)}
+            disabled={isSimulating}
+            variant="outline"
+            size="md"
+            className="flex-1 min-h-[44px]"
+          >
+            <FastForward className="w-4 h-4 mr-1.5" />
+            <span className="hidden sm:inline">{isSimulating ? 'Simulating...' : 'Sim Series'}</span>
+            <span className="sm:hidden">{isSimulating ? '...' : 'Series'}</span>
+          </Button>
+        </div>
       )}
 
       {/* Series Complete */}
