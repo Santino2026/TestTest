@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, CardHeader, CardTitle, Badge, Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui';
 import { TeamLogo } from '@/components/team/TeamLogo';
@@ -90,14 +90,14 @@ export default function TeamDetailPage() {
                       {player.jersey_number}
                     </TableCell>
                     <TableCell>
-                      <a
-                        href={`/basketball/players/${player.id}`}
+                      <Link
+                        to={`/basketball/players/${player.id}`}
                         className="font-medium text-slate-200 hover:text-blue-400 text-sm md:text-base"
                       >
                         <span className="hidden sm:inline">{player.first_name} </span>
                         <span className="sm:hidden">{player.first_name.charAt(0)}. </span>
                         {player.last_name}
-                      </a>
+                      </Link>
                       {idx < 5 && (
                         <Badge variant="info" className="ml-1 md:ml-2 text-xs">S</Badge>
                       )}
