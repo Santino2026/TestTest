@@ -331,7 +331,10 @@ router.post('/simulate/game', authMiddleware(true), async (req: any, res) => {
     res.json(result);
   } catch (error) {
     console.error('All-Star Game simulation error:', error);
-    res.status(500).json({ error: 'Failed to simulate All-Star Game' });
+    res.status(500).json({
+      error: 'Failed to simulate All-Star Game',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 });
 
