@@ -211,6 +211,104 @@ async function simulateDayGames(franchise: any) {
        result.away_stats.turnovers, result.away_stats.fouls]
     );
 
+    // Aggregate team stats into team_season_stats
+    const updateTeamSeasonStats = async (teamId: string, stats: any, won: boolean, opponentPoints: number) => {
+      await pool.query(
+        `INSERT INTO team_season_stats
+         (team_id, season_id, games_played, wins, losses, points_for, points_against,
+          fgm, fga, three_pm, three_pa, ftm, fta, oreb, dreb, assists, steals, blocks, turnovers)
+         VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         ON CONFLICT (team_id, season_id) DO UPDATE SET
+           games_played = team_season_stats.games_played + 1,
+           wins = team_season_stats.wins + EXCLUDED.wins,
+           losses = team_season_stats.losses + EXCLUDED.losses,
+           points_for = team_season_stats.points_for + EXCLUDED.points_for,
+           points_against = team_season_stats.points_against + EXCLUDED.points_against,
+           fgm = team_season_stats.fgm + EXCLUDED.fgm,
+           fga = team_season_stats.fga + EXCLUDED.fga,
+           three_pm = team_season_stats.three_pm + EXCLUDED.three_pm,
+           three_pa = team_season_stats.three_pa + EXCLUDED.three_pa,
+           ftm = team_season_stats.ftm + EXCLUDED.ftm,
+           fta = team_season_stats.fta + EXCLUDED.fta,
+           oreb = team_season_stats.oreb + EXCLUDED.oreb,
+           dreb = team_season_stats.dreb + EXCLUDED.dreb,
+           assists = team_season_stats.assists + EXCLUDED.assists,
+           steals = team_season_stats.steals + EXCLUDED.steals,
+           blocks = team_season_stats.blocks + EXCLUDED.blocks,
+           turnovers = team_season_stats.turnovers + EXCLUDED.turnovers,
+           fg_pct = (team_season_stats.fgm + EXCLUDED.fgm)::float / NULLIF(team_season_stats.fga + EXCLUDED.fga, 0),
+           three_pct = (team_season_stats.three_pm + EXCLUDED.three_pm)::float / NULLIF(team_season_stats.three_pa + EXCLUDED.three_pa, 0),
+           ft_pct = (team_season_stats.ftm + EXCLUDED.ftm)::float / NULLIF(team_season_stats.fta + EXCLUDED.fta, 0),
+           avg_point_diff = ((team_season_stats.points_for + EXCLUDED.points_for) - (team_season_stats.points_against + EXCLUDED.points_against))::float / (team_season_stats.games_played + 1),
+           pace = 100.0,
+           offensive_rating = ((team_season_stats.points_for + EXCLUDED.points_for)::float / (team_season_stats.games_played + 1)),
+           defensive_rating = ((team_season_stats.points_against + EXCLUDED.points_against)::float / (team_season_stats.games_played + 1)),
+           net_rating = ((team_season_stats.points_for + EXCLUDED.points_for) - (team_season_stats.points_against + EXCLUDED.points_against))::float / (team_season_stats.games_played + 1),
+           updated_at = NOW()`,
+        [
+          teamId, seasonId, won ? 1 : 0, won ? 0 : 1,
+          stats.points, opponentPoints,
+          stats.fgm, stats.fga, stats.three_pm, stats.three_pa,
+          stats.ftm, stats.fta, stats.oreb, stats.dreb,
+          stats.assists, stats.steals, stats.blocks, stats.turnovers
+        ]
+      );
+    };
+
+    const homeWonGame = result.winner_id === result.home_team_id;
+    await updateTeamSeasonStats(result.home_team_id, result.home_stats, homeWonGame, result.away_stats.points);
+    await updateTeamSeasonStats(result.away_team_id, result.away_stats, !homeWonGame, result.home_stats.points);
+
+    // Aggregate player stats into player_season_stats
+    for (const ps of [...result.home_player_stats, ...result.away_player_stats]) {
+      if (ps.minutes > 0) {
+        const playerTeamId = result.home_player_stats.includes(ps)
+          ? result.home_team_id
+          : result.away_team_id;
+
+        await pool.query(
+          `INSERT INTO player_season_stats
+           (player_id, season_id, team_id, games_played, minutes, points, fgm, fga,
+            three_pm, three_pa, ftm, fta, oreb, dreb, assists, steals, blocks, turnovers, fouls,
+            ppg, rpg, apg, spg, bpg, mpg)
+           VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                   $5, $12 + $13, $14, $15, $16, $4)
+           ON CONFLICT (player_id, season_id) DO UPDATE SET
+             team_id = EXCLUDED.team_id,
+             games_played = player_season_stats.games_played + 1,
+             minutes = player_season_stats.minutes + EXCLUDED.minutes,
+             points = player_season_stats.points + EXCLUDED.points,
+             fgm = player_season_stats.fgm + EXCLUDED.fgm,
+             fga = player_season_stats.fga + EXCLUDED.fga,
+             three_pm = player_season_stats.three_pm + EXCLUDED.three_pm,
+             three_pa = player_season_stats.three_pa + EXCLUDED.three_pa,
+             ftm = player_season_stats.ftm + EXCLUDED.ftm,
+             fta = player_season_stats.fta + EXCLUDED.fta,
+             oreb = player_season_stats.oreb + EXCLUDED.oreb,
+             dreb = player_season_stats.dreb + EXCLUDED.dreb,
+             assists = player_season_stats.assists + EXCLUDED.assists,
+             steals = player_season_stats.steals + EXCLUDED.steals,
+             blocks = player_season_stats.blocks + EXCLUDED.blocks,
+             turnovers = player_season_stats.turnovers + EXCLUDED.turnovers,
+             fouls = player_season_stats.fouls + EXCLUDED.fouls,
+             ppg = (player_season_stats.points + EXCLUDED.points)::float / (player_season_stats.games_played + 1),
+             rpg = (player_season_stats.oreb + player_season_stats.dreb + EXCLUDED.oreb + EXCLUDED.dreb)::float / (player_season_stats.games_played + 1),
+             apg = (player_season_stats.assists + EXCLUDED.assists)::float / (player_season_stats.games_played + 1),
+             spg = (player_season_stats.steals + EXCLUDED.steals)::float / (player_season_stats.games_played + 1),
+             bpg = (player_season_stats.blocks + EXCLUDED.blocks)::float / (player_season_stats.games_played + 1),
+             mpg = (player_season_stats.minutes + EXCLUDED.minutes)::float / (player_season_stats.games_played + 1),
+             updated_at = NOW()`,
+          [
+            (ps as any).player_id, seasonId, playerTeamId,
+            ps.minutes, ps.points, ps.fgm, ps.fga,
+            ps.three_pm, ps.three_pa, ps.ftm, ps.fta,
+            ps.oreb, ps.dreb, ps.assists, ps.steals,
+            ps.blocks, ps.turnovers, ps.fouls
+          ]
+        );
+      }
+    }
+
     results.push({
       game_id: result.id,
       home_team: scheduledGame.home_team_name,
@@ -700,23 +798,29 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
 
       // Auto-simulate All-Star Weekend if needed
       if (newDay >= allStarDay && !franchise.all_star_complete && !allStarSimulated) {
-        // Select All-Stars
-        await selectAllStars(franchise.season_id, 'Eastern');
-        await selectAllStars(franchise.season_id, 'Western');
+        try {
+          // Select All-Stars
+          await selectAllStars(franchise.season_id, 'Eastern');
+          await selectAllStars(franchise.season_id, 'Western');
 
-        // Simulate all events
-        await simulateRisingStars(franchise.season_id);
-        await simulateSkillsChallenge(franchise.season_id);
-        await simulateThreePointContest(franchise.season_id);
-        await simulateDunkContest(franchise.season_id);
-        await simulateAllStarGame(franchise.season_id);
+          // Simulate all events
+          await simulateRisingStars(franchise.season_id);
+          await simulateSkillsChallenge(franchise.season_id);
+          await simulateThreePointContest(franchise.season_id);
+          await simulateDunkContest(franchise.season_id);
+          await simulateAllStarGame(franchise.season_id);
 
-        // Mark All-Star complete
+          allStarSimulated = true;
+        } catch (allStarError) {
+          // All-Star failed but we can continue the season
+          console.error('All-Star Weekend failed, skipping:', allStarError);
+        }
+
+        // Mark All-Star complete (even if it failed, don't retry)
         await pool.query(
           `UPDATE franchises SET all_star_complete = TRUE WHERE id = $1`,
           [franchise.id]
         );
-        allStarSimulated = true;
       }
 
       if (newDay > 174) {

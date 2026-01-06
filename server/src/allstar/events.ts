@@ -470,8 +470,13 @@ export async function simulateAllStarGame(seasonId: number): Promise<EventResult
   const winningTeam = eastScore > westScore ? 'east' : 'west';
   const winningRoster = winningTeam === 'east' ? eastTeam : westTeam;
 
+  // Validate winning roster before MVP selection
+  if (winningRoster.length === 0) {
+    throw new Error('Cannot select All-Star Game MVP - winning roster is empty');
+  }
+
   // Select MVP from winning team
-  const mvpCandidates = winningRoster.slice(0, 5); // Top 5 starters
+  const mvpCandidates = winningRoster.slice(0, Math.min(5, winningRoster.length)); // Top starters
   const mvp = mvpCandidates[Math.floor(Math.random() * Math.min(3, mvpCandidates.length))];
 
   // Generate stats
