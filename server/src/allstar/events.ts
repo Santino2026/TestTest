@@ -438,23 +438,28 @@ export async function simulateAllStarGame(seasonId: number): Promise<EventResult
       pa.three_point, pa.inside_scoring
      FROM all_star_selections ass
      JOIN players p ON ass.player_id = p.id
-     JOIN player_attributes pa ON p.id = pa.player_id
+     LEFT JOIN player_attributes pa ON p.id = pa.player_id
      WHERE ass.season_id = $1
      ORDER BY ass.conference, ass.is_captain DESC, ass.votes DESC`,
     [seasonId]
   );
 
+  // Debug logging
+  console.log(`All-Star query returned ${result.rows.length} players for season ${seasonId}`);
+
   const eastTeam = result.rows.filter((r: any) => r.conference === 'east' || r.conference === 'Eastern');
   const westTeam = result.rows.filter((r: any) => r.conference === 'west' || r.conference === 'Western');
+
+  console.log(`East team: ${eastTeam.length}, West team: ${westTeam.length}`);
 
   // Verify we have All-Stars selected
   if (eastTeam.length === 0 || westTeam.length === 0) {
     throw new Error('All-Star selections must be made before simulating the game');
   }
 
-  // Calculate team strengths
-  const eastStrength = eastTeam.reduce((sum: number, p: any) => sum + p.overall, 0) / eastTeam.length;
-  const westStrength = westTeam.reduce((sum: number, p: any) => sum + p.overall, 0) / westTeam.length;
+  // Calculate team strengths (default to 75 if overall is null)
+  const eastStrength = eastTeam.reduce((sum: number, p: any) => sum + (p.overall || 75), 0) / eastTeam.length;
+  const westStrength = westTeam.reduce((sum: number, p: any) => sum + (p.overall || 75), 0) / westTeam.length;
 
   // All-Star game is high-scoring
   const baseScore = 170;
