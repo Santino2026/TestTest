@@ -15,6 +15,9 @@ import {
   ArrowLeftRight,
   FolderOpen,
   Zap,
+  ClipboardList,
+  Award,
+  Star,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFranchise } from '@/context/FranchiseContext';
@@ -22,6 +25,7 @@ import { useAuth } from '@/context/AuthContext';
 
 const navItems = [
   { path: '/basketball', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/basketball/roster', label: 'My Roster', icon: ClipboardList },
   { path: '/basketball/franchises', label: 'My Franchises', icon: FolderOpen },
   { path: '/basketball/games', label: 'Games', icon: Play },
   { path: '/basketball/teams', label: 'Teams', icon: Users },
@@ -30,11 +34,71 @@ const navItems = [
   { path: '/basketball/standings', label: 'Standings', icon: BarChart3 },
   { path: '/basketball/stats', label: 'Stats', icon: TrendingUp },
   { path: '/basketball/schedule', label: 'Schedule', icon: Calendar },
+  { path: '/basketball/all-star', label: 'All-Star Weekend', icon: Star },
   { path: '/basketball/playoffs', label: 'Playoffs', icon: Trophy },
+  { path: '/basketball/awards', label: 'Awards', icon: Award },
   { path: '/basketball/draft', label: 'Draft', icon: GraduationCap },
   { path: '/basketball/free-agency', label: 'Free Agency', icon: UserPlus },
   { path: '/basketball/trades', label: 'Trades', icon: ArrowLeftRight },
 ];
+
+// Determines if a nav item should be enabled based on current phase
+type NavItemState = 'enabled' | 'disabled';
+
+function getNavItemState(
+  path: string,
+  phase: string,
+  offseasonPhase?: string
+): NavItemState {
+  // These pages are always accessible
+  const alwaysEnabled = [
+    '/basketball',
+    '/basketball/roster',
+    '/basketball/franchises',
+    '/basketball/games',
+    '/basketball/teams',
+    '/basketball/players',
+    '/basketball/development',
+    '/basketball/standings',
+    '/basketball/stats',
+    '/basketball/schedule',
+  ];
+
+  if (alwaysEnabled.includes(path)) return 'enabled';
+
+  // Phase-specific rules
+  switch (path) {
+    case '/basketball/all-star':
+      return phase === 'all_star' ? 'enabled' : 'disabled';
+
+    case '/basketball/playoffs':
+      return phase === 'playoffs' ? 'enabled' : 'disabled';
+
+    case '/basketball/awards':
+      return phase === 'offseason' ? 'enabled' : 'disabled';
+
+    case '/basketball/draft':
+      // Only during offseason lottery or draft phases
+      return phase === 'offseason' &&
+        ['lottery', 'draft'].includes(offseasonPhase || '')
+        ? 'enabled'
+        : 'disabled';
+
+    case '/basketball/free-agency':
+      // Only during offseason free_agency phase
+      return phase === 'offseason' && offseasonPhase === 'free_agency'
+        ? 'enabled'
+        : 'disabled';
+
+    case '/basketball/trades':
+      // Disabled during playoffs (after deadline)
+      if (phase === 'playoffs') return 'disabled';
+      return 'enabled';
+
+    default:
+      return 'enabled';
+  }
+}
 
 interface SidebarProps {
   isOpen: boolean;
@@ -49,8 +113,17 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const phaseLabels: Record<string, string> = {
     preseason: 'Preseason',
     regular_season: 'Regular Season',
+    all_star: 'All-Star Weekend',
     playoffs: 'Playoffs',
     offseason: 'Offseason',
+  };
+
+  const offseasonPhaseLabels: Record<string, string> = {
+    review: 'Season Review',
+    lottery: 'Draft Lottery',
+    draft: 'NBA Draft',
+    free_agency: 'Free Agency',
+    training_camp: 'Training Camp',
   };
 
   const handleNavClick = () => {
@@ -101,7 +174,9 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         <div className="bg-slate-800/50 rounded-lg px-3 py-2 border border-white/5">
           <p className="text-xs text-slate-500">Current Phase</p>
           <p className="text-sm font-semibold text-white">
-            {phaseLabels[franchise?.phase || 'preseason'] || 'Preseason'} - Day {franchise?.current_day || 1}
+            {franchise?.phase === 'offseason' && franchise?.offseason_phase
+              ? offseasonPhaseLabels[franchise.offseason_phase] || 'Offseason'
+              : `${phaseLabels[franchise?.phase || 'preseason'] || 'Preseason'} - Day ${franchise?.current_day || 1}`}
           </p>
         </div>
       </div>
@@ -112,26 +187,43 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             const Icon = item.icon;
+            const state = getNavItemState(
+              item.path,
+              franchise?.phase || 'preseason',
+              franchise?.offseason_phase || undefined
+            );
+            const isDisabled = state === 'disabled';
+
             return (
               <li key={item.path}>
-                <Link
-                  to={item.path}
-                  onClick={handleNavClick}
-                  className={cn(
-                    'flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px]',
-                    isActive
-                      ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
-                      : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 active:bg-white/10'
-                  )}
-                >
-                  <Icon
+                {isDisabled ? (
+                  // Disabled state - no link, dimmed appearance
+                  <div
+                    className="flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-lg text-sm font-medium min-h-[44px] text-slate-600 cursor-not-allowed"
+                  >
+                    <Icon className="w-5 h-5 text-slate-700" />
+                    <span className="opacity-50">{item.label}</span>
+                  </div>
+                ) : (
+                  <Link
+                    to={item.path}
+                    onClick={handleNavClick}
                     className={cn(
-                      'w-5 h-5',
-                      isActive ? 'text-blue-400' : 'text-slate-500'
+                      'flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px]',
+                      isActive
+                        ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
+                        : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 active:bg-white/10'
                     )}
-                  />
-                  {item.label}
-                </Link>
+                  >
+                    <Icon
+                      className={cn(
+                        'w-5 h-5',
+                        isActive ? 'text-blue-400' : 'text-slate-500'
+                      )}
+                    />
+                    {item.label}
+                  </Link>
+                )}
               </li>
             );
           })}

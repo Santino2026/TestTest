@@ -18,6 +18,9 @@ import FreeAgencyPage from './pages/FreeAgencyPage';
 import TradesPage from './pages/TradesPage';
 import FranchisesPage from './pages/FranchisesPage';
 import DevelopmentPage from './pages/DevelopmentPage';
+import RosterPage from './pages/RosterPage';
+import AwardsPage from './pages/AwardsPage';
+import AllStarPage from './pages/AllStarPage';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
@@ -66,8 +69,9 @@ function PurchaseRequiredRoute({ children }: { children: React.ReactNode }) {
 
 function FranchiseRequiredRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, hasPurchased, isLoading: authLoading } = useAuth();
-  const { hasFranchise, isLoading: franchiseLoading } = useFranchise();
+  const { isLoading: franchiseLoading, franchise, hasCheckedOnce } = useFranchise();
 
+  // Wait for both auth and franchise to finish loading
   if (authLoading || franchiseLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900">
@@ -84,8 +88,19 @@ function FranchiseRequiredRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/games" replace />;
   }
 
-  if (!hasFranchise) {
+  // Only redirect to select-team if we've confirmed there's no franchise after checking
+  // This prevents redirect loops during navigation when state is temporarily null
+  if (!franchise && hasCheckedOnce) {
     return <Navigate to="/basketball/select-team" replace />;
+  }
+
+  // If we haven't checked yet but loading is done, show loading (edge case)
+  if (!franchise && !hasCheckedOnce) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
   }
 
   return <>{children}</>;
@@ -119,6 +134,18 @@ function AppRoutes() {
         }
       />
 
+      {/* Franchises management - requires purchase but not an active franchise */}
+      <Route
+        path="/basketball/franchises"
+        element={
+          <PurchaseRequiredRoute>
+            <Layout />
+          </PurchaseRequiredRoute>
+        }
+      >
+        <Route index element={<FranchisesPage />} />
+      </Route>
+
       {/* Basketball game routes - require purchase AND franchise */}
       <Route
         path="/basketball"
@@ -129,6 +156,7 @@ function AppRoutes() {
         }
       >
         <Route index element={<Dashboard />} />
+        <Route path="roster" element={<RosterPage />} />
         <Route path="teams" element={<TeamsPage />} />
         <Route path="teams/:id" element={<TeamDetailPage />} />
         <Route path="players" element={<PlayersPage />} />
@@ -138,11 +166,12 @@ function AppRoutes() {
         <Route path="games/:id" element={<GameDetailPage />} />
         <Route path="schedule" element={<SchedulePage />} />
         <Route path="playoffs" element={<PlayoffsPage />} />
+        <Route path="awards" element={<AwardsPage />} />
+        <Route path="all-star" element={<AllStarPage />} />
         <Route path="stats" element={<StatsPage />} />
         <Route path="draft" element={<DraftPage />} />
         <Route path="free-agency" element={<FreeAgencyPage />} />
         <Route path="trades" element={<TradesPage />} />
-        <Route path="franchises" element={<FranchisesPage />} />
         <Route path="development" element={<DevelopmentPage />} />
       </Route>
     </Routes>

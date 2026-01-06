@@ -4,8 +4,9 @@ import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge } from '@/components/ui';
 import { api } from '@/api/client';
 import { useFranchise } from '@/context/FranchiseContext';
+import { useTradeDeadlineStatus } from '@/api/hooks';
 import { cn, getStatColor } from '@/lib/utils';
-import { ArrowLeftRight, Check, X, Clock } from 'lucide-react';
+import { ArrowLeftRight, Check, X, Clock, AlertTriangle, Calendar } from 'lucide-react';
 
 export default function TradesPage() {
   const queryClient = useQueryClient();
@@ -13,6 +14,9 @@ export default function TradesPage() {
   const [selectedTeam, setSelectedTeam] = useState<string | null>(null);
   const [playersOffered, setPlayersOffered] = useState<string[]>([]);
   const [playersRequested, setPlayersRequested] = useState<string[]>([]);
+
+  // Trade deadline status
+  const { data: deadlineStatus } = useTradeDeadlineStatus();
 
   const { data: teams } = useQuery({
     queryKey: ['teams'],
@@ -72,16 +76,26 @@ export default function TradesPage() {
     },
   });
 
-  // Not the right phase
-  if (franchise?.phase !== 'offseason' && franchise?.phase !== 'regular_season') {
+  // Check if trading is allowed
+  const tradesAllowed = deadlineStatus?.trades_allowed ?? true;
+
+  // Not the right phase or deadline passed
+  if (!tradesAllowed) {
     return (
       <PageTemplate title="Trades" subtitle="Trade players with other teams">
         <Card>
           <CardContent className="py-12 text-center">
-            <ArrowLeftRight className="w-16 h-16 mx-auto text-slate-500 mb-4" />
-            <h2 className="text-xl font-semibold text-white mb-2">Trade Deadline Passed</h2>
+            <AlertTriangle className="w-16 h-16 mx-auto text-amber-500 mb-4" />
+            <h2 className="text-xl font-semibold text-white mb-2">
+              {deadlineStatus?.message || 'Trades Not Available'}
+            </h2>
             <p className="text-slate-400">
-              Trading is available during the regular season and offseason.
+              {franchise?.phase === 'regular_season' && deadlineStatus?.current_day && deadlineStatus.deadline_day
+                ? `The trade deadline was day ${deadlineStatus.deadline_day}. Current day: ${deadlineStatus.current_day}.`
+                : 'Trading is available during the regular season (before the deadline) and offseason.'}
+            </p>
+            <p className="text-slate-500 text-sm mt-4">
+              Trading will resume in the offseason.
             </p>
           </CardContent>
         </Card>
@@ -105,6 +119,28 @@ export default function TradesPage() {
 
   return (
     <PageTemplate title="Trades" subtitle="Trade players with other teams">
+      {/* Trade Deadline Banner */}
+      {deadlineStatus && franchise?.phase === 'regular_season' && deadlineStatus.days_until_deadline !== undefined && (
+        <Card className="mb-4 md:mb-6 border-amber-500/30 bg-amber-900/10">
+          <CardContent className="py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Calendar className="w-5 h-5 text-amber-500" />
+                <div>
+                  <p className="font-medium text-white">Trade Deadline Approaching</p>
+                  <p className="text-sm text-slate-400">
+                    Day {deadlineStatus.deadline_day} of the regular season
+                  </p>
+                </div>
+              </div>
+              <Badge variant={deadlineStatus.days_until_deadline <= 10 ? 'danger' : 'warning'} className="text-lg px-3 py-1">
+                {deadlineStatus.days_until_deadline} day{deadlineStatus.days_until_deadline !== 1 ? 's' : ''} left
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Pending Trades */}
       {pendingTrades && pendingTrades.filter(t => t.status === 'pending').length > 0 && (
         <Card className="mb-4 md:mb-6">

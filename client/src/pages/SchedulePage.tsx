@@ -44,12 +44,16 @@ export default function SchedulePage() {
     refetchInterval: 5000,
   });
 
-  // Mutations
+  // Mutations with error handling
   const generateSchedule = useMutation({
     mutationFn: api.generateSchedule,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['schedule'] });
       refreshFranchise();
+    },
+    onError: (error: Error) => {
+      console.error('Generate schedule failed:', error);
+      alert(`Failed to generate schedule: ${error.message}`);
     },
   });
 
@@ -58,6 +62,10 @@ export default function SchedulePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['schedule'] });
       refreshFranchise();
+    },
+    onError: (error: Error) => {
+      console.error('Start season failed:', error);
+      alert(`Failed to start season: ${error.message}`);
     },
   });
 
@@ -70,6 +78,10 @@ export default function SchedulePage() {
       queryClient.invalidateQueries({ queryKey: ['standings'] });
       refreshFranchise();
     },
+    onError: (error: Error) => {
+      console.error('Advance day failed:', error);
+      alert(`Failed to advance day: ${error.message}`);
+    },
   });
 
   const advanceWeek = useMutation({
@@ -81,6 +93,10 @@ export default function SchedulePage() {
       queryClient.invalidateQueries({ queryKey: ['standings'] });
       refreshFranchise();
     },
+    onError: (error: Error) => {
+      console.error('Advance week failed:', error);
+      alert(`Failed to advance week: ${error.message}`);
+    },
   });
 
   const advanceToPlayoffs = useMutation({
@@ -90,6 +106,10 @@ export default function SchedulePage() {
       queryClient.invalidateQueries({ queryKey: ['schedule'] });
       queryClient.invalidateQueries({ queryKey: ['standings'] });
       refreshFranchise();
+    },
+    onError: (error: Error) => {
+      console.error('Advance to playoffs failed:', error);
+      alert(`Failed to simulate to playoffs: ${error.message}`);
     },
   });
 

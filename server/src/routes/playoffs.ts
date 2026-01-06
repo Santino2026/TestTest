@@ -221,6 +221,415 @@ router.post('/simulate', authMiddleware(true), async (req: any, res) => {
   }
 });
 
+// Simulate entire series until complete
+router.post('/simulate/series', authMiddleware(true), async (req: any, res) => {
+  try {
+    const { series_id } = req.body;
+
+    if (!series_id) {
+      return res.status(400).json({ error: 'series_id is required' });
+    }
+
+    // Get series info
+    const seriesResult = await pool.query(
+      `SELECT ps.*,
+              ht.name as higher_name, ht.abbreviation as higher_abbrev,
+              lt.name as lower_name, lt.abbreviation as lower_abbrev
+       FROM playoff_series ps
+       JOIN teams ht ON ps.higher_seed_id = ht.id
+       JOIN teams lt ON ps.lower_seed_id = lt.id
+       WHERE ps.id = $1`,
+      [series_id]
+    );
+
+    if (seriesResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Series not found' });
+    }
+
+    let series = seriesResult.rows[0];
+
+    if (series.status === 'completed') {
+      return res.status(400).json({ error: 'Series already completed' });
+    }
+
+    const gamesSimulated = [];
+    const winsNeeded = series.round === 0 ? 1 : 4; // Play-in is single game, others best of 7
+
+    // Simulate until series is complete
+    while (series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
+      const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
+      const homeIsHigherSeed = [0, 1, 4, 6].includes(gamesPlayed);
+      const homeTeamId = homeIsHigherSeed ? series.higher_seed_id : series.lower_seed_id;
+      const awayTeamId = homeIsHigherSeed ? series.lower_seed_id : series.higher_seed_id;
+
+      const homeTeam = await loadTeamForSimulation(homeTeamId);
+      const awayTeam = await loadTeamForSimulation(awayTeamId);
+      const result = simulateGame(homeTeam, awayTeam);
+
+      // Save game
+      await pool.query(
+        `INSERT INTO games (id, season_id, home_team_id, away_team_id, home_score, away_score,
+                           winner_id, is_overtime, overtime_periods, status, is_playoff, completed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'completed', true, NOW())`,
+        [result.id, series.season_id, result.home_team_id, result.away_team_id,
+         result.home_score, result.away_score, result.winner_id,
+         result.is_overtime, result.overtime_periods]
+      );
+
+      // Save quarters
+      for (const quarter of result.quarters) {
+        await pool.query(
+          `INSERT INTO game_quarters (game_id, quarter, home_points, away_points)
+           VALUES ($1, $2, $3, $4)`,
+          [result.id, quarter.quarter, quarter.home_points, quarter.away_points]
+        );
+      }
+
+      // Update series
+      await updateSeriesResult(series_id, result.winner_id, result.id);
+
+      gamesSimulated.push({
+        home_team: homeTeam.name,
+        away_team: awayTeam.name,
+        home_score: result.home_score,
+        away_score: result.away_score,
+        winner: result.winner_id === homeTeamId ? homeTeam.name : awayTeam.name
+      });
+
+      // Refresh series data
+      const refreshResult = await pool.query(
+        'SELECT * FROM playoff_series WHERE id = $1',
+        [series_id]
+      );
+      series = refreshResult.rows[0];
+    }
+
+    // Generate next round if needed
+    const roundComplete = await pool.query(
+      `SELECT * FROM playoff_series
+       WHERE season_id = $1 AND round = $2 AND status != 'completed'`,
+      [series.season_id, series.round]
+    );
+
+    if (roundComplete.rows.length === 0) {
+      let nextSeries: any[] = [];
+
+      if (series.round === 0) {
+        const playInResult = await pool.query(
+          `SELECT * FROM playoff_series WHERE season_id = $1 AND round = 0 ORDER BY conference, series_number`,
+          [series.season_id]
+        );
+        const playInSeries = playInResult.rows;
+        nextSeries = await generateFirstRound(series.season_id, {
+          eastern7: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 1)?.winner_id,
+          eastern8: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 2)?.winner_id,
+          western7: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 1)?.winner_id,
+          western8: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 2)?.winner_id
+        });
+      } else if (series.round < 4) {
+        nextSeries = await generateNextRound(series.season_id, series.round + 1);
+      }
+
+      if (nextSeries.length > 0) {
+        await saveSeries(nextSeries);
+      }
+    }
+
+    // Refresh series one more time
+    const finalResult = await pool.query(
+      `SELECT ps.*, wt.name as winner_name
+       FROM playoff_series ps
+       LEFT JOIN teams wt ON ps.winner_id = wt.id
+       WHERE ps.id = $1`,
+      [series_id]
+    );
+
+    res.json({
+      series_id,
+      games_simulated: gamesSimulated.length,
+      games: gamesSimulated,
+      winner: finalResult.rows[0].winner_name,
+      series_score: `${finalResult.rows[0].higher_seed_wins}-${finalResult.rows[0].lower_seed_wins}`
+    });
+  } catch (error) {
+    console.error('Simulate series error:', error);
+    res.status(500).json({ error: 'Failed to simulate series' });
+  }
+});
+
+// Simulate entire round
+router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
+  try {
+    const franchiseResult = await pool.query(
+      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
+      [req.user.userId]
+    );
+
+    if (franchiseResult.rows.length === 0) {
+      return res.status(400).json({ error: 'No franchise selected' });
+    }
+
+    const franchise = franchiseResult.rows[0];
+    const seasonId = franchise.season_id;
+
+    // Get current round
+    const currentRoundResult = await pool.query(
+      `SELECT MAX(round) as current_round FROM playoff_series WHERE season_id = $1`,
+      [seasonId]
+    );
+    const currentRound = currentRoundResult.rows[0].current_round;
+
+    if (currentRound === null) {
+      return res.status(400).json({ error: 'No playoff series found' });
+    }
+
+    // Get all incomplete series in current round
+    const incompleteSeries = await pool.query(
+      `SELECT id FROM playoff_series WHERE season_id = $1 AND round = $2 AND status != 'completed'`,
+      [seasonId, currentRound]
+    );
+
+    const results = [];
+    const winsNeeded = currentRound === 0 ? 1 : 4;
+
+    for (const seriesRow of incompleteSeries.rows) {
+      let series = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
+      series = series.rows[0];
+
+      while (series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
+        const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
+        const homeIsHigherSeed = [0, 1, 4, 6].includes(gamesPlayed);
+        const homeTeamId = homeIsHigherSeed ? series.higher_seed_id : series.lower_seed_id;
+        const awayTeamId = homeIsHigherSeed ? series.lower_seed_id : series.higher_seed_id;
+
+        const homeTeam = await loadTeamForSimulation(homeTeamId);
+        const awayTeam = await loadTeamForSimulation(awayTeamId);
+        const result = simulateGame(homeTeam, awayTeam);
+
+        await pool.query(
+          `INSERT INTO games (id, season_id, home_team_id, away_team_id, home_score, away_score,
+                             winner_id, is_overtime, overtime_periods, status, is_playoff, completed_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'completed', true, NOW())`,
+          [result.id, seasonId, result.home_team_id, result.away_team_id,
+           result.home_score, result.away_score, result.winner_id,
+           result.is_overtime, result.overtime_periods]
+        );
+
+        for (const quarter of result.quarters) {
+          await pool.query(
+            `INSERT INTO game_quarters (game_id, quarter, home_points, away_points) VALUES ($1, $2, $3, $4)`,
+            [result.id, quarter.quarter, quarter.home_points, quarter.away_points]
+          );
+        }
+
+        await updateSeriesResult(seriesRow.id, result.winner_id, result.id);
+
+        const refreshResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
+        series = refreshResult.rows[0];
+      }
+
+      const finalSeries = await pool.query(
+        `SELECT ps.*, wt.name as winner_name FROM playoff_series ps LEFT JOIN teams wt ON ps.winner_id = wt.id WHERE ps.id = $1`,
+        [seriesRow.id]
+      );
+      results.push({
+        series_id: seriesRow.id,
+        winner: finalSeries.rows[0].winner_name,
+        score: `${finalSeries.rows[0].higher_seed_wins}-${finalSeries.rows[0].lower_seed_wins}`
+      });
+    }
+
+    // Generate next round
+    if (currentRound < 4) {
+      let nextSeries: any[] = [];
+      if (currentRound === 0) {
+        const playInResult = await pool.query(
+          `SELECT * FROM playoff_series WHERE season_id = $1 AND round = 0 ORDER BY conference, series_number`,
+          [seasonId]
+        );
+        const playInSeries = playInResult.rows;
+        nextSeries = await generateFirstRound(seasonId, {
+          eastern7: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 1)?.winner_id,
+          eastern8: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 2)?.winner_id,
+          western7: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 1)?.winner_id,
+          western8: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 2)?.winner_id
+        });
+      } else {
+        nextSeries = await generateNextRound(seasonId, currentRound + 1);
+      }
+      if (nextSeries.length > 0) {
+        await saveSeries(nextSeries);
+      }
+    }
+
+    res.json({
+      round: currentRound,
+      round_name: getRoundName(currentRound),
+      series_completed: results.length,
+      results
+    });
+  } catch (error) {
+    console.error('Simulate round error:', error);
+    res.status(500).json({ error: 'Failed to simulate round' });
+  }
+});
+
+// Simulate all remaining playoffs
+router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
+  try {
+    const franchiseResult = await pool.query(
+      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
+      [req.user.userId]
+    );
+
+    if (franchiseResult.rows.length === 0) {
+      return res.status(400).json({ error: 'No franchise selected' });
+    }
+
+    const franchise = franchiseResult.rows[0];
+    const seasonId = franchise.season_id;
+
+    const roundResults = [];
+    let playoffsComplete = false;
+
+    while (!playoffsComplete) {
+      // Get current round
+      const currentRoundResult = await pool.query(
+        `SELECT MAX(round) as current_round FROM playoff_series WHERE season_id = $1`,
+        [seasonId]
+      );
+      const currentRound = currentRoundResult.rows[0].current_round;
+
+      if (currentRound === null) break;
+
+      // Check if Finals are complete
+      if (currentRound === 4) {
+        const finalsResult = await pool.query(
+          `SELECT status FROM playoff_series WHERE season_id = $1 AND round = 4`,
+          [seasonId]
+        );
+        if (finalsResult.rows[0]?.status === 'completed') {
+          playoffsComplete = true;
+          break;
+        }
+      }
+
+      // Get all incomplete series in current round
+      const incompleteSeries = await pool.query(
+        `SELECT id FROM playoff_series WHERE season_id = $1 AND round = $2 AND status != 'completed'`,
+        [seasonId, currentRound]
+      );
+
+      if (incompleteSeries.rows.length === 0 && currentRound === 4) {
+        playoffsComplete = true;
+        break;
+      }
+
+      const winsNeeded = currentRound === 0 ? 1 : 4;
+      const seriesResults = [];
+
+      for (const seriesRow of incompleteSeries.rows) {
+        let series = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
+        series = series.rows[0];
+
+        while (series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
+          const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
+          const homeIsHigherSeed = [0, 1, 4, 6].includes(gamesPlayed);
+          const homeTeamId = homeIsHigherSeed ? series.higher_seed_id : series.lower_seed_id;
+          const awayTeamId = homeIsHigherSeed ? series.lower_seed_id : series.higher_seed_id;
+
+          const homeTeam = await loadTeamForSimulation(homeTeamId);
+          const awayTeam = await loadTeamForSimulation(awayTeamId);
+          const result = simulateGame(homeTeam, awayTeam);
+
+          await pool.query(
+            `INSERT INTO games (id, season_id, home_team_id, away_team_id, home_score, away_score,
+                               winner_id, is_overtime, overtime_periods, status, is_playoff, completed_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'completed', true, NOW())`,
+            [result.id, seasonId, result.home_team_id, result.away_team_id,
+             result.home_score, result.away_score, result.winner_id,
+             result.is_overtime, result.overtime_periods]
+          );
+
+          for (const quarter of result.quarters) {
+            await pool.query(
+              `INSERT INTO game_quarters (game_id, quarter, home_points, away_points) VALUES ($1, $2, $3, $4)`,
+              [result.id, quarter.quarter, quarter.home_points, quarter.away_points]
+            );
+          }
+
+          await updateSeriesResult(seriesRow.id, result.winner_id, result.id);
+
+          const refreshResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
+          series = refreshResult.rows[0];
+        }
+
+        const finalSeries = await pool.query(
+          `SELECT ps.*, wt.name as winner_name FROM playoff_series ps LEFT JOIN teams wt ON ps.winner_id = wt.id WHERE ps.id = $1`,
+          [seriesRow.id]
+        );
+        seriesResults.push({
+          winner: finalSeries.rows[0].winner_name,
+          score: `${finalSeries.rows[0].higher_seed_wins}-${finalSeries.rows[0].lower_seed_wins}`
+        });
+      }
+
+      roundResults.push({
+        round: currentRound,
+        round_name: getRoundName(currentRound),
+        series: seriesResults
+      });
+
+      // Generate next round
+      if (currentRound < 4) {
+        let nextSeries: any[] = [];
+        if (currentRound === 0) {
+          const playInResult = await pool.query(
+            `SELECT * FROM playoff_series WHERE season_id = $1 AND round = 0 ORDER BY conference, series_number`,
+            [seasonId]
+          );
+          const playInSeries = playInResult.rows;
+          nextSeries = await generateFirstRound(seasonId, {
+            eastern7: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 1)?.winner_id,
+            eastern8: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 2)?.winner_id,
+            western7: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 1)?.winner_id,
+            western8: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 2)?.winner_id
+          });
+        } else {
+          nextSeries = await generateNextRound(seasonId, currentRound + 1);
+        }
+        if (nextSeries.length > 0) {
+          await saveSeries(nextSeries);
+        }
+      } else {
+        playoffsComplete = true;
+      }
+    }
+
+    // Get champion
+    const championResult = await pool.query(
+      `SELECT ps.winner_id, t.name as champion_name, t.abbreviation, t.city
+       FROM playoff_series ps
+       JOIN teams t ON ps.winner_id = t.id
+       WHERE ps.season_id = $1 AND ps.round = 4`,
+      [seasonId]
+    );
+
+    res.json({
+      message: 'Playoffs complete!',
+      rounds_simulated: roundResults.length,
+      rounds: roundResults,
+      champion: championResult.rows[0] ? {
+        name: `${championResult.rows[0].city} ${championResult.rows[0].champion_name}`,
+        abbreviation: championResult.rows[0].abbreviation
+      } : null
+    });
+  } catch (error) {
+    console.error('Simulate all playoffs error:', error);
+    res.status(500).json({ error: 'Failed to simulate playoffs' });
+  }
+});
+
 // Get playoff standings (for seeding display)
 router.get('/standings', async (req, res) => {
   try {

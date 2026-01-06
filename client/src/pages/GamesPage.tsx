@@ -4,11 +4,17 @@ import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge } from '@/components/ui';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { useTeams, useGames, useSimulateGame } from '@/api/hooks';
+import { useFranchise } from '@/context/FranchiseContext';
 import { cn } from '@/lib/utils';
 
 export default function GamesPage() {
+  const { franchise } = useFranchise();
   const { data: teams } = useTeams();
-  const { data: games, isLoading } = useGames({ limit: 20 });
+  // Filter games by current franchise's season to avoid showing games from other franchises
+  const { data: games, isLoading } = useGames({
+    limit: 20,
+    season_id: franchise?.season_id?.toString()
+  });
   const simulateMutation = useSimulateGame();
 
   const [homeTeamId, setHomeTeamId] = useState<string>('');

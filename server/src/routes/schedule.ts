@@ -8,9 +8,9 @@ const router = Router();
 // Generate schedule for current season
 router.post('/generate', authMiddleware(true), async (req: any, res) => {
   try {
-    // Verify user has a franchise
+    // Verify user has an active franchise
     const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1`,
+      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
       [req.user.userId]
     );
 

@@ -10,8 +10,77 @@ import {
   TeamTradeContext
 } from '../trading';
 import { SALARY_CAP } from '../freeagency';
+import { authMiddleware } from '../auth';
 
 const router = Router();
+
+// Helper to check trade deadline
+async function checkTradeDeadline(userId: string): Promise<{ allowed: boolean; message?: string; deadline_day?: number; current_day?: number; days_until?: number }> {
+  // Get user's franchise
+  const franchiseResult = await pool.query(
+    `SELECT f.*, s.trade_deadline_day
+     FROM franchises f
+     JOIN seasons s ON f.season_id = s.id
+     WHERE f.user_id = $1 AND f.is_active = TRUE`,
+    [userId]
+  );
+
+  if (franchiseResult.rows.length === 0) {
+    return { allowed: false, message: 'No active franchise' };
+  }
+
+  const franchise = franchiseResult.rows[0];
+  const deadlineDay = franchise.trade_deadline_day || 100;
+  const currentDay = franchise.current_day || 1;
+
+  // Trades allowed during regular season before deadline, or during offseason
+  if (franchise.phase === 'offseason') {
+    return { allowed: true, deadline_day: deadlineDay, current_day: currentDay };
+  }
+
+  if (franchise.phase !== 'regular_season') {
+    return {
+      allowed: false,
+      message: `Trades not allowed during ${franchise.phase}`,
+      deadline_day: deadlineDay,
+      current_day: currentDay
+    };
+  }
+
+  if (currentDay > deadlineDay) {
+    return {
+      allowed: false,
+      message: 'Trade deadline has passed',
+      deadline_day: deadlineDay,
+      current_day: currentDay
+    };
+  }
+
+  return {
+    allowed: true,
+    deadline_day: deadlineDay,
+    current_day: currentDay,
+    days_until: deadlineDay - currentDay
+  };
+}
+
+// Get trade deadline status
+router.get('/deadline', authMiddleware(true), async (req: any, res) => {
+  try {
+    const status = await checkTradeDeadline(req.user.userId);
+
+    res.json({
+      trades_allowed: status.allowed,
+      message: status.message,
+      deadline_day: status.deadline_day,
+      current_day: status.current_day,
+      days_until_deadline: status.days_until
+    });
+  } catch (error) {
+    console.error('Get deadline error:', error);
+    res.status(500).json({ error: 'Failed to get trade deadline status' });
+  }
+});
 
 // Get all active trade proposals for a team
 router.get('/team/:teamId', async (req, res) => {
@@ -57,9 +126,19 @@ router.get('/team/:teamId', async (req, res) => {
 });
 
 // Propose a new trade
-router.post('/propose', async (req, res) => {
+router.post('/propose', authMiddleware(true), async (req: any, res) => {
   try {
     const { from_team_id, to_team_id, assets } = req.body;
+
+    // Check trade deadline
+    const deadlineStatus = await checkTradeDeadline(req.user.userId);
+    if (!deadlineStatus.allowed) {
+      return res.status(403).json({
+        error: deadlineStatus.message || 'Trades not allowed',
+        deadline_day: deadlineStatus.deadline_day,
+        current_day: deadlineStatus.current_day
+      });
+    }
 
     if (!from_team_id || !to_team_id || !assets || assets.length === 0) {
       return res.status(400).json({ error: 'from_team_id, to_team_id, and assets are required' });
@@ -278,10 +357,20 @@ router.get('/:tradeId/evaluate/:teamId', async (req, res) => {
 });
 
 // Accept a trade
-router.post('/:tradeId/accept', async (req, res) => {
+router.post('/:tradeId/accept', authMiddleware(true), async (req: any, res) => {
   try {
     const { tradeId } = req.params;
     const { team_id } = req.body;
+
+    // Check trade deadline
+    const deadlineStatus = await checkTradeDeadline(req.user.userId);
+    if (!deadlineStatus.allowed) {
+      return res.status(403).json({
+        error: deadlineStatus.message || 'Trades not allowed',
+        deadline_day: deadlineStatus.deadline_day,
+        current_day: deadlineStatus.current_day
+      });
+    }
 
     // Get proposal
     const proposalResult = await pool.query(
