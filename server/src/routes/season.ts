@@ -266,13 +266,16 @@ async function simulateDayGames(franchise: any) {
           ? result.home_team_id
           : result.away_team_id;
 
+        // Pre-calculate per-game values for initial insert
+        const rebounds = ps.oreb + ps.dreb;
+
         await pool.query(
           `INSERT INTO player_season_stats
            (player_id, season_id, team_id, games_played, minutes, points, fgm, fga,
             three_pm, three_pa, ftm, fta, oreb, dreb, assists, steals, blocks, turnovers, fouls,
             ppg, rpg, apg, spg, bpg, mpg)
            VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                   $5, $12 + $13, $14, $15, $16, $4)
+                   $5, $19, $14, $15, $16, $4)
            ON CONFLICT (player_id, season_id) DO UPDATE SET
              team_id = EXCLUDED.team_id,
              games_played = player_season_stats.games_played + 1,
@@ -303,7 +306,8 @@ async function simulateDayGames(franchise: any) {
             ps.minutes, ps.points, ps.fgm, ps.fga,
             ps.three_pm, ps.three_pa, ps.ftm, ps.fta,
             ps.oreb, ps.dreb, ps.assists, ps.steals,
-            ps.blocks, ps.turnovers, ps.fouls
+            ps.blocks, ps.turnovers, ps.fouls,
+            rebounds  // $19 - pre-calculated rebounds for rpg
           ]
         );
       }
@@ -870,7 +874,10 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
     });
   } catch (error) {
     console.error('Advance to playoffs error:', error);
-    res.status(500).json({ error: 'Failed to advance to playoffs' });
+    res.status(500).json({
+      error: 'Failed to advance to playoffs',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 });
 
