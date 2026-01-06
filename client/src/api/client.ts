@@ -73,8 +73,15 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
           });
 
           if (!retryResponse.ok) {
-            const error = await retryResponse.text();
-            throw new Error(error || `API Error: ${retryResponse.status}`);
+            let errorMessage = `API Error: ${retryResponse.status}`;
+            try {
+              const errorData = await retryResponse.json();
+              errorMessage = errorData.error || errorData.message || errorMessage;
+            } catch {
+              const errorText = await retryResponse.text();
+              if (errorText) errorMessage = errorText;
+            }
+            throw new Error(errorMessage);
           }
           return retryResponse.json();
         } else {
@@ -93,8 +100,16 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
   }
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(error || `API Error: ${response.status} ${response.statusText}`);
+    let errorMessage = `API Error: ${response.status} ${response.statusText}`;
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.error || errorData.message || errorMessage;
+    } catch {
+      // Response wasn't JSON, try text
+      const errorText = await response.text();
+      if (errorText) errorMessage = errorText;
+    }
+    throw new Error(errorMessage);
   }
 
   return response.json();

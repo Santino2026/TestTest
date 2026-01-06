@@ -49,6 +49,19 @@ export async function getPlayoffStandings(seasonId: number): Promise<{
 // Generate play-in tournament matchups
 export async function generatePlayIn(seasonId: number): Promise<PlayoffSeries[]> {
   const { eastern, western } = await getPlayoffStandings(seasonId);
+
+  // Validate we have enough teams for play-in (need seeds 7-10 = indices 6-9)
+  if (eastern.length < 10) {
+    throw new Error(
+      `Insufficient Eastern Conference standings: found ${eastern.length} teams, need 10 for play-in seeding`
+    );
+  }
+  if (western.length < 10) {
+    throw new Error(
+      `Insufficient Western Conference standings: found ${western.length} teams, need 10 for play-in seeding`
+    );
+  }
+
   const series: PlayoffSeries[] = [];
 
   for (const [conf, teams] of [['Eastern', eastern], ['Western', western]] as const) {

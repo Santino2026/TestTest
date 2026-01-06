@@ -61,8 +61,37 @@ router.post('/start', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: 'Playoffs already started' });
     }
 
+    // Validate standings data exists before generating play-in
+    const standingsResult = await pool.query(
+      `SELECT COUNT(*) as total,
+              SUM(CASE WHEN t.conference = 'Eastern' THEN 1 ELSE 0 END) as eastern,
+              SUM(CASE WHEN t.conference = 'Western' THEN 1 ELSE 0 END) as western
+       FROM standings s
+       JOIN teams t ON s.team_id = t.id
+       WHERE s.season_id = $1`,
+      [seasonId]
+    );
+
+    const standingsCount = standingsResult.rows[0];
+    if (parseInt(standingsCount.total) < 30) {
+      return res.status(400).json({
+        error: `Regular season incomplete: only ${standingsCount.total}/30 teams have standings data. Complete the regular season first.`
+      });
+    }
+
+    if (parseInt(standingsCount.eastern) < 10 || parseInt(standingsCount.western) < 10) {
+      return res.status(400).json({
+        error: `Insufficient conference standings: Eastern has ${standingsCount.eastern}, Western has ${standingsCount.western}. Need at least 10 per conference.`
+      });
+    }
+
     // Generate play-in tournament
     const playInSeries = await generatePlayIn(seasonId);
+
+    if (playInSeries.length === 0) {
+      return res.status(500).json({ error: 'Failed to generate play-in matchups - no series created' });
+    }
+
     await saveSeries(playInSeries);
 
     // Update franchise phase
@@ -393,8 +422,8 @@ router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
     const winsNeeded = currentRound === 0 ? 1 : 4;
 
     for (const seriesRow of incompleteSeries.rows) {
-      let series = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
-      series = series.rows[0];
+      const seriesResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
+      let series = seriesResult.rows[0] as any;
 
       while (series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
         const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
@@ -529,8 +558,8 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
       const seriesResults = [];
 
       for (const seriesRow of incompleteSeries.rows) {
-        let series = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
-        series = series.rows[0];
+        const seriesQueryResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
+        let series = seriesQueryResult.rows[0] as any;
 
         while (series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
           const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
