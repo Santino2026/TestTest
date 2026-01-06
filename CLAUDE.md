@@ -26,6 +26,45 @@ Premium single-player basketball franchise simulation. $10 one-time purchase via
 
 ---
 
+## Deployment
+
+**Server:** `178.156.146.91` (Hetzner VPS)
+**SSH Key:** `~/.ssh/jmodernize`
+**Remote Path:** `/opt/sportsleagueoffice`
+
+### Deploy to Production
+
+```bash
+# From project root - commits must be pushed to GitHub first
+./deploy.sh
+```
+
+This will:
+1. SSH into the VPS
+2. `git pull origin main`
+3. Install dependencies (server + client)
+4. Build both apps
+5. Restart PM2
+
+### Manual Deploy (if needed)
+
+```bash
+ssh -i ~/.ssh/jmodernize root@178.156.146.91
+cd /opt/sportsleagueoffice
+git pull origin main
+cd server && npm install && npm run build
+cd ../client && npm install && npm run build
+pm2 restart slo-api
+```
+
+### Server Details
+
+- **PM2 Process:** `slo-api`
+- **Nginx Config:** `/etc/nginx/sites-available/sportsleagueoffice`
+- **Logs:** `pm2 logs slo-api`
+
+---
+
 ## Project Structure
 
 ```
