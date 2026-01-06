@@ -322,7 +322,7 @@ export interface Franchise {
   team_id: string;
   season_id: number;
   current_day: number;
-  phase: 'preseason' | 'regular_season' | 'all_star' | 'playoffs' | 'offseason';
+  phase: 'preseason' | 'regular_season' | 'all_star' | 'awards' | 'playoffs' | 'offseason';
   offseason_phase?: 'review' | 'lottery' | 'draft' | 'free_agency' | 'training_camp' | null;
   all_star_complete?: boolean;
   seasons_played: number;

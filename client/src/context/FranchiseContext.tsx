@@ -17,7 +17,7 @@ interface FranchiseContextType {
   switchFranchise: (franchiseId: string) => Promise<void>;
   deleteFranchise: (franchiseId: string) => Promise<void>;
   updateFranchise: (franchiseId: string, updates: { name?: string; difficulty?: string }) => Promise<void>;
-  refreshFranchise: () => Promise<void>;
+  refreshFranchise: () => Promise<boolean>;
   refreshFranchises: () => Promise<void>;
   clearFranchise: () => void;
 }
