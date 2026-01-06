@@ -1,31 +1,35 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, CardHeader, CardTitle, Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { useStandings, useFranchise } from '@/api/hooks';
-import { calculateWinPct } from '@/lib/utils';
+import { calculateWinPct, cn } from '@/lib/utils';
 
 export default function StandingsPage() {
   const { data: franchise } = useFranchise();
   const { data: standings, isLoading } = useStandings(
     franchise?.season_id ? { season_id: franchise.season_id } : undefined
   );
+  const [viewMode, setViewMode] = useState<'division' | 'conference'>('division');
 
-  // Group by conference and division
+  // Group by conference and/or division based on view mode
   const grouped = standings?.reduce((acc, team) => {
-    const key = `${team.conference}-${team.division}`;
+    const key = viewMode === 'division'
+      ? `${team.conference}-${team.division}`
+      : team.conference;
     if (!acc[key]) {
       acc[key] = {
         conference: team.conference,
-        division: team.division,
+        division: viewMode === 'division' ? team.division : null,
         teams: [],
       };
     }
     acc[key].teams.push(team);
     return acc;
-  }, {} as Record<string, { conference: string; division: string; teams: typeof standings }>);
+  }, {} as Record<string, { conference: string; division: string | null; teams: typeof standings }>);
 
-  // Sort teams by wins within each division
+  // Sort teams by win percentage within each group
   if (grouped) {
     Object.values(grouped).forEach(group => {
       group.teams.sort((a, b) => {
@@ -36,14 +40,16 @@ export default function StandingsPage() {
     });
   }
 
-  const divisionOrder = [
-    'Eastern-Atlantic',
-    'Eastern-Central',
-    'Eastern-Southeast',
-    'Western-Northwest',
-    'Western-Pacific',
-    'Western-Southwest',
-  ];
+  const groupOrder = viewMode === 'division'
+    ? [
+        'Eastern-Atlantic',
+        'Eastern-Central',
+        'Eastern-Southeast',
+        'Western-Northwest',
+        'Western-Pacific',
+        'Western-Southwest',
+      ]
+    : ['Eastern', 'Western'];
 
   if (isLoading) {
     return (
@@ -58,17 +64,49 @@ export default function StandingsPage() {
   }
 
   return (
-    <PageTemplate title="Standings" subtitle="League standings by division">
+    <PageTemplate title="Standings" subtitle={`League standings by ${viewMode}`}>
+      {/* View Mode Toggle */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => setViewMode('division')}
+          className={cn(
+            'px-4 py-2 text-sm font-medium rounded-lg transition-colors',
+            viewMode === 'division'
+              ? 'bg-blue-600 text-white'
+              : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700 border border-white/10'
+          )}
+        >
+          By Division
+        </button>
+        <button
+          onClick={() => setViewMode('conference')}
+          className={cn(
+            'px-4 py-2 text-sm font-medium rounded-lg transition-colors',
+            viewMode === 'conference'
+              ? 'bg-blue-600 text-white'
+              : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700 border border-white/10'
+          )}
+        >
+          By Conference
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {divisionOrder.map(key => {
+        {groupOrder.map(key => {
           const group = grouped?.[key];
           if (!group) return null;
 
           return (
             <Card key={key}>
               <CardHeader>
-                <CardTitle>{group.division} Division</CardTitle>
-                <p className="text-sm text-slate-400">{group.conference} Conference</p>
+                <CardTitle>
+                  {viewMode === 'division'
+                    ? `${group.division} Division`
+                    : `${group.conference} Conference`}
+                </CardTitle>
+                {viewMode === 'division' && (
+                  <p className="text-sm text-slate-400">{group.conference} Conference</p>
+                )}
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
