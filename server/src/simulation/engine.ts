@@ -265,13 +265,18 @@ function manageSubstitutions(team: SimTeam, quarter: number, gameClock: number):
 
 // Simulate tip-off
 function simulateTipOff(homeTeam: SimTeam, awayTeam: SimTeam): 'home' | 'away' {
-  // Find centers
-  const homeCenter = homeTeam.on_court.find(p => p.position === 'C') || homeTeam.on_court[4];
-  const awayCenter = awayTeam.on_court.find(p => p.position === 'C') || awayTeam.on_court[4];
+  // Find centers (fallback to any player if none found)
+  const homeCenter = homeTeam.on_court.find(p => p.position === 'C') || homeTeam.on_court[0];
+  const awayCenter = awayTeam.on_court.find(p => p.position === 'C') || awayTeam.on_court[0];
+
+  // Safety check
+  if (!homeCenter || !awayCenter) {
+    return Math.random() > 0.5 ? 'home' : 'away';
+  }
 
   // Compare vertical + height
-  const homeScore = homeCenter.height_inches + homeCenter.attributes.vertical * 0.5;
-  const awayScore = awayCenter.height_inches + awayCenter.attributes.vertical * 0.5;
+  const homeScore = homeCenter.height_inches + (homeCenter.attributes?.vertical || 50) * 0.5;
+  const awayScore = awayCenter.height_inches + (awayCenter.attributes?.vertical || 50) * 0.5;
 
   // Add some randomness
   const roll = Math.random() * 20 - 10;
@@ -314,6 +319,20 @@ function simulateQuarter(
   plays.push(startPlay);
 
   while (gameClock > 0) {
+    // Refresh on_court arrays to ensure they're in sync with is_on_court flags
+    homeTeam.on_court = homeTeam.roster.filter(p => p.is_on_court);
+    awayTeam.on_court = awayTeam.roster.filter(p => p.is_on_court);
+
+    // Safety check: ensure both teams have players on court
+    if (homeTeam.on_court.length === 0 || awayTeam.on_court.length === 0) {
+      console.error('No players on court! Home:', homeTeam.on_court.length, 'Away:', awayTeam.on_court.length);
+      // Re-initialize with starters
+      for (const p of homeTeam.starters.slice(0, 5)) p.is_on_court = true;
+      for (const p of awayTeam.starters.slice(0, 5)) p.is_on_court = true;
+      homeTeam.on_court = homeTeam.roster.filter(p => p.is_on_court);
+      awayTeam.on_court = awayTeam.roster.filter(p => p.is_on_court);
+    }
+
     const offensiveTeam = currentPossession === 'home' ? homeTeam : awayTeam;
     const defensiveTeam = currentPossession === 'home' ? awayTeam : homeTeam;
     const isHome = currentPossession === 'home';
