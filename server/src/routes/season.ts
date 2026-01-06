@@ -36,9 +36,10 @@ async function simulateDayGames(franchise: any) {
   const currentDay = franchise.current_day;
 
   // Calculate the game date for this day
+  // Regular season starts at day 1 = Oct 23 (day after preseason day 0 = Oct 22)
   const seasonStart = new Date('2024-10-22');
   const gameDate = new Date(seasonStart);
-  gameDate.setDate(gameDate.getDate() + currentDay - 1);
+  gameDate.setDate(gameDate.getDate() + currentDay);
   const gameDateStr = gameDate.toISOString().split('T')[0];
 
   // Get all games scheduled for this day

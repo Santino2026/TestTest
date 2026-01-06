@@ -262,9 +262,19 @@ router.post('/select', authMiddleware(true), async (req: any, res) => {
 
     const franchise = await getFranchiseWithDetails(insertResult.rows[0].id);
     res.json(franchise);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Franchise select error:', error);
-    res.status(500).json({ error: 'Failed to select franchise' });
+    const errorMessage = error?.message || 'Failed to select franchise';
+    const errorCode = error?.code;
+
+    // Check for specific database errors
+    if (errorCode === '23505') { // unique_violation
+      res.status(400).json({ error: 'Franchise data already exists. Try refreshing the page.' });
+    } else if (errorCode === '23503') { // foreign_key_violation
+      res.status(400).json({ error: 'Invalid team or season data. Please try again.' });
+    } else {
+      res.status(500).json({ error: `Failed to select franchise: ${errorMessage}` });
+    }
   }
 });
 

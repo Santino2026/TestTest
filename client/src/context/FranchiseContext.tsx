@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api, Franchise } from '@/api/client';
 import { useAuth } from './AuthContext';
 
@@ -29,8 +30,18 @@ export function FranchiseProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [hasCheckedOnce, setHasCheckedOnce] = useState(false);
   const { isAuthenticated, hasPurchased } = useAuth();
+  const queryClient = useQueryClient();
   const hasLoadedRef = useRef(false);
   const lastAuthStateRef = useRef({ isAuthenticated, hasPurchased });
+
+  // Helper to invalidate all season-related caches when franchise changes
+  const invalidateSeasonCaches = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['games'] });
+    queryClient.invalidateQueries({ queryKey: ['schedule'] });
+    queryClient.invalidateQueries({ queryKey: ['standings'] });
+    queryClient.invalidateQueries({ queryKey: ['playoffs'] });
+    queryClient.invalidateQueries({ queryKey: ['franchise'] });
+  }, [queryClient]);
 
   const refreshFranchises = useCallback(async () => {
     if (!isAuthenticated || !hasPurchased) {
@@ -98,6 +109,7 @@ export function FranchiseProvider({ children }: { children: ReactNode }) {
     const selected = await api.selectFranchise(teamId);
     setFranchise(selected);
     await refreshFranchises();
+    invalidateSeasonCaches();
   };
 
   const createFranchise = async (teamId: string, name?: string) => {
@@ -107,6 +119,7 @@ export function FranchiseProvider({ children }: { children: ReactNode }) {
     const created = await api.createFranchise(teamId, name);
     setFranchise(created);
     await refreshFranchises();
+    invalidateSeasonCaches();
   };
 
   const switchFranchise = async (franchiseId: string) => {
@@ -116,6 +129,7 @@ export function FranchiseProvider({ children }: { children: ReactNode }) {
     const switched = await api.switchFranchise(franchiseId);
     setFranchise(switched);
     await refreshFranchises();
+    invalidateSeasonCaches();
   };
 
   const deleteFranchise = async (franchiseId: string) => {
@@ -125,6 +139,7 @@ export function FranchiseProvider({ children }: { children: ReactNode }) {
     await api.deleteFranchise(franchiseId);
     await refreshFranchise();
     await refreshFranchises();
+    invalidateSeasonCaches();
   };
 
   const updateFranchise = async (franchiseId: string, updates: { name?: string; difficulty?: string }) => {
