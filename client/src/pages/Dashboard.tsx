@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Users, Trophy, Calendar, TrendingUp, Play, ChevronRight, FastForward, SkipForward, Loader2, Star } from 'lucide-react';
+import { Users, Trophy, Calendar, TrendingUp, Play, ChevronRight, FastForward, SkipForward, Loader2, Star, Award } from 'lucide-react';
 import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import { TeamLogo } from '@/components/team/TeamLogo';
-import { useTeams, useStandings, useSeason, usePlayers, useAdvancePreseasonDay, useAdvancePreseasonAll, useAdvanceDay, useSimulatePlayoffRound, useSimulatePlayoffAll, useAdvanceOffseasonPhase, useStartNewSeason } from '@/api/hooks';
+import { useTeams, useStandings, useSeason, usePlayers, useAdvancePreseasonDay, useAdvancePreseasonAll, useAdvanceDay, useSimulatePlayoffRound, useSimulatePlayoffAll, useAdvanceOffseasonPhase, useStartNewSeason, useStartPlayoffsFromAwards } from '@/api/hooks';
 import { useFranchise } from '@/context/FranchiseContext';
 import { cn, getStatColor } from '@/lib/utils';
 
@@ -25,6 +25,7 @@ export default function Dashboard() {
   const simulatePlayoffAll = useSimulatePlayoffAll();
   const advanceOffseasonPhase = useAdvanceOffseasonPhase();
   const startNewSeason = useStartNewSeason();
+  const startPlayoffsFromAwards = useStartPlayoffsFromAwards();
 
   const [simResult, setSimResult] = useState<string | null>(null);
 
@@ -112,9 +113,19 @@ export default function Dashboard() {
     }
   };
 
+  const handleStartPlayoffs = async () => {
+    try {
+      const result = await startPlayoffsFromAwards.mutateAsync();
+      setSimResult(result.message);
+      refreshFranchise();
+    } catch {
+      setSimResult('Failed to start playoffs');
+    }
+  };
+
   const isSimulating = advancePreseasonDay.isPending || advancePreseasonAll.isPending ||
                        advanceDay.isPending || simulatePlayoffRound.isPending || simulatePlayoffAll.isPending ||
-                       advanceOffseasonPhase.isPending || startNewSeason.isPending;
+                       advanceOffseasonPhase.isPending || startNewSeason.isPending || startPlayoffsFromAwards.isPending;
 
   // Get top 5 from each conference
   const easternStandings = standings
@@ -245,6 +256,28 @@ export default function Dashboard() {
                     All-Star Weekend
                     <ChevronRight className="w-4 h-4" />
                   </Link>
+                </>
+              )}
+
+              {/* Awards Phase Actions */}
+              {franchise?.phase === 'awards' && (
+                <>
+                  <Link
+                    to="/basketball/awards"
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 active:bg-amber-800 transition-colors min-h-[44px]"
+                  >
+                    <Award className="w-4 h-4" />
+                    View Awards
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                  <button
+                    onClick={handleStartPlayoffs}
+                    disabled={isSimulating}
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 active:bg-purple-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSimulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trophy className="w-4 h-4" />}
+                    Start Playoffs
+                  </button>
                 </>
               )}
 

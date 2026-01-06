@@ -44,8 +44,11 @@ export default function FreeAgencyPage() {
     },
   });
 
-  // Not the right phase
-  if (franchise?.phase !== 'offseason' && franchise?.phase !== 'regular_season') {
+  // Not the right phase - free agency only during regular_season or offseason free_agency phase
+  const isFreeAgencyPhase = franchise?.phase === 'regular_season' ||
+    (franchise?.phase === 'offseason' && franchise?.offseason_phase === 'free_agency');
+
+  if (!isFreeAgencyPhase) {
     return (
       <PageTemplate title="Free Agency" subtitle="Sign free agents to your roster">
         <Card>
@@ -53,7 +56,9 @@ export default function FreeAgencyPage() {
             <UserPlus className="w-16 h-16 mx-auto text-slate-500 mb-4" />
             <h2 className="text-xl font-semibold text-white mb-2">Free Agency Opens Later</h2>
             <p className="text-slate-400">
-              Free agency is available during the regular season and offseason.
+              {franchise?.phase === 'offseason'
+                ? `Complete ${franchise?.offseason_phase} phase first to access free agency.`
+                : 'Free agency is available during the regular season and offseason.'}
             </p>
           </CardContent>
         </Card>

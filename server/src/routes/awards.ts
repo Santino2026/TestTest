@@ -215,6 +215,71 @@ router.post('/calculate', authMiddleware(true), async (req: any, res) => {
       });
     }
 
+    // MIP - Most Improved Player (compare to previous season)
+    // Get previous season ID
+    const prevSeasonResult = await pool.query(
+      `SELECT id FROM seasons WHERE season_number < (SELECT season_number FROM seasons WHERE id = $1) ORDER BY season_number DESC LIMIT 1`,
+      [seasonId]
+    );
+    const prevSeasonId = prevSeasonResult.rows[0]?.id;
+
+    if (prevSeasonId) {
+      // Get players who played in both seasons (not rookies, at least 20 games both seasons)
+      const improvementResult = await pool.query(`
+        WITH current_stats AS (
+          SELECT
+            pgs.player_id,
+            COUNT(*) as games_played,
+            AVG(pgs.points) as ppg,
+            AVG(pgs.rebounds) as rpg,
+            AVG(pgs.assists) as apg
+          FROM player_game_stats pgs
+          JOIN games g ON pgs.game_id = g.id
+          WHERE g.season_id = $1 AND g.status = 'completed' AND g.is_playoff = false
+          GROUP BY pgs.player_id
+          HAVING COUNT(*) >= 20
+        ),
+        prev_stats AS (
+          SELECT
+            pgs.player_id,
+            COUNT(*) as games_played,
+            AVG(pgs.points) as ppg,
+            AVG(pgs.rebounds) as rpg,
+            AVG(pgs.assists) as apg
+          FROM player_game_stats pgs
+          JOIN games g ON pgs.game_id = g.id
+          WHERE g.season_id = $2 AND g.status = 'completed' AND g.is_playoff = false
+          GROUP BY pgs.player_id
+          HAVING COUNT(*) >= 20
+        )
+        SELECT
+          p.id as player_id,
+          p.team_id,
+          c.ppg as current_ppg,
+          pr.ppg as prev_ppg,
+          (c.ppg - pr.ppg) as ppg_improvement,
+          (c.rpg - pr.rpg) as rpg_improvement,
+          (c.apg - pr.apg) as apg_improvement
+        FROM players p
+        JOIN current_stats c ON p.id = c.player_id
+        JOIN prev_stats pr ON p.id = pr.player_id
+        WHERE p.years_pro > 0
+        ORDER BY (c.ppg - pr.ppg) + (c.rpg - pr.rpg) * 0.5 + (c.apg - pr.apg) * 0.5 DESC
+        LIMIT 1
+      `, [seasonId, prevSeasonId]);
+
+      const mipWinner = improvementResult.rows[0];
+      if (mipWinner && parseFloat(mipWinner.ppg_improvement) > 0) {
+        awards.push({
+          season_id: seasonId,
+          award_type: 'mip',
+          player_id: mipWinner.player_id,
+          team_id: mipWinner.team_id,
+          stat_value: parseFloat(mipWinner.ppg_improvement),
+        });
+      }
+    }
+
     // Scoring Leader
     const scoringLeader = [...players].sort((a, b) => parseFloat(b.ppg) - parseFloat(a.ppg))[0];
     if (scoringLeader) {

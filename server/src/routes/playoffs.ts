@@ -5,6 +5,8 @@ import { loadTeamForSimulation } from '../services/simulation';
 import { authMiddleware } from '../auth';
 import {
   generatePlayIn,
+  generatePlayInGame3,
+  checkPlayInGames12Complete,
   generateFirstRound,
   generateNextRound,
   saveSeries,
@@ -195,35 +197,58 @@ router.post('/simulate', authMiddleware(true), async (req: any, res) => {
         let nextSeries: any[] = [];
 
         if (series.round === 0) {
-          // Play-in complete, generate first round
-          // For simplicity, we'll use the play-in winners as 7/8 seeds
-          const playInResult = await pool.query(
+          // Play-in: Check if we need to generate game 3 or first round
+
+          // Check each conference for game 3 generation
+          for (const conf of ['Eastern', 'Western']) {
+            const check = await checkPlayInGames12Complete(series.season_id, conf);
+            if (check.complete && check.loser7v8 && check.winner9v10) {
+              // Generate game 3 for this conference
+              const game3 = await generatePlayInGame3(
+                series.season_id,
+                conf,
+                check.loser7v8,
+                check.winner9v10
+              );
+              await saveSeries([game3]);
+            }
+          }
+
+          // Check if ALL play-in games (including game 3) are complete
+          const allPlayInResult = await pool.query(
             `SELECT * FROM playoff_series
              WHERE season_id = $1 AND round = 0
              ORDER BY conference, series_number`,
             [series.season_id]
           );
 
-          const playInSeries = playInResult.rows;
-          const eastern7Winner = playInSeries.find((s: any) =>
-            s.conference === 'Eastern' && s.series_number === 1
-          )?.winner_id;
-          const eastern8Winner = playInSeries.find((s: any) =>
-            s.conference === 'Eastern' && s.series_number === 2
-          )?.winner_id;
-          const western7Winner = playInSeries.find((s: any) =>
-            s.conference === 'Western' && s.series_number === 1
-          )?.winner_id;
-          const western8Winner = playInSeries.find((s: any) =>
-            s.conference === 'Western' && s.series_number === 2
-          )?.winner_id;
+          const playInSeries = allPlayInResult.rows;
+          const allComplete = playInSeries.every((s: any) => s.status === 'completed');
 
-          nextSeries = await generateFirstRound(series.season_id, {
-            eastern7: eastern7Winner,
-            eastern8: eastern8Winner,
-            western7: western7Winner,
-            western8: western8Winner
-          });
+          // Need 6 total play-in games (3 per conference)
+          if (allComplete && playInSeries.length === 6) {
+            // 7 seed = winner of 7v8 (series_number 1)
+            // 8 seed = winner of game 3 (series_number 3) - loser of 7v8 vs winner of 9v10
+            const eastern7Winner = playInSeries.find((s: any) =>
+              s.conference === 'Eastern' && s.series_number === 1
+            )?.winner_id;
+            const eastern8Winner = playInSeries.find((s: any) =>
+              s.conference === 'Eastern' && s.series_number === 3
+            )?.winner_id;
+            const western7Winner = playInSeries.find((s: any) =>
+              s.conference === 'Western' && s.series_number === 1
+            )?.winner_id;
+            const western8Winner = playInSeries.find((s: any) =>
+              s.conference === 'Western' && s.series_number === 3
+            )?.winner_id;
+
+            nextSeries = await generateFirstRound(series.season_id, {
+              eastern7: eastern7Winner,
+              eastern8: eastern8Winner,
+              western7: western7Winner,
+              western8: western8Winner
+            });
+          }
         } else if (series.round < 4) {
           nextSeries = await generateNextRound(series.season_id, series.round + 1);
         }
@@ -344,17 +369,31 @@ router.post('/simulate/series', authMiddleware(true), async (req: any, res) => {
       let nextSeries: any[] = [];
 
       if (series.round === 0) {
+        // Play-in: Check if we need to generate game 3 or first round
+        for (const conf of ['Eastern', 'Western']) {
+          const check = await checkPlayInGames12Complete(series.season_id, conf);
+          if (check.complete && check.loser7v8 && check.winner9v10) {
+            const game3 = await generatePlayInGame3(series.season_id, conf, check.loser7v8, check.winner9v10);
+            await saveSeries([game3]);
+          }
+        }
+
+        // Check if ALL play-in games are complete
         const playInResult = await pool.query(
           `SELECT * FROM playoff_series WHERE season_id = $1 AND round = 0 ORDER BY conference, series_number`,
           [series.season_id]
         );
         const playInSeries = playInResult.rows;
-        nextSeries = await generateFirstRound(series.season_id, {
-          eastern7: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 1)?.winner_id,
-          eastern8: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 2)?.winner_id,
-          western7: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 1)?.winner_id,
-          western8: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 2)?.winner_id
-        });
+        const allComplete = playInSeries.every((s: any) => s.status === 'completed');
+
+        if (allComplete && playInSeries.length === 6) {
+          nextSeries = await generateFirstRound(series.season_id, {
+            eastern7: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 1)?.winner_id,
+            eastern8: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 3)?.winner_id,
+            western7: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 1)?.winner_id,
+            western8: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 3)?.winner_id
+          });
+        }
       } else if (series.round < 4) {
         nextSeries = await generateNextRound(series.season_id, series.round + 1);
       }
@@ -472,17 +511,31 @@ router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
     if (currentRound < 4) {
       let nextSeries: any[] = [];
       if (currentRound === 0) {
+        // Play-in: Check if we need to generate game 3 first
+        for (const conf of ['Eastern', 'Western']) {
+          const check = await checkPlayInGames12Complete(seasonId, conf);
+          if (check.complete && check.loser7v8 && check.winner9v10) {
+            const game3 = await generatePlayInGame3(seasonId, conf, check.loser7v8, check.winner9v10);
+            await saveSeries([game3]);
+          }
+        }
+
+        // Check if ALL play-in games are complete
         const playInResult = await pool.query(
           `SELECT * FROM playoff_series WHERE season_id = $1 AND round = 0 ORDER BY conference, series_number`,
           [seasonId]
         );
         const playInSeries = playInResult.rows;
-        nextSeries = await generateFirstRound(seasonId, {
-          eastern7: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 1)?.winner_id,
-          eastern8: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 2)?.winner_id,
-          western7: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 1)?.winner_id,
-          western8: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 2)?.winner_id
-        });
+        const allComplete = playInSeries.every((s: any) => s.status === 'completed');
+
+        if (allComplete && playInSeries.length === 6) {
+          nextSeries = await generateFirstRound(seasonId, {
+            eastern7: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 1)?.winner_id,
+            eastern8: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 3)?.winner_id,
+            western7: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 1)?.winner_id,
+            western8: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 3)?.winner_id
+          });
+        }
       } else {
         nextSeries = await generateNextRound(seasonId, currentRound + 1);
       }
@@ -613,17 +666,31 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
       if (currentRound < 4) {
         let nextSeries: any[] = [];
         if (currentRound === 0) {
+          // Play-in: Check if we need to generate game 3 first
+          for (const conf of ['Eastern', 'Western']) {
+            const check = await checkPlayInGames12Complete(seasonId, conf);
+            if (check.complete && check.loser7v8 && check.winner9v10) {
+              const game3 = await generatePlayInGame3(seasonId, conf, check.loser7v8, check.winner9v10);
+              await saveSeries([game3]);
+            }
+          }
+
+          // Check if ALL play-in games are complete
           const playInResult = await pool.query(
             `SELECT * FROM playoff_series WHERE season_id = $1 AND round = 0 ORDER BY conference, series_number`,
             [seasonId]
           );
           const playInSeries = playInResult.rows;
-          nextSeries = await generateFirstRound(seasonId, {
-            eastern7: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 1)?.winner_id,
-            eastern8: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 2)?.winner_id,
-            western7: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 1)?.winner_id,
-            western8: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 2)?.winner_id
-          });
+          const allComplete = playInSeries.every((s: any) => s.status === 'completed');
+
+          if (allComplete && playInSeries.length === 6) {
+            nextSeries = await generateFirstRound(seasonId, {
+              eastern7: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 1)?.winner_id,
+              eastern8: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 3)?.winner_id,
+              western7: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 1)?.winner_id,
+              western8: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 3)?.winner_id
+            });
+          }
         } else {
           nextSeries = await generateNextRound(seasonId, currentRound + 1);
         }

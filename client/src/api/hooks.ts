@@ -212,6 +212,18 @@ export function useStartPlayoffs() {
   });
 }
 
+export function useStartPlayoffsFromAwards() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: api.startPlayoffsFromAwards,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['playoffs'] });
+      queryClient.invalidateQueries({ queryKey: ['franchise'] });
+    },
+  });
+}
+
 export function useSimulatePlayoffGame() {
   const queryClient = useQueryClient();
 
@@ -277,6 +289,7 @@ export function useAdvanceOffseasonPhase() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['offseason'] });
       queryClient.invalidateQueries({ queryKey: ['franchise'] });
+      queryClient.invalidateQueries({ queryKey: ['season'] });
     },
   });
 }
@@ -289,6 +302,7 @@ export function useSkipToOffseasonPhase() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['offseason'] });
       queryClient.invalidateQueries({ queryKey: ['franchise'] });
+      queryClient.invalidateQueries({ queryKey: ['season'] });
     },
   });
 }

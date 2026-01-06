@@ -228,9 +228,34 @@ export async function getTeamAtPick(seasonId: number, pickNumber: number): Promi
   }
 }
 
-// Build full draft order
-export async function buildDraftOrder(seasonId: number): Promise<{ pick: number; round: number; team_id: string; team_name: string; abbreviation: string }[]> {
-  const order: { pick: number; round: number; team_id: string; team_name: string; abbreviation: string }[] = [];
+// Build full draft order from draft_picks table (respects traded picks)
+export async function buildDraftOrder(seasonId: number): Promise<{ pick: number; round: number; team_id: string; team_name: string; abbreviation: string; original_team_id: string; was_traded: boolean }[]> {
+  // Try to get from draft_picks table first (respects traded picks)
+  const picksResult = await pool.query(
+    `SELECT dp.pick_number, dp.round, dp.current_team_id, dp.original_team_id, dp.was_traded,
+            t.name, t.abbreviation
+     FROM draft_picks dp
+     JOIN teams t ON dp.current_team_id = t.id
+     WHERE dp.season_id = $1
+     ORDER BY dp.pick_number`,
+    [seasonId]
+  );
+
+  // If draft_picks table is populated, use it
+  if (picksResult.rows.length > 0) {
+    return picksResult.rows.map((row: any) => ({
+      pick: row.pick_number,
+      round: row.round,
+      team_id: row.current_team_id,
+      team_name: row.name,
+      abbreviation: row.abbreviation,
+      original_team_id: row.original_team_id,
+      was_traded: row.was_traded || false,
+    }));
+  }
+
+  // Fallback to old logic if draft_picks not yet populated (backwards compatibility)
+  const order: { pick: number; round: number; team_id: string; team_name: string; abbreviation: string; original_team_id: string; was_traded: boolean }[] = [];
 
   // Get lottery results (picks 1-14)
   const lotteryResult = await pool.query(
@@ -249,6 +274,8 @@ export async function buildDraftOrder(seasonId: number): Promise<{ pick: number;
       team_id: row.team_id,
       team_name: row.name,
       abbreviation: row.abbreviation,
+      original_team_id: row.team_id,
+      was_traded: false,
     });
   }
 
@@ -271,6 +298,8 @@ export async function buildDraftOrder(seasonId: number): Promise<{ pick: number;
       team_id: row.id,
       team_name: row.name,
       abbreviation: row.abbreviation,
+      original_team_id: row.id,
+      was_traded: false,
     });
     pickNum++;
   }
@@ -284,6 +313,8 @@ export async function buildDraftOrder(seasonId: number): Promise<{ pick: number;
       team_id: firstRound[i].team_id,
       team_name: firstRound[i].team_name,
       abbreviation: firstRound[i].abbreviation,
+      original_team_id: firstRound[i].original_team_id,
+      was_traded: false,
     });
   }
 
