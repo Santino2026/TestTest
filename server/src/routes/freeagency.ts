@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { pool } from '../db/pool';
 import { v4 as uuidv4 } from 'uuid';
+import { authMiddleware } from '../auth';
 import {
   calculateMarketValue,
   canAffordContract,
@@ -17,6 +18,40 @@ import {
 } from '../freeagency';
 
 const router = Router();
+
+// Helper to get user's active franchise
+async function getUserFranchise(userId: string) {
+  const result = await pool.query(
+    `SELECT f.*, t.name as team_name
+     FROM franchises f
+     JOIN teams t ON f.team_id = t.id
+     WHERE f.user_id = $1 AND f.is_active = TRUE`,
+    [userId]
+  );
+  return result.rows[0] || null;
+}
+
+// Check if free agency actions are allowed
+function isFreeAgencyAllowed(franchise: any): { allowed: boolean; reason?: string } {
+  if (!franchise) {
+    return { allowed: false, reason: 'No active franchise' };
+  }
+
+  // Allow during regular season (in-season signings)
+  if (franchise.phase === 'regular_season') {
+    return { allowed: true };
+  }
+
+  // Allow during offseason free_agency phase
+  if (franchise.phase === 'offseason' && franchise.offseason_phase === 'free_agency') {
+    return { allowed: true };
+  }
+
+  return {
+    allowed: false,
+    reason: `Free agency is not available in ${franchise.phase} phase${franchise.offseason_phase ? ` (${franchise.offseason_phase})` : ''}`
+  };
+}
 
 // Get all free agents
 router.get('/', async (req, res) => {
@@ -87,8 +122,15 @@ router.get('/team/:teamId/salary', async (req, res) => {
 });
 
 // Make an offer to a free agent
-router.post('/offer', async (req, res) => {
+router.post('/offer', authMiddleware(true), async (req: any, res) => {
   try {
+    // Check phase
+    const franchise = await getUserFranchise(req.user.userId);
+    const phaseCheck = isFreeAgencyAllowed(franchise);
+    if (!phaseCheck.allowed) {
+      return res.status(400).json({ error: phaseCheck.reason });
+    }
+
     const { team_id, player_id, years, salary_per_year, player_option, team_option, signing_bonus } = req.body;
 
     if (!team_id || !player_id || !years || !salary_per_year) {
@@ -168,8 +210,15 @@ router.post('/offer', async (req, res) => {
 });
 
 // Sign a free agent (user accepting or FA accepting)
-router.post('/sign', async (req, res) => {
+router.post('/sign', authMiddleware(true), async (req: any, res) => {
   try {
+    // Check phase
+    const franchise = await getUserFranchise(req.user.userId);
+    const phaseCheck = isFreeAgencyAllowed(franchise);
+    if (!phaseCheck.allowed) {
+      return res.status(400).json({ error: phaseCheck.reason });
+    }
+
     const { team_id, player_id, years, salary_per_year } = req.body;
 
     if (!team_id || !player_id || !years || !salary_per_year) {
@@ -450,7 +499,41 @@ router.post('/simulate', async (req, res) => {
 
       // Accept if score > 50
       if (bestOffer && bestScore > 50) {
-        // Accept offer - would need to call sign logic here
+        // Execute the signing
+        const salaries = generateYearlySalaries(bestOffer.salary_per_year, bestOffer.years);
+        const contractId = uuidv4();
+
+        // Create contract
+        await pool.query(
+          `INSERT INTO contracts
+           (id, player_id, team_id, total_years, years_remaining, base_salary,
+            year_1_salary, year_2_salary, year_3_salary, year_4_salary, year_5_salary,
+            contract_type, status, start_season_id)
+           VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $10, 'standard', 'active', $11)`,
+          [contractId, playerId, bestOffer.team_id, bestOffer.years, bestOffer.salary_per_year,
+           salaries[0], salaries[1] || null, salaries[2] || null, salaries[3] || null, salaries[4] || null,
+           seasonId]
+        );
+
+        // Update player
+        await pool.query(
+          `UPDATE players SET team_id = $1, salary = $2 WHERE id = $3`,
+          [bestOffer.team_id, bestOffer.salary_per_year, playerId]
+        );
+
+        // Update free agent status
+        await pool.query(
+          `UPDATE free_agents SET status = 'signed', signed_at = NOW() WHERE player_id = $1`,
+          [playerId]
+        );
+
+        // Update all offers for this player
+        await pool.query(
+          `UPDATE contract_offers SET status = CASE WHEN id = $1 THEN 'accepted' ELSE 'rejected' END
+           WHERE player_id = $2 AND status = 'pending'`,
+          [bestOffer.id, playerId]
+        );
+
         decisions.push({
           player_id: playerId,
           decision: 'accepted',
@@ -468,6 +551,7 @@ router.post('/simulate', async (req, res) => {
 
     res.json({
       message: 'Free agency simulation complete',
+      signings: decisions.filter(d => d.decision === 'accepted').length,
       decisions
     });
   } catch (error) {

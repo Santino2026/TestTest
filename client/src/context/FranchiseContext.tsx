@@ -58,16 +58,19 @@ export function FranchiseProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, hasPurchased]);
 
-  const refreshFranchise = useCallback(async () => {
+  // Returns true if we actually made an API call (auth was ready)
+  const refreshFranchise = useCallback(async (): Promise<boolean> => {
     if (!isAuthenticated || !hasPurchased) {
       setFranchise(null);
-      setIsLoading(false);
-      return;
+      // Don't set isLoading false here - let the caller handle it
+      // This prevents hasCheckedOnce from being set prematurely
+      return false;
     }
 
     try {
       const data = await api.getFranchise();
       setFranchise(data);
+      return true;
     } catch (error) {
       console.error('Failed to fetch franchise:', error);
       // Only clear franchise on explicit API errors, not network issues
@@ -76,8 +79,7 @@ export function FranchiseProvider({ children }: { children: ReactNode }) {
         setFranchise(null);
       }
       // Otherwise keep existing franchise state to prevent redirect loops
-    } finally {
-      setIsLoading(false);
+      return true; // Still counts as a valid check attempt
     }
   }, [isAuthenticated, hasPurchased]);
 
@@ -93,9 +95,13 @@ export function FranchiseProvider({ children }: { children: ReactNode }) {
     if (!hasLoadedRef.current || authStateChanged) {
       const loadAll = async () => {
         setIsLoading(true);
-        await Promise.all([refreshFranchise(), refreshFranchises()]);
+        const [didCheck] = await Promise.all([refreshFranchise(), refreshFranchises()]);
         setIsLoading(false);
-        setHasCheckedOnce(true);
+        // Only mark as checked if we actually made an API call (auth was ready)
+        // This prevents redirect to select-team before auth finishes loading
+        if (didCheck) {
+          setHasCheckedOnce(true);
+        }
         hasLoadedRef.current = true;
       };
       loadAll();

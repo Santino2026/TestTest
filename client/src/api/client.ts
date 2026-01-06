@@ -809,6 +809,8 @@ export const api = {
       user_record: { wins: number; losses: number };
       top_standings: any[];
     }>('/season/advance/playoffs', { method: 'POST' }),
+  startPlayoffsFromAwards: () =>
+    fetchAPI<{ message: string; phase: string }>('/season/advance/start-playoffs', { method: 'POST' }),
 
   // Offseason
   processOffseason: () =>

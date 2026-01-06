@@ -206,7 +206,7 @@ router.post('/lottery/run', async (req, res) => {
     // Run lottery simulation
     const results = simulateLottery(teams);
 
-    // Save results
+    // Save lottery results
     for (const result of results) {
       await pool.query(
         `INSERT INTO draft_lottery
@@ -216,6 +216,58 @@ router.post('/lottery/run', async (req, res) => {
          SET post_lottery_position = $5, lottery_win = $6`,
         [seasonId, result.team_id, result.pre_lottery_position,
          result.lottery_odds, result.post_lottery_position, result.lottery_win]
+      );
+    }
+
+    // Get non-lottery teams (picks 15-30) ordered by record
+    const nonLotteryResult = await pool.query(
+      `SELECT t.id
+       FROM standings s
+       JOIN teams t ON s.team_id = t.id
+       WHERE s.season_id = $1
+         AND t.id NOT IN (SELECT team_id FROM draft_lottery WHERE season_id = $1)
+       ORDER BY s.wins ASC, s.losses DESC`,
+      [seasonId]
+    );
+
+    // Create draft_picks entries for all 60 picks
+    // First round: lottery (1-14) + non-lottery (15-30)
+    const firstRoundOrder: string[] = [];
+
+    // Add lottery picks in their post-lottery order
+    const sortedLottery = results.sort((a, b) => a.post_lottery_position - b.post_lottery_position);
+    for (const r of sortedLottery) {
+      firstRoundOrder.push(r.team_id);
+    }
+
+    // Add non-lottery teams (15-30)
+    for (const row of nonLotteryResult.rows) {
+      firstRoundOrder.push(row.id);
+    }
+
+    // Create first round picks (1-30)
+    for (let i = 0; i < firstRoundOrder.length; i++) {
+      const pickNumber = i + 1;
+      const teamId = firstRoundOrder[i];
+      await pool.query(
+        `INSERT INTO draft_picks (season_id, round, pick_number, original_team_id, current_team_id)
+         VALUES ($1, 1, $2, $3, $3)
+         ON CONFLICT (season_id, round, pick_number) DO UPDATE
+         SET original_team_id = $3, current_team_id = $3`,
+        [seasonId, pickNumber, teamId]
+      );
+    }
+
+    // Create second round picks (31-60) - reverse order
+    for (let i = 0; i < firstRoundOrder.length; i++) {
+      const pickNumber = 31 + i;
+      const teamId = firstRoundOrder[firstRoundOrder.length - 1 - i];
+      await pool.query(
+        `INSERT INTO draft_picks (season_id, round, pick_number, original_team_id, current_team_id)
+         VALUES ($1, 2, $2, $3, $3)
+         ON CONFLICT (season_id, round, pick_number) DO UPDATE
+         SET original_team_id = $3, current_team_id = $3`,
+        [seasonId, pickNumber, teamId]
       );
     }
 
@@ -368,12 +420,25 @@ router.post('/pick', async (req, res) => {
       [playerId, prospect_id]
     );
 
+    // Get current pick number
+    const state = await getDraftState(prospect.season_id);
+    const currentPick = state.current_pick;
+    const currentRound = state.current_round;
+
     // Mark prospect as drafted
     await pool.query(
       `UPDATE draft_prospects
-       SET is_drafted = true, drafted_by_team_id = $1
-       WHERE id = $2`,
-      [team_id, prospect_id]
+       SET is_drafted = true, drafted_by_team_id = $1, draft_round = $2, draft_pick = $3
+       WHERE id = $4`,
+      [team_id, currentRound, currentPick, prospect_id]
+    );
+
+    // Update draft_picks table to mark pick as used
+    await pool.query(
+      `UPDATE draft_picks
+       SET player_id = $1
+       WHERE season_id = $2 AND pick_number = $3`,
+      [playerId, prospect.season_id, currentPick]
     );
 
     res.json({
@@ -382,7 +447,9 @@ router.post('/pick', async (req, res) => {
       player_name: `${prospect.first_name} ${prospect.last_name}`,
       position: prospect.position,
       overall: prospect.overall,
-      potential: prospect.potential
+      potential: prospect.potential,
+      pick_number: currentPick,
+      round: currentRound
     });
   } catch (error) {
     console.error('Draft pick error:', error);
@@ -562,8 +629,14 @@ router.post('/ai-pick', authMiddleware(true), async (req: any, res) => {
 
     // Mark prospect as drafted
     await pool.query(
-      `UPDATE draft_prospects SET is_drafted = true, drafted_by_team_id = $1 WHERE id = $2`,
-      [currentPickInfo.team_id, selection.prospect_id]
+      `UPDATE draft_prospects SET is_drafted = true, drafted_by_team_id = $1, draft_round = $2, draft_pick = $3 WHERE id = $4`,
+      [currentPickInfo.team_id, state.current_round, state.current_pick, selection.prospect_id]
+    );
+
+    // Update draft_picks table to mark pick as used
+    await pool.query(
+      `UPDATE draft_picks SET player_id = $1 WHERE season_id = $2 AND pick_number = $3`,
+      [playerId, seasonId, state.current_pick]
     );
 
     // Get new state
@@ -677,8 +750,14 @@ router.post('/sim-to-pick', authMiddleware(true), async (req: any, res) => {
       );
 
       await pool.query(
-        `UPDATE draft_prospects SET is_drafted = true, drafted_by_team_id = $1 WHERE id = $2`,
-        [currentPickInfo.team_id, selection.prospect_id]
+        `UPDATE draft_prospects SET is_drafted = true, drafted_by_team_id = $1, draft_round = $2, draft_pick = $3 WHERE id = $4`,
+        [currentPickInfo.team_id, state.current_round, state.current_pick, selection.prospect_id]
+      );
+
+      // Update draft_picks table to mark pick as used
+      await pool.query(
+        `UPDATE draft_picks SET player_id = $1 WHERE season_id = $2 AND pick_number = $3`,
+        [playerId, seasonId, state.current_pick]
       );
 
       picks.push({
@@ -791,8 +870,14 @@ router.post('/auto-draft', authMiddleware(true), async (req: any, res) => {
       );
 
       await pool.query(
-        `UPDATE draft_prospects SET is_drafted = true, drafted_by_team_id = $1 WHERE id = $2`,
-        [currentPickInfo.team_id, selection.prospect_id]
+        `UPDATE draft_prospects SET is_drafted = true, drafted_by_team_id = $1, draft_round = $2, draft_pick = $3 WHERE id = $4`,
+        [currentPickInfo.team_id, state.current_round, state.current_pick, selection.prospect_id]
+      );
+
+      // Update draft_picks table to mark pick as used
+      await pool.query(
+        `UPDATE draft_picks SET player_id = $1 WHERE season_id = $2 AND pick_number = $3`,
+        [playerId, seasonId, state.current_pick]
       );
 
       const isUserPick = currentPickInfo.team_id === franchise.team_id;

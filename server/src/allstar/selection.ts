@@ -57,7 +57,8 @@ export async function getAllStarCandidates(
   seasonId: number,
   conference: 'Eastern' | 'Western'
 ): Promise<AllStarCandidate[]> {
-  // Get players with their season stats
+  // Get players with their season stats aggregated from game stats
+  // This aggregates directly from player_game_stats rather than relying on player_season_stats
   const result = await pool.query(
     `SELECT
       p.id as player_id,
@@ -67,17 +68,32 @@ export async function getAllStarCandidates(
       t.name as team_name,
       p.position,
       p.overall,
-      COALESCE(ps.games_played, 0) as games_played,
-      COALESCE(ps.points / NULLIF(ps.games_played, 0), 0) as ppg,
-      COALESCE(ps.rebounds / NULLIF(ps.games_played, 0), 0) as rpg,
-      COALESCE(ps.assists / NULLIF(ps.games_played, 0), 0) as apg,
-      COALESCE(ps.steals / NULLIF(ps.games_played, 0), 0) as spg,
-      COALESCE(ps.blocks / NULLIF(ps.games_played, 0), 0) as bpg,
-      COALESCE(ps.field_goals_made * 100.0 / NULLIF(ps.field_goals_attempted, 0), 0) as fg_pct,
+      COALESCE(stats.games_played, 0) as games_played,
+      COALESCE(stats.total_points::float / NULLIF(stats.games_played, 0), 0) as ppg,
+      COALESCE(stats.total_rebounds::float / NULLIF(stats.games_played, 0), 0) as rpg,
+      COALESCE(stats.total_assists::float / NULLIF(stats.games_played, 0), 0) as apg,
+      COALESCE(stats.total_steals::float / NULLIF(stats.games_played, 0), 0) as spg,
+      COALESCE(stats.total_blocks::float / NULLIF(stats.games_played, 0), 0) as bpg,
+      COALESCE(stats.total_fgm * 100.0 / NULLIF(stats.total_fga, 0), 0) as fg_pct,
       COALESCE(st.wins, 0) as team_wins
     FROM players p
     JOIN teams t ON p.team_id = t.id
-    LEFT JOIN player_season_stats ps ON p.id = ps.player_id AND ps.season_id = $1
+    LEFT JOIN (
+      SELECT
+        pgs.player_id,
+        COUNT(*) as games_played,
+        SUM(pgs.points) as total_points,
+        SUM(pgs.rebounds) as total_rebounds,
+        SUM(pgs.assists) as total_assists,
+        SUM(pgs.steals) as total_steals,
+        SUM(pgs.blocks) as total_blocks,
+        SUM(pgs.fgm) as total_fgm,
+        SUM(pgs.fga) as total_fga
+      FROM player_game_stats pgs
+      JOIN games g ON pgs.game_id = g.id
+      WHERE g.season_id = $1 AND g.status = 'completed'
+      GROUP BY pgs.player_id
+    ) stats ON p.id = stats.player_id
     LEFT JOIN standings st ON t.id = st.team_id AND st.season_id = $1
     WHERE t.conference = $2
       AND p.team_id IS NOT NULL
@@ -136,13 +152,38 @@ export async function selectAllStars(
   const forwards = candidates.filter(c => c.position === 'SF' || c.position === 'PF');
   const centers = candidates.filter(c => c.position === 'C');
 
-  // Select starters (5): 2 guards, 2 forwards, 1 center (by score within position)
-  const starterGuards = guards.slice(0, 2);
-  const starterForwards = forwards.slice(0, 2);
-  const starterCenter = centers[0];
+  // Select starters (5): 2 guards, 2 forwards, 1 center
+  // Enforce one-per-team rule for starters to ensure variety
+  const selectedTeams = new Set<string>();
 
-  starters.push(...starterGuards, ...starterForwards);
-  if (starterCenter) starters.push(starterCenter);
+  // Helper to select best player not already from a selected team
+  const selectBestFromPosition = (pool: AllStarCandidate[], count: number): AllStarCandidate[] => {
+    const result: AllStarCandidate[] = [];
+    for (const player of pool) {
+      if (result.length >= count) break;
+      // Allow one player per team in starters
+      if (!selectedTeams.has(player.team_id)) {
+        result.push(player);
+        selectedTeams.add(player.team_id);
+      }
+    }
+    // If we couldn't fill with unique teams, allow duplicates
+    if (result.length < count) {
+      for (const player of pool) {
+        if (result.length >= count) break;
+        if (!result.includes(player)) {
+          result.push(player);
+        }
+      }
+    }
+    return result;
+  };
+
+  const starterGuards = selectBestFromPosition(guards, 2);
+  const starterForwards = selectBestFromPosition(forwards, 2);
+  const starterCenter = selectBestFromPosition(centers, 1);
+
+  starters.push(...starterGuards, ...starterForwards, ...starterCenter);
 
   // If we don't have enough at a position, fill with best available
   while (starters.length < 5) {
@@ -154,9 +195,16 @@ export async function selectAllStars(
   selected.push(...starters);
 
   // Select reserves (10 more): best available not already selected
-  const reserves = candidates
-    .filter(c => !selected.includes(c))
-    .slice(0, 10);
+  // For reserves, prefer players from teams not yet represented, but don't enforce strictly
+  const teamsInSelected = new Set(selected.map(s => s.team_id));
+  const unrepresentedCandidates = candidates.filter(c => !selected.includes(c) && !teamsInSelected.has(c.team_id));
+  const otherCandidates = candidates.filter(c => !selected.includes(c) && teamsInSelected.has(c.team_id));
+
+  // Take from unrepresented teams first, then fill with best remaining
+  const reserves = [
+    ...unrepresentedCandidates.slice(0, 10),
+    ...otherCandidates
+  ].slice(0, 10);
 
   selected.push(...reserves);
 

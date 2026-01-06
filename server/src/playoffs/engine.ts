@@ -99,6 +99,68 @@ export async function generatePlayIn(seasonId: number): Promise<PlayoffSeries[]>
   return series;
 }
 
+// Generate 3rd play-in game (loser of 7v8 vs winner of 9v10)
+// This should be called after both initial play-in games are complete
+export async function generatePlayInGame3(
+  seasonId: number,
+  conference: string,
+  loser7v8: string,
+  winner9v10: string
+): Promise<PlayoffSeries> {
+  return {
+    season_id: seasonId,
+    round: 0,
+    conference: conference,
+    series_number: 3, // Third game in play-in
+    higher_seed_id: loser7v8, // Originally higher seed (7 or 8)
+    lower_seed_id: winner9v10, // Winner of 9v10
+    higher_seed_wins: 0,
+    lower_seed_wins: 0,
+    winner_id: null,
+    status: 'pending'
+  };
+}
+
+// Check if play-in games 1 and 2 are complete for a conference
+export async function checkPlayInGames12Complete(
+  seasonId: number,
+  conference: string
+): Promise<{
+  complete: boolean;
+  loser7v8: string | null;
+  winner9v10: string | null;
+  winner7v8: string | null;
+}> {
+  const result = await pool.query(
+    `SELECT * FROM playoff_series
+     WHERE season_id = $1 AND round = 0 AND conference = $2
+     ORDER BY series_number`,
+    [seasonId, conference]
+  );
+
+  const series = result.rows;
+  const game1 = series.find((s: any) => s.series_number === 1); // 7 vs 8
+  const game2 = series.find((s: any) => s.series_number === 2); // 9 vs 10
+  const game3 = series.find((s: any) => s.series_number === 3); // Exists if already generated
+
+  // If game3 already exists, games 1&2 are complete but we've already generated game 3
+  if (game3) {
+    return { complete: false, loser7v8: null, winner9v10: null, winner7v8: null };
+  }
+
+  if (!game1 || !game2 || game1.status !== 'completed' || game2.status !== 'completed') {
+    return { complete: false, loser7v8: null, winner9v10: null, winner7v8: null };
+  }
+
+  const winner7v8 = game1.winner_id;
+  const loser7v8 = game1.winner_id === game1.higher_seed_id
+    ? game1.lower_seed_id
+    : game1.higher_seed_id;
+  const winner9v10 = game2.winner_id;
+
+  return { complete: true, loser7v8, winner9v10, winner7v8 };
+}
+
 // Generate first round matchups (after play-in complete)
 export async function generateFirstRound(
   seasonId: number,

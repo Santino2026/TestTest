@@ -42,7 +42,7 @@ async function simulateDayGames(franchise: any) {
   gameDate.setDate(gameDate.getDate() + currentDay);
   const gameDateStr = gameDate.toISOString().split('T')[0];
 
-  // Get all games scheduled for this day
+  // Get all regular season games scheduled for this day (not preseason)
   const gamesResult = await pool.query(
     `SELECT s.*,
             ht.name as home_team_name, ht.abbreviation as home_abbrev,
@@ -50,7 +50,7 @@ async function simulateDayGames(franchise: any) {
      FROM schedule s
      JOIN teams ht ON s.home_team_id = ht.id
      JOIN teams at ON s.away_team_id = at.id
-     WHERE s.season_id = $1 AND s.game_date = $2 AND s.status = 'scheduled'`,
+     WHERE s.season_id = $1 AND s.game_date = $2 AND s.status = 'scheduled' AND s.is_preseason = FALSE`,
     [seasonId, gameDateStr]
   );
 
@@ -531,9 +531,9 @@ router.post('/advance/day', authMiddleware(true), async (req: any, res) => {
     if (newDay >= allStarDay && !franchise.all_star_complete && newDay < allStarDay + 4) {
       newPhase = 'all_star';
     }
-    // Check if season is complete (after ~174 days)
+    // Check if season is complete (after ~174 days) - go to awards first
     else if (newDay > 174) {
-      newPhase = 'playoffs';
+      newPhase = 'awards';
     }
 
     await pool.query(
@@ -594,9 +594,9 @@ router.post('/advance/week', authMiddleware(true), async (req: any, res) => {
       if (newDay >= allStarDay && !franchise.all_star_complete && newDay < allStarDay + 4) {
         newPhase = 'all_star';
       }
-      // Check if season is complete
+      // Check if season is complete - go to awards first
       else if (newDay > 174) {
-        newPhase = 'playoffs';
+        newPhase = 'awards';
       }
 
       await pool.query(
@@ -688,7 +688,7 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
       }
 
       if (newDay > 174) {
-        newPhase = 'playoffs';
+        newPhase = 'awards';
       }
 
       await pool.query(
@@ -699,7 +699,7 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
 
       daysSimulated++;
 
-      if (newPhase === 'playoffs') break;
+      if (newPhase === 'awards') break;
 
       // Refresh franchise
       franchise = await getUserFranchise(req.user.userId);
@@ -716,9 +716,9 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
     );
 
     res.json({
-      message: 'Regular season complete!',
+      message: 'Regular season complete! View awards before playoffs.',
       days_simulated: daysSimulated,
-      phase: 'playoffs',
+      phase: 'awards',
       all_star_simulated: allStarSimulated,
       user_record: {
         wins: userResults.filter(r =>
@@ -735,6 +735,34 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
   } catch (error) {
     console.error('Advance to playoffs error:', error);
     res.status(500).json({ error: 'Failed to advance to playoffs' });
+  }
+});
+
+// Advance from awards phase to playoffs
+router.post('/advance/start-playoffs', authMiddleware(true), async (req: any, res) => {
+  try {
+    const franchise = await getUserFranchise(req.user.userId);
+    if (!franchise) {
+      return res.status(404).json({ error: 'No franchise found' });
+    }
+
+    if (franchise.phase !== 'awards') {
+      return res.status(400).json({ error: 'Must be in awards phase to start playoffs' });
+    }
+
+    // Update franchise to playoffs phase
+    await pool.query(
+      `UPDATE franchises SET phase = 'playoffs', last_played_at = NOW() WHERE id = $1`,
+      [franchise.id]
+    );
+
+    res.json({
+      message: 'Awards complete! Playoffs are ready to begin.',
+      phase: 'playoffs'
+    });
+  } catch (error) {
+    console.error('Start playoffs error:', error);
+    res.status(500).json({ error: 'Failed to start playoffs' });
   }
 });
 
@@ -879,19 +907,31 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
 
     // Move players with expired contracts to free agency
     const expiredContracts = await pool.query(
-      `SELECT player_id FROM contracts WHERE status = 'expired' AND updated_at > NOW() - INTERVAL '1 minute'`
+      `SELECT c.player_id, c.annual_salary, p.overall, p.position
+       FROM contracts c
+       JOIN players p ON c.player_id = p.id
+       WHERE c.status = 'expired' AND c.updated_at > NOW() - INTERVAL '1 minute'`
     );
 
     for (const row of expiredContracts.rows) {
+      // Clear player's team
       await pool.query(
         `UPDATE players SET team_id = NULL, salary = 0 WHERE id = $1`,
         [row.player_id]
       );
+
+      // Add to free_agents table for free agency phase
+      await pool.query(
+        `INSERT INTO free_agents (player_id, previous_team_id, asking_salary, market_value, status)
+         VALUES ($1, (SELECT team_id FROM contracts WHERE player_id = $1 ORDER BY created_at DESC LIMIT 1), $2, $3, 'available')
+         ON CONFLICT (player_id) DO UPDATE SET status = 'available', asking_salary = $2`,
+        [row.player_id, row.annual_salary || 5000000, (row.overall || 70) * 100000]
+      );
     }
 
-    // Update franchise phase to offseason complete
+    // Update franchise phase to offseason with initial phase
     await pool.query(
-      `UPDATE franchises SET phase = 'offseason', last_played_at = NOW() WHERE id = $1`,
+      `UPDATE franchises SET phase = 'offseason', offseason_phase = 'review', last_played_at = NOW() WHERE id = $1`,
       [franchise.id]
     );
 
@@ -1246,7 +1286,7 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
     const newSeasonNumber = (seasonResult.rows[0].max_season || 0) + 1;
 
     const newSeasonId = await pool.query(
-      `INSERT INTO seasons (season_number, status) VALUES ($1, 'regular') RETURNING id`,
+      `INSERT INTO seasons (season_number, status) VALUES ($1, 'preseason') RETURNING id`,
       [newSeasonNumber]
     );
 
@@ -1292,12 +1332,6 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
     await pool.query(
       `UPDATE franchises SET season_id = $1, current_day = -7, phase = 'preseason', offseason_phase = NULL, season_number = $2, last_played_at = NOW() WHERE id = $3`,
       [newSeason.id, newSeasonNumber, franchise.id]
-    );
-
-    // Update season status to preseason
-    await pool.query(
-      `UPDATE seasons SET status = 'preseason' WHERE id = $1`,
-      [newSeason.id]
     );
 
     res.json({
