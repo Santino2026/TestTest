@@ -25,9 +25,14 @@ import { updateHotColdState } from './hotcold';
 
 // Select primary ball handler based on position and skills
 function selectBallHandler(players: SimPlayer[]): SimPlayer {
+  // Guard against empty array
+  if (!players || players.length === 0) {
+    throw new Error('selectBallHandler called with no players on court');
+  }
+
   // Weight by position and ball handling
   const weights = players.map(p => {
-    let weight = p.attributes.ball_handling;
+    let weight = p.attributes?.ball_handling || 50;
 
     // Position bonuses
     switch (p.position) {
