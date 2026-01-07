@@ -20,7 +20,7 @@ import {
   getSeasonAllStarDay,
   getAllTeams
 } from '../db/queries';
-import { withTransaction, lockUserActiveFranchise } from '../db/transactions';
+import { withTransaction, withAdvisoryLock, lockUserActiveFranchise } from '../db/transactions';
 import { saveCompleteGameResult, GameResult } from '../services/gamePersistence';
 
 const router = Router();
@@ -436,7 +436,8 @@ router.post('/advance/preseason/all', authMiddleware(true), async (req: any, res
 // Advance one day in the season
 router.post('/advance/day', authMiddleware(true), async (req: any, res) => {
   try {
-    const result = await withTransaction(async (client) => {
+    // Use advisory lock to serialize all advancement requests for this user
+    const result = await withAdvisoryLock(`advance-season-${req.user.userId}`, async (client) => {
       // Lock franchise to prevent concurrent advancement
       const franchise = await lockUserActiveFranchise(client, req.user.userId);
       if (!franchise) {
@@ -447,7 +448,7 @@ router.post('/advance/day', authMiddleware(true), async (req: any, res) => {
         throw { status: 400, message: 'Not in regular season' };
       }
 
-      // Simulate games (safe outside transaction since games are idempotent)
+      // Simulate games (safe within advisory lock since concurrent requests are serialized)
       const { gameDateStr, results } = await simulateDayGames(franchise);
 
       // Advance the day
@@ -495,7 +496,8 @@ router.post('/advance/day', authMiddleware(true), async (req: any, res) => {
 // Advance one week (7 days)
 router.post('/advance/week', authMiddleware(true), async (req: any, res) => {
   try {
-    const result = await withTransaction(async (client) => {
+    // Use advisory lock to serialize all advancement requests for this user
+    const result = await withAdvisoryLock(`advance-season-${req.user.userId}`, async (client) => {
       // Lock franchise to prevent concurrent advancement
       let franchise = await lockUserActiveFranchise(client, req.user.userId);
       if (!franchise) {

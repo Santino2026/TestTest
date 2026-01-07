@@ -16,7 +16,7 @@ import {
   scoreOffer,
   TeamContext
 } from '../freeagency';
-import { withTransaction } from '../db/transactions';
+import { withTransaction, withAdvisoryLock, lockPlayer } from '../db/transactions';
 import { getUserActiveFranchise, getLatestSeasonId } from '../db/queries';
 
 const router = Router();
@@ -210,34 +210,35 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: 'team_id, player_id, years, and salary_per_year required' });
     }
 
-    const result = await withTransaction(async (client) => {
+    // Use advisory lock to serialize all signing attempts for this player
+    const result = await withAdvisoryLock(`sign-player-${player_id}`, async (client) => {
       // Get season
       const seasonId = await getLatestSeasonId(client);
 
-      // Atomically claim the player - prevents double-signing
-      const claimResult = await client.query(
-        `UPDATE players SET team_id = $1, salary = $2
-         WHERE id = $3 AND team_id IS NULL
-         RETURNING *`,
-        [team_id, salary_per_year, player_id]
-      );
-
-      if (claimResult.rows.length === 0) {
+      // Lock the player row first - prevents race conditions
+      const player = await lockPlayer(client, player_id);
+      if (!player) {
+        throw { status: 404, message: 'Player not found' };
+      }
+      if (player.team_id !== null) {
         throw { status: 400, message: 'Player is not a free agent or was already signed' };
       }
 
-      const player = claimResult.rows[0];
-
-      // Verify team roster space
+      // Verify team roster space BEFORE signing
       const rosterResult = await client.query(
         `SELECT COUNT(*) FROM players WHERE team_id = $1`,
         [team_id]
       );
 
-      if (parseInt(rosterResult.rows[0].count) > 15) {
-        // Rollback by throwing - transaction will be rolled back
+      if (parseInt(rosterResult.rows[0].count) >= 15) {
         throw { status: 400, message: 'Roster is full (15 players max)' };
       }
+
+      // Now sign the player
+      await client.query(
+        `UPDATE players SET team_id = $1, salary = $2 WHERE id = $3`,
+        [team_id, salary_per_year, player_id]
+      );
 
       // Generate contract salaries
       const salaries = generateYearlySalaries(salary_per_year, years);
@@ -435,7 +436,7 @@ router.get('/transactions', async (req, res) => {
   }
 });
 
-// Helper function to sign a free agent atomically
+// Helper function to sign a free agent atomically with advisory lock
 async function signFreeAgentAtomic(
   playerId: string,
   teamId: string,
@@ -445,18 +446,18 @@ async function signFreeAgentAtomic(
   offerId: string
 ): Promise<boolean> {
   try {
-    return await withTransaction(async (client) => {
-      // Atomically claim the player - prevents double-signing
-      const claimResult = await client.query(
-        `UPDATE players SET team_id = $1, salary = $2
-         WHERE id = $3 AND team_id IS NULL
-         RETURNING *`,
+    return await withAdvisoryLock(`sign-player-${playerId}`, async (client) => {
+      // Lock the player row first
+      const player = await lockPlayer(client, playerId);
+      if (!player || player.team_id !== null) {
+        return false; // Player not found or already signed
+      }
+
+      // Sign the player
+      await client.query(
+        `UPDATE players SET team_id = $1, salary = $2 WHERE id = $3`,
         [teamId, salaryPerYear, playerId]
       );
-
-      if (claimResult.rows.length === 0) {
-        return false; // Player already signed
-      }
 
       // Generate contract salaries
       const salaries = generateYearlySalaries(salaryPerYear, years);

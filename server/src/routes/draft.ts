@@ -14,7 +14,7 @@ import {
 } from '../draft';
 import { authMiddleware } from '../auth';
 import { v4 as uuidv4 } from 'uuid';
-import { withTransaction } from '../db/transactions';
+import { withAdvisoryLock, withTransaction, lockProspect } from '../db/transactions';
 import { getLatestSeasonId, getUserActiveFranchise } from '../db/queries';
 
 const router = Router();
@@ -347,20 +347,22 @@ router.post('/pick', async (req, res) => {
       return res.status(400).json({ error: 'prospect_id and team_id required' });
     }
 
-    const result = await withTransaction(async (client) => {
-      // Atomically claim the prospect - prevents double-drafting
-      const claimResult = await client.query(
-        `UPDATE draft_prospects SET is_drafted = true
-         WHERE id = $1 AND is_drafted = false
-         RETURNING *`,
-        [prospect_id]
-      );
-
-      if (claimResult.rows.length === 0) {
-        throw { status: 404, message: 'Prospect not found or already drafted' };
+    // Use advisory lock to serialize draft picks for this prospect
+    const result = await withAdvisoryLock(`draft-pick-${prospect_id}`, async (client) => {
+      // Lock the prospect row first
+      const prospect = await lockProspect(client, prospect_id);
+      if (!prospect) {
+        throw { status: 404, message: 'Prospect not found' };
+      }
+      if (prospect.is_drafted) {
+        throw { status: 400, message: 'Prospect already drafted' };
       }
 
-      const prospect = claimResult.rows[0];
+      // Mark as drafted
+      await client.query(
+        `UPDATE draft_prospects SET is_drafted = true WHERE id = $1`,
+        [prospect_id]
+      );
 
       // Get prospect attributes
       const attrsResult = await client.query(

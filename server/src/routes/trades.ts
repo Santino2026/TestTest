@@ -11,7 +11,7 @@ import {
 } from '../trading';
 import { SALARY_CAP } from '../freeagency';
 import { authMiddleware } from '../auth';
-import { withTransaction } from '../db/transactions';
+import { withAdvisoryLock, lockPlayer } from '../db/transactions';
 import { getLatestSeasonId, getUserActiveFranchise, getSeasonTradeDeadlineDay } from '../db/queries';
 
 const router = Router();
@@ -364,7 +364,8 @@ router.post('/:tradeId/accept', authMiddleware(true), async (req: any, res) => {
       });
     }
 
-    const result = await withTransaction(async (client) => {
+    // Use advisory lock to serialize trade execution
+    const result = await withAdvisoryLock(`trade-${tradeId}`, async (client) => {
       // Atomically claim the trade - prevents double-acceptance
       const proposalResult = await client.query(
         `UPDATE trade_proposals SET status = 'accepted', resolved_at = NOW()
@@ -393,6 +394,21 @@ router.post('/:tradeId/accept', authMiddleware(true), async (req: any, res) => {
         `SELECT * FROM trade_assets WHERE trade_id = $1`,
         [tradeId]
       );
+
+      // Lock all player rows involved BEFORE executing transfers
+      // This prevents players from being traded/signed elsewhere mid-transaction
+      for (const asset of assetsResult.rows) {
+        if (asset.asset_type === 'player' && asset.player_id) {
+          const player = await lockPlayer(client, asset.player_id);
+          if (!player) {
+            throw { status: 400, message: `Player ${asset.player_id} not found` };
+          }
+          // Verify player is still on the expected team
+          if (player.team_id !== asset.from_team_id) {
+            throw { status: 400, message: 'Player is no longer on the expected team - trade invalid' };
+          }
+        }
+      }
 
       // Execute the trade
       for (const asset of assetsResult.rows) {

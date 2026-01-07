@@ -7,6 +7,19 @@ import { PoolClient } from 'pg';
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
+ * Generate a consistent numeric lock ID from a string key.
+ * Used by withAdvisoryLock to create unique lock identifiers.
+ */
+function hashToLockId(key: string): number {
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = ((hash << 5) - hash) + key.charCodeAt(i);
+    hash |= 0; // Convert to 32-bit integer
+  }
+  return Math.abs(hash);
+}
+
+/**
  * Execute a function within a database transaction.
  * Automatically handles BEGIN, COMMIT, and ROLLBACK.
  *
@@ -35,50 +48,43 @@ export async function withTransaction<T>(
 }
 
 /**
- * Acquire a row-level lock using SELECT FOR UPDATE.
- * Use this to prevent concurrent modifications to the same row.
+ * Execute a function within a transaction with an advisory lock.
+ * Use this for operations that need to be serialized across multiple requests,
+ * such as signing players, executing trades, or advancing seasons.
+ *
+ * The lock is automatically released when the transaction ends.
  *
  * @example
- * const franchise = await lockRow(client, 'franchises', franchiseId);
- * if (!franchise) throw new Error('Not found');
- * // Now safe to modify this franchise
+ * const result = await withAdvisoryLock(`sign-player-${playerId}`, async (client) => {
+ *   const player = await lockPlayer(client, playerId);
+ *   if (!player || player.team_id) throw new Error('Not available');
+ *   // ... sign player
+ * });
  */
-export async function lockRow<T>(
-  client: PoolClient,
-  table: string,
-  id: string,
-  columns: string = '*'
-): Promise<T | null> {
-  const result = await client.query(
-    `SELECT ${columns} FROM ${table} WHERE id = $1 FOR UPDATE`,
-    [id]
-  );
-  return result.rows[0] || null;
-}
-
-/**
- * Lock franchise row for exclusive access during updates.
- * Prevents race conditions in season advancement, etc.
- */
-export async function lockFranchise(
-  client: PoolClient,
-  franchiseId: string
-): Promise<any | null> {
-  const result = await client.query(
-    `SELECT f.*, t.name as team_name, t.abbreviation, t.city, t.conference, t.division,
-            s.wins, s.losses
-     FROM franchises f
-     JOIN teams t ON f.team_id = t.id
-     LEFT JOIN standings s ON s.team_id = f.team_id AND s.season_id = f.season_id
-     WHERE f.id = $1
-     FOR UPDATE OF f`,
-    [franchiseId]
-  );
-  return result.rows[0] || null;
+export async function withAdvisoryLock<T>(
+  lockKey: string,
+  fn: (client: PoolClient) => Promise<T>
+): Promise<T> {
+  const lockId = hashToLockId(lockKey);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // pg_advisory_xact_lock automatically releases when transaction ends
+    await client.query('SELECT pg_advisory_xact_lock($1)', [lockId]);
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 /**
  * Lock user's active franchise for exclusive access.
+ * Prevents race conditions in season advancement, etc.
  */
 export async function lockUserActiveFranchise(
   client: PoolClient,
@@ -98,79 +104,58 @@ export async function lockUserActiveFranchise(
 }
 
 /**
- * Atomic update with condition check - returns updated row or null if condition not met.
- * Use for operations like "sign player only if still available".
+ * Lock a player row for exclusive access.
+ * Use this before signing, trading, or modifying player data.
  *
  * @example
- * const player = await atomicUpdate(client, 'players',
- *   { team_id: teamId, salary: salary },
- *   { id: playerId, team_id: null }  // Only if team_id is NULL
- * );
- * if (!player) throw new Error('Player already signed');
+ * const player = await lockPlayer(client, playerId);
+ * if (!player || player.team_id !== null) {
+ *   throw new Error('Player not available');
+ * }
  */
-export async function atomicUpdate<T>(
+export async function lockPlayer(
   client: PoolClient,
-  table: string,
-  updates: Record<string, any>,
-  conditions: Record<string, any>
-): Promise<T | null> {
-  const setClauses: string[] = [];
-  const whereClauses: string[] = [];
-  const values: any[] = [];
-  let paramCount = 1;
-
-  // Build SET clause
-  for (const [key, value] of Object.entries(updates)) {
-    setClauses.push(`${key} = $${paramCount++}`);
-    values.push(value);
-  }
-
-  // Build WHERE clause
-  for (const [key, value] of Object.entries(conditions)) {
-    if (value === null) {
-      whereClauses.push(`${key} IS NULL`);
-    } else {
-      whereClauses.push(`${key} = $${paramCount++}`);
-      values.push(value);
-    }
-  }
-
+  playerId: string
+): Promise<any | null> {
   const result = await client.query(
-    `UPDATE ${table} SET ${setClauses.join(', ')}
-     WHERE ${whereClauses.join(' AND ')}
-     RETURNING *`,
-    values
+    `SELECT * FROM players WHERE id = $1 FOR UPDATE`,
+    [playerId]
   );
-
   return result.rows[0] || null;
 }
 
 /**
- * Check if a condition is met atomically (useful for race condition prevention).
- * Returns true if the row exists and matches conditions.
+ * Lock a draft prospect row for exclusive access.
+ * Use this before drafting to prevent duplicate picks.
+ *
+ * @example
+ * const prospect = await lockProspect(client, prospectId);
+ * if (!prospect || prospect.drafted_by_team_id) {
+ *   throw new Error('Prospect not available');
+ * }
  */
-export async function checkCondition(
+export async function lockProspect(
   client: PoolClient,
-  table: string,
-  conditions: Record<string, any>
-): Promise<boolean> {
-  const whereClauses: string[] = [];
-  const values: any[] = [];
-  let paramCount = 1;
-
-  for (const [key, value] of Object.entries(conditions)) {
-    if (value === null) {
-      whereClauses.push(`${key} IS NULL`);
-    } else {
-      whereClauses.push(`${key} = $${paramCount++}`);
-      values.push(value);
-    }
-  }
-
+  prospectId: string
+): Promise<any | null> {
   const result = await client.query(
-    `SELECT 1 FROM ${table} WHERE ${whereClauses.join(' AND ')} LIMIT 1`,
-    values
+    `SELECT * FROM draft_prospects WHERE id = $1 FOR UPDATE`,
+    [prospectId]
   );
+  return result.rows[0] || null;
+}
 
-  return result.rows.length > 0;
+/**
+ * Lock a playoff series row for exclusive access.
+ * Use this before simulating games to prevent duplicate simulations.
+ */
+export async function lockPlayoffSeries(
+  client: PoolClient,
+  seriesId: string
+): Promise<any | null> {
+  const result = await client.query(
+    `SELECT * FROM playoff_series WHERE id = $1 FOR UPDATE`,
+    [seriesId]
+  );
+  return result.rows[0] || null;
 }
