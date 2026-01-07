@@ -2,23 +2,10 @@ import { Router } from 'express';
 import { pool } from '../db/pool';
 import { authMiddleware } from '../auth';
 import { generateSchedule, generatePreseasonSchedule } from '../schedule/generator';
+import { getFranchiseWithDetails, verifyFranchiseOwnership } from '../db/queries';
+import { withTransaction } from '../db/transactions';
 
 const router = Router();
-
-// Helper to get franchise with team info
-async function getFranchiseWithDetails(franchiseId: string) {
-  const result = await pool.query(
-    `SELECT f.*, t.name as team_name, t.abbreviation, t.city,
-            t.primary_color, t.secondary_color, t.conference, t.division,
-            s.wins, s.losses
-     FROM franchises f
-     JOIN teams t ON f.team_id = t.id
-     LEFT JOIN standings s ON f.team_id = s.team_id AND f.season_id = s.season_id
-     WHERE f.id = $1`,
-    [franchiseId]
-  );
-  return result.rows[0] || null;
-}
 
 // Get current user's ACTIVE franchise (or null if none)
 router.get('/', authMiddleware(true), async (req: any, res) => {
@@ -181,13 +168,15 @@ router.post('/select', authMiddleware(true), async (req: any, res) => {
     );
 
     if (existingResult.rows.length > 0) {
-      // Switch to existing franchise
-      await pool.query('UPDATE franchises SET is_active = FALSE WHERE user_id = $1', [userId]);
-      await pool.query(
-        'UPDATE franchises SET is_active = TRUE, last_played_at = NOW() WHERE id = $1',
-        [existingResult.rows[0].id]
-      );
-      const franchise = await getFranchiseWithDetails(existingResult.rows[0].id);
+      // Switch to existing franchise - atomic operation
+      const franchise = await withTransaction(async (client) => {
+        await client.query('UPDATE franchises SET is_active = FALSE WHERE user_id = $1', [userId]);
+        await client.query(
+          'UPDATE franchises SET is_active = TRUE, last_played_at = NOW() WHERE id = $1',
+          [existingResult.rows[0].id]
+        );
+        return await getFranchiseWithDetails(existingResult.rows[0].id, client);
+      });
       return res.json(franchise);
     }
 
@@ -285,22 +274,21 @@ router.post('/:id/switch', authMiddleware(true), async (req: any, res) => {
     const franchiseId = req.params.id;
 
     // Verify franchise belongs to user
-    const verifyResult = await pool.query(
-      'SELECT id FROM franchises WHERE id = $1 AND user_id = $2',
-      [franchiseId, userId]
-    );
-    if (verifyResult.rows.length === 0) {
+    const isOwner = await verifyFranchiseOwnership(franchiseId, userId);
+    if (!isOwner) {
       return res.status(404).json({ error: 'Franchise not found' });
     }
 
-    // Deactivate all, then activate the selected one
-    await pool.query('UPDATE franchises SET is_active = FALSE WHERE user_id = $1', [userId]);
-    await pool.query(
-      'UPDATE franchises SET is_active = TRUE, last_played_at = NOW() WHERE id = $1',
-      [franchiseId]
-    );
+    // Deactivate all, then activate the selected one - atomic operation
+    const franchise = await withTransaction(async (client) => {
+      await client.query('UPDATE franchises SET is_active = FALSE WHERE user_id = $1', [userId]);
+      await client.query(
+        'UPDATE franchises SET is_active = TRUE, last_played_at = NOW() WHERE id = $1',
+        [franchiseId]
+      );
+      return await getFranchiseWithDetails(franchiseId, client);
+    });
 
-    const franchise = await getFranchiseWithDetails(franchiseId);
     res.json(franchise);
   } catch (error) {
     console.error('Franchise switch error:', error);
@@ -316,11 +304,8 @@ router.patch('/:id', authMiddleware(true), async (req: any, res) => {
     const { name, difficulty, auto_save, sim_speed } = req.body;
 
     // Verify franchise belongs to user
-    const verifyResult = await pool.query(
-      'SELECT id FROM franchises WHERE id = $1 AND user_id = $2',
-      [franchiseId, userId]
-    );
-    if (verifyResult.rows.length === 0) {
+    const isOwner = await verifyFranchiseOwnership(franchiseId, userId);
+    if (!isOwner) {
       return res.status(404).json({ error: 'Franchise not found' });
     }
 
@@ -381,19 +366,21 @@ router.delete('/:id', authMiddleware(true), async (req: any, res) => {
 
     const wasActive = verifyResult.rows[0].is_active;
 
-    // Delete the franchise
-    await pool.query('DELETE FROM franchises WHERE id = $1', [franchiseId]);
+    // Delete and re-activate atomically
+    await withTransaction(async (client) => {
+      await client.query('DELETE FROM franchises WHERE id = $1', [franchiseId]);
 
-    // If this was the active franchise, activate the most recent one
-    if (wasActive) {
-      await pool.query(
-        `UPDATE franchises SET is_active = TRUE
-         WHERE id = (
-           SELECT id FROM franchises WHERE user_id = $1 ORDER BY last_played_at DESC LIMIT 1
-         )`,
-        [userId]
-      );
-    }
+      // If this was the active franchise, activate the most recent one
+      if (wasActive) {
+        await client.query(
+          `UPDATE franchises SET is_active = TRUE
+           WHERE id = (
+             SELECT id FROM franchises WHERE user_id = $1 ORDER BY last_played_at DESC LIMIT 1
+           )`,
+          [userId]
+        );
+      }
+    });
 
     res.json({ success: true });
   } catch (error) {

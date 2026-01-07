@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { pool } from '../db/pool';
 import { authMiddleware } from '../auth';
+import { getUserActiveFranchise } from '../db/queries';
+import { withTransaction } from '../db/transactions';
 
 const router = Router();
 
@@ -94,16 +96,12 @@ router.get('/', async (req, res) => {
 // Calculate and save awards for a season
 router.post('/calculate', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(400).json({ error: 'No active franchise' });
     }
 
-    const franchise = franchiseResult.rows[0];
     const seasonId = franchise.season_id;
 
     // Check if awards already calculated
@@ -432,15 +430,27 @@ router.post('/calculate', authMiddleware(true), async (req: any, res) => {
       });
     }
 
-    // Insert all awards
-    for (const award of awards) {
-      await pool.query(
-        `INSERT INTO awards (season_id, award_type, player_id, team_id, stat_value)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (season_id, award_type, player_id) DO NOTHING`,
-        [award.season_id, award.award_type, award.player_id, award.team_id, award.stat_value]
+    // Insert all awards atomically with duplicate check
+    await withTransaction(async (client) => {
+      // Re-check if awards already calculated inside transaction to prevent race
+      const existingCheck = await client.query(
+        'SELECT COUNT(*) FROM awards WHERE season_id = $1',
+        [seasonId]
       );
-    }
+
+      if (parseInt(existingCheck.rows[0].count) > 0) {
+        throw { status: 400, message: 'Awards already calculated for this season' };
+      }
+
+      for (const award of awards) {
+        await client.query(
+          `INSERT INTO awards (season_id, award_type, player_id, team_id, stat_value)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (season_id, award_type, player_id) DO NOTHING`,
+          [award.season_id, award.award_type, award.player_id, award.team_id, award.stat_value]
+        );
+      }
+    });
 
     res.json({
       message: 'Awards calculated successfully',
@@ -450,7 +460,10 @@ router.post('/calculate', authMiddleware(true), async (req: any, res) => {
         label: AWARD_LABELS[a.award_type],
       })),
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Calculate awards error:', error);
     res.status(500).json({ error: 'Failed to calculate awards' });
   }
@@ -465,16 +478,12 @@ router.post('/fmvp', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: 'player_id is required' });
     }
 
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(400).json({ error: 'No active franchise' });
     }
 
-    const franchise = franchiseResult.rows[0];
     const seasonId = franchise.season_id;
 
     // Get player info

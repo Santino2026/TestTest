@@ -1,6 +1,8 @@
 // CPU AI API Routes
 import { Router } from 'express';
 import { pool } from '../db/pool';
+import { withTransaction } from '../db/transactions';
+import { getLatestSeasonId } from '../db/queries';
 import {
   CPUTeamContext,
   determineTeamStrategy,
@@ -70,10 +72,10 @@ router.get('/team/:teamId/analysis', async (req, res) => {
   try {
     const { teamId } = req.params;
 
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
+    if (!seasonId) {
+      return res.status(400).json({ error: 'No active season' });
+    }
 
     const context = await getTeamContext(teamId, seasonId);
 
@@ -135,10 +137,10 @@ router.post('/process/:phase', async (req, res) => {
     const { phase } = req.params;
     const { user_team_id } = req.body;
 
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
+    if (!seasonId) {
+      return res.status(400).json({ error: 'No active season' });
+    }
 
     // Get all CPU teams (exclude user's team)
     const teamsResult = await pool.query(
@@ -219,10 +221,10 @@ router.post('/draft/pick', async (req, res) => {
   try {
     const { team_id, pick_number } = req.body;
 
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
+    if (!seasonId) {
+      return res.status(400).json({ error: 'No active season' });
+    }
 
     // Get team context
     const context = await getTeamContext(team_id, seasonId);
@@ -259,15 +261,53 @@ router.post('/draft/pick', async (req, res) => {
   }
 });
 
+// Helper function to atomically sign a free agent for CPU
+async function signFreeAgentForCPU(
+  playerId: string,
+  teamId: string,
+  salary: number,
+  years: number
+): Promise<boolean> {
+  try {
+    return await withTransaction(async (client) => {
+      // Atomically claim the player - prevents double-signing
+      const claimResult = await client.query(
+        `UPDATE players SET team_id = $1, salary = $2
+         WHERE id = $3 AND team_id IS NULL
+         RETURNING *`,
+        [teamId, salary, playerId]
+      );
+
+      if (claimResult.rows.length === 0) {
+        return false; // Player already signed
+      }
+
+      // Create contract
+      await client.query(
+        `INSERT INTO contracts (player_id, team_id, salary, years, years_remaining, status)
+         VALUES ($1, $2, $3, $4, $4, 'active')
+         ON CONFLICT (player_id) DO UPDATE SET
+           team_id = $2, salary = $3, years = $4, years_remaining = $4, status = 'active'`,
+        [playerId, teamId, salary, years]
+      );
+
+      return true;
+    });
+  } catch (error) {
+    console.error('CPU signing failed:', error);
+    return false;
+  }
+}
+
 // Process CPU free agency signings
 router.post('/freeagency', async (req, res) => {
   try {
     const { user_team_id } = req.body;
 
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
+    if (!seasonId) {
+      return res.status(400).json({ error: 'No active season' });
+    }
 
     // Get all CPU teams (exclude user's team)
     const teamsResult = await pool.query(
@@ -311,33 +351,26 @@ router.post('/freeagency', async (req, res) => {
         });
 
         if (evaluation.interested && evaluation.maxOffer >= fa.asking_salary) {
-          // Sign the player
-          await pool.query(
-            `UPDATE players SET team_id = $1, salary = $2 WHERE id = $3`,
-            [team.id, evaluation.maxOffer, fa.id]
-          );
-
-          // Create contract
+          // Calculate contract years
           const years = fa.age < 25 ? 4 : fa.age < 30 ? 3 : 2;
-          await pool.query(
-            `INSERT INTO contracts (player_id, team_id, salary, years, years_remaining, status)
-             VALUES ($1, $2, $3, $4, $4, 'active')
-             ON CONFLICT (player_id) DO UPDATE SET
-               team_id = $2, salary = $3, years = $4, years_remaining = $4, status = 'active'`,
-            [fa.id, team.id, evaluation.maxOffer, years]
-          );
 
-          signings.push({
-            team_id: team.id,
-            team_name: context.team_name,
-            player_id: fa.id,
-            player_name: `${fa.first_name} ${fa.last_name}`,
-            salary: evaluation.maxOffer,
-            reasoning: evaluation.reasoning
-          });
+          // Sign the player atomically
+          const signed = await signFreeAgentForCPU(fa.id, team.id, evaluation.maxOffer, years);
 
-          signedPlayerIds.add(fa.id);
-          break; // One signing per team per round
+          if (signed) {
+            signings.push({
+              team_id: team.id,
+              team_name: context.team_name,
+              player_id: fa.id,
+              player_name: `${fa.first_name} ${fa.last_name}`,
+              salary: evaluation.maxOffer,
+              reasoning: evaluation.reasoning
+            });
+
+            signedPlayerIds.add(fa.id);
+            break; // One signing per team per round
+          }
+          // If signing failed (player already taken), continue to next FA
         }
       }
     }
@@ -353,15 +386,61 @@ router.post('/freeagency', async (req, res) => {
   }
 });
 
+// Helper function to atomically execute a trade
+async function executeTradeAtomic(
+  tradeId: string,
+  proposingTeamId: string,
+  receivingTeamId: string,
+  playersOffered: string[],
+  playersRequested: string[]
+): Promise<boolean> {
+  try {
+    return await withTransaction(async (client) => {
+      // Atomically claim the trade - prevents double-execution
+      const claimResult = await client.query(
+        `UPDATE trade_proposals SET status = 'accepted', resolved_at = NOW()
+         WHERE id = $1 AND status = 'pending'
+         RETURNING *`,
+        [tradeId]
+      );
+
+      if (claimResult.rows.length === 0) {
+        return false; // Trade already processed
+      }
+
+      // Move offered players to receiving team
+      for (const playerId of playersOffered) {
+        await client.query(
+          `UPDATE players SET team_id = $1 WHERE id = $2`,
+          [receivingTeamId, playerId]
+        );
+      }
+
+      // Move requested players to proposing team
+      for (const playerId of playersRequested) {
+        await client.query(
+          `UPDATE players SET team_id = $1 WHERE id = $2`,
+          [proposingTeamId, playerId]
+        );
+      }
+
+      return true;
+    });
+  } catch (error) {
+    console.error('Trade execution failed:', error);
+    return false;
+  }
+}
+
 // Process CPU trade responses
 router.post('/trades', async (req, res) => {
   try {
     const { user_team_id } = req.body;
 
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
+    if (!seasonId) {
+      return res.status(400).json({ error: 'No active season' });
+    }
 
     // Get pending trade proposals where CPU is the receiving team
     const tradesResult = await pool.query(
@@ -409,39 +488,30 @@ router.post('/trades', async (req, res) => {
       );
 
       if (evaluation.accept) {
-        // Accept the trade - execute it
-        await pool.query(
-          `UPDATE trade_proposals SET status = 'accepted', resolved_at = NOW() WHERE id = $1`,
-          [trade.id]
+        // Execute the trade atomically
+        const executed = await executeTradeAtomic(
+          trade.id,
+          trade.proposing_team_id,
+          trade.receiving_team_id,
+          trade.players_offered || [],
+          trade.players_requested || []
         );
 
-        // Move players
-        for (const playerId of (trade.players_offered || [])) {
-          await pool.query(
-            `UPDATE players SET team_id = $1 WHERE id = $2`,
-            [trade.receiving_team_id, playerId]
-          );
+        if (executed) {
+          responses.push({
+            trade_id: trade.id,
+            proposing_team: trade.proposing_team_name,
+            receiving_team: trade.receiving_team_name,
+            action: 'accepted',
+            score: evaluation.score,
+            reasoning: evaluation.reasoning
+          });
         }
-        for (const playerId of (trade.players_requested || [])) {
-          await pool.query(
-            `UPDATE players SET team_id = $1 WHERE id = $2`,
-            [trade.proposing_team_id, playerId]
-          );
-        }
-
-        responses.push({
-          trade_id: trade.id,
-          proposing_team: trade.proposing_team_name,
-          receiving_team: trade.receiving_team_name,
-          action: 'accepted',
-          score: evaluation.score,
-          reasoning: evaluation.reasoning
-        });
       } else {
         // Reject with some probability (don't instantly reject)
         if (Math.random() < 0.7) { // 70% chance to reject now
           await pool.query(
-            `UPDATE trade_proposals SET status = 'rejected', resolved_at = NOW() WHERE id = $1`,
+            `UPDATE trade_proposals SET status = 'rejected', resolved_at = NOW() WHERE id = $1 AND status = 'pending'`,
             [trade.id]
           );
 

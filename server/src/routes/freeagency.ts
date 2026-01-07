@@ -16,20 +16,10 @@ import {
   scoreOffer,
   TeamContext
 } from '../freeagency';
+import { withTransaction } from '../db/transactions';
+import { getUserActiveFranchise, getLatestSeasonId } from '../db/queries';
 
 const router = Router();
-
-// Helper to get user's active franchise
-async function getUserFranchise(userId: string) {
-  const result = await pool.query(
-    `SELECT f.*, t.name as team_name
-     FROM franchises f
-     JOIN teams t ON f.team_id = t.id
-     WHERE f.user_id = $1 AND f.is_active = TRUE`,
-    [userId]
-  );
-  return result.rows[0] || null;
-}
 
 // Check if free agency actions are allowed
 function isFreeAgencyAllowed(franchise: any): { allowed: boolean; reason?: string } {
@@ -56,10 +46,7 @@ function isFreeAgencyAllowed(franchise: any): { allowed: boolean; reason?: strin
 // Get all free agents
 router.get('/', async (req, res) => {
   try {
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
 
     const result = await pool.query(
       `SELECT p.*, fa.fa_type, fa.asking_salary, fa.market_value, fa.status as fa_status,
@@ -126,7 +113,7 @@ router.get('/team/:teamId/salary', async (req, res) => {
 router.post('/offer', authMiddleware(true), async (req: any, res) => {
   try {
     // Check phase
-    const franchise = await getUserFranchise(req.user.userId);
+    const franchise = await getUserActiveFranchise(req.user.userId);
     const phaseCheck = isFreeAgencyAllowed(franchise);
     if (!phaseCheck.allowed) {
       return res.status(400).json({ error: phaseCheck.reason });
@@ -139,10 +126,7 @@ router.post('/offer', authMiddleware(true), async (req: any, res) => {
     }
 
     // Get season
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
 
     // Get player info
     const playerResult = await pool.query(
@@ -214,7 +198,7 @@ router.post('/offer', authMiddleware(true), async (req: any, res) => {
 router.post('/sign', authMiddleware(true), async (req: any, res) => {
   try {
     // Check phase
-    const franchise = await getUserFranchise(req.user.userId);
+    const franchise = await getUserActiveFranchise(req.user.userId);
     const phaseCheck = isFreeAgencyAllowed(franchise);
     if (!phaseCheck.allowed) {
       return res.status(400).json({ error: phaseCheck.reason });
@@ -226,91 +210,92 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: 'team_id, player_id, years, and salary_per_year required' });
     }
 
-    // Get season
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const result = await withTransaction(async (client) => {
+      // Get season
+      const seasonId = await getLatestSeasonId(client);
 
-    // Verify player is free agent
-    const playerResult = await pool.query(
-      `SELECT * FROM players WHERE id = $1 AND team_id IS NULL`,
-      [player_id]
-    );
+      // Atomically claim the player - prevents double-signing
+      const claimResult = await client.query(
+        `UPDATE players SET team_id = $1, salary = $2
+         WHERE id = $3 AND team_id IS NULL
+         RETURNING *`,
+        [team_id, salary_per_year, player_id]
+      );
 
-    if (playerResult.rows.length === 0) {
-      return res.status(400).json({ error: 'Player is not a free agent' });
-    }
-
-    const player = playerResult.rows[0];
-
-    // Verify team roster space
-    const rosterResult = await pool.query(
-      `SELECT COUNT(*) FROM players WHERE team_id = $1`,
-      [team_id]
-    );
-
-    if (parseInt(rosterResult.rows[0].count) >= 15) {
-      return res.status(400).json({ error: 'Roster is full (15 players max)' });
-    }
-
-    // Generate contract salaries
-    const salaries = generateYearlySalaries(salary_per_year, years);
-
-    // Create contract
-    const contractId = uuidv4();
-    await pool.query(
-      `INSERT INTO contracts
-       (id, player_id, team_id, total_years, years_remaining, base_salary,
-        year_1_salary, year_2_salary, year_3_salary, year_4_salary, year_5_salary,
-        contract_type, status, start_season_id)
-       VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $10, 'standard', 'active', $11)`,
-      [contractId, player_id, team_id, years, salary_per_year,
-       salaries[0], salaries[1] || null, salaries[2] || null, salaries[3] || null, salaries[4] || null,
-       seasonId]
-    );
-
-    // Update player
-    await pool.query(
-      `UPDATE players SET team_id = $1, salary = $2 WHERE id = $3`,
-      [team_id, salary_per_year, player_id]
-    );
-
-    // Update free agent record
-    await pool.query(
-      `UPDATE free_agents SET status = 'signed', signed_at = NOW() WHERE player_id = $1 AND season_id = $2`,
-      [player_id, seasonId]
-    );
-
-    // Log transaction
-    await pool.query(
-      `INSERT INTO transactions (season_id, transaction_type, player_id, team_id, contract_id, details)
-       VALUES ($1, 'signing', $2, $3, $4, $5)`,
-      [seasonId, player_id, team_id, contractId, JSON.stringify({ years, salary: salary_per_year })]
-    );
-
-    // Get team name for response
-    const teamResult = await pool.query(`SELECT name FROM teams WHERE id = $1`, [team_id]);
-
-    res.json({
-      message: 'Player signed',
-      player_name: `${player.first_name} ${player.last_name}`,
-      team_name: teamResult.rows[0].name,
-      contract: {
-        id: contractId,
-        years,
-        salary_per_year,
-        total_value: salaries.reduce((a, b) => a + b, 0)
+      if (claimResult.rows.length === 0) {
+        throw { status: 400, message: 'Player is not a free agent or was already signed' };
       }
+
+      const player = claimResult.rows[0];
+
+      // Verify team roster space
+      const rosterResult = await client.query(
+        `SELECT COUNT(*) FROM players WHERE team_id = $1`,
+        [team_id]
+      );
+
+      if (parseInt(rosterResult.rows[0].count) > 15) {
+        // Rollback by throwing - transaction will be rolled back
+        throw { status: 400, message: 'Roster is full (15 players max)' };
+      }
+
+      // Generate contract salaries
+      const salaries = generateYearlySalaries(salary_per_year, years);
+
+      // Create contract
+      const contractId = uuidv4();
+      await client.query(
+        `INSERT INTO contracts
+         (id, player_id, team_id, total_years, years_remaining, base_salary,
+          year_1_salary, year_2_salary, year_3_salary, year_4_salary, year_5_salary,
+          contract_type, status, start_season_id)
+         VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $10, 'standard', 'active', $11)`,
+        [contractId, player_id, team_id, years, salary_per_year,
+         salaries[0], salaries[1] || null, salaries[2] || null, salaries[3] || null, salaries[4] || null,
+         seasonId]
+      );
+
+      // Update free agent record
+      await client.query(
+        `UPDATE free_agents SET status = 'signed', signed_at = NOW() WHERE player_id = $1 AND season_id = $2`,
+        [player_id, seasonId]
+      );
+
+      // Log transaction
+      await client.query(
+        `INSERT INTO transactions (season_id, transaction_type, player_id, team_id, contract_id, details)
+         VALUES ($1, 'signing', $2, $3, $4, $5)`,
+        [seasonId, player_id, team_id, contractId, JSON.stringify({ years, salary: salary_per_year })]
+      );
+
+      // Get team name for response
+      const teamResult = await client.query(`SELECT name FROM teams WHERE id = $1`, [team_id]);
+
+      return {
+        message: 'Player signed',
+        player_name: `${player.first_name} ${player.last_name}`,
+        team_name: teamResult.rows[0].name,
+        contract: {
+          id: contractId,
+          years,
+          salary_per_year,
+          total_value: salaries.reduce((a: number, b: number) => a + b, 0)
+        }
+      };
     });
-  } catch (error) {
+
+    res.json(result);
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Sign player error:', error);
     res.status(500).json({ error: 'Failed to sign player' });
   }
 });
 
 // Release a player
-router.post('/release', async (req, res) => {
+router.post('/release', authMiddleware(true), async (req: any, res) => {
   try {
     const { team_id, player_id } = req.body;
 
@@ -318,72 +303,78 @@ router.post('/release', async (req, res) => {
       return res.status(400).json({ error: 'team_id and player_id required' });
     }
 
-    // Verify player is on team
-    const playerResult = await pool.query(
-      `SELECT * FROM players WHERE id = $1 AND team_id = $2`,
-      [player_id, team_id]
-    );
+    const result = await withTransaction(async (client) => {
+      // Verify player is on team
+      const playerResult = await client.query(
+        `SELECT * FROM players WHERE id = $1 AND team_id = $2`,
+        [player_id, team_id]
+      );
 
-    if (playerResult.rows.length === 0) {
-      return res.status(400).json({ error: 'Player not on this team' });
-    }
+      if (playerResult.rows.length === 0) {
+        throw { status: 400, message: 'Player not on this team' };
+      }
 
-    const player = playerResult.rows[0];
+      const player = playerResult.rows[0];
 
-    // Get season
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+      // Get season
+      const seasonId = await getLatestSeasonId(client);
 
-    // Update contract status
-    await pool.query(
-      `UPDATE contracts SET status = 'waived', updated_at = NOW()
-       WHERE player_id = $1 AND team_id = $2 AND status = 'active'`,
-      [player_id, team_id]
-    );
+      // Update contract status
+      await client.query(
+        `UPDATE contracts SET status = 'waived', updated_at = NOW()
+         WHERE player_id = $1 AND team_id = $2 AND status = 'active'`,
+        [player_id, team_id]
+      );
 
-    // Make player a free agent
-    await pool.query(
-      `UPDATE players SET team_id = NULL, salary = 0 WHERE id = $1`,
-      [player_id]
-    );
+      // Make player a free agent
+      await client.query(
+        `UPDATE players SET team_id = NULL, salary = 0 WHERE id = $1`,
+        [player_id]
+      );
 
-    // Calculate market value for FA listing
-    const marketValue = calculateMarketValue(player.overall, player.age, player.years_pro, player.potential);
-    const prefs = generateFAPreferences({
-      greed: player.greed || 50,
-      ego: player.ego || 50,
-      loyalty: player.loyalty || 50,
-      age: player.age,
-      overall: player.overall
+      // Calculate market value for FA listing
+      const marketValue = calculateMarketValue(player.overall, player.age, player.years_pro, player.potential);
+      const prefs = generateFAPreferences({
+        greed: player.greed || 50,
+        ego: player.ego || 50,
+        loyalty: player.loyalty || 50,
+        age: player.age,
+        overall: player.overall
+      });
+
+      // Add to free agent pool
+      await client.query(
+        `INSERT INTO free_agents
+         (player_id, season_id, fa_type, money_priority, winning_priority, role_priority,
+          market_size_priority, asking_salary, market_value, status)
+         VALUES ($1, $2, 'unrestricted', $3, $4, $5, $6, $7, $8, 'available')
+         ON CONFLICT (player_id, season_id) DO UPDATE
+         SET status = 'available', updated_at = NOW()`,
+        [player_id, seasonId, prefs.money, prefs.winning, prefs.role, prefs.market,
+         calculateAskingSalary(marketValue, player.greed || 50), marketValue]
+      );
+
+      // Log transaction
+      await client.query(
+        `INSERT INTO transactions (season_id, transaction_type, player_id, team_id, details)
+         VALUES ($1, 'release', $2, $3, $4)`,
+        [seasonId, player_id, team_id, JSON.stringify({ reason: 'released' })]
+      );
+
+      return {
+        player_name: `${player.first_name} ${player.last_name}`
+      };
     });
-
-    // Add to free agent pool
-    await pool.query(
-      `INSERT INTO free_agents
-       (player_id, season_id, fa_type, money_priority, winning_priority, role_priority,
-        market_size_priority, asking_salary, market_value, status)
-       VALUES ($1, $2, 'unrestricted', $3, $4, $5, $6, $7, $8, 'available')
-       ON CONFLICT (player_id, season_id) DO UPDATE
-       SET status = 'available', updated_at = NOW()`,
-      [player_id, seasonId, prefs.money, prefs.winning, prefs.role, prefs.market,
-       calculateAskingSalary(marketValue, player.greed || 50), marketValue]
-    );
-
-    // Log transaction
-    await pool.query(
-      `INSERT INTO transactions (season_id, transaction_type, player_id, team_id, details)
-       VALUES ($1, 'release', $2, $3, $4)`,
-      [seasonId, player_id, team_id, JSON.stringify({ reason: 'released' })]
-    );
 
     res.json({
       message: 'Player released',
-      player_name: `${player.first_name} ${player.last_name}`,
+      player_name: result.player_name,
       now_free_agent: true
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Release player error:', error);
     res.status(500).json({ error: 'Failed to release player' });
   }
@@ -394,10 +385,7 @@ router.get('/team/:teamId/offers', async (req, res) => {
   try {
     const { teamId } = req.params;
 
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
 
     const result = await pool.query(
       `SELECT co.*, p.first_name, p.last_name, p.position, p.overall, p.age
@@ -419,10 +407,7 @@ router.get('/transactions', async (req, res) => {
   try {
     const { limit = 50, team_id } = req.query;
 
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
 
     let query = `
       SELECT t.*, p.first_name, p.last_name, tm.name as team_name, tm.abbreviation
@@ -450,13 +435,73 @@ router.get('/transactions', async (req, res) => {
   }
 });
 
+// Helper function to sign a free agent atomically
+async function signFreeAgentAtomic(
+  playerId: string,
+  teamId: string,
+  years: number,
+  salaryPerYear: number,
+  seasonId: string,
+  offerId: string
+): Promise<boolean> {
+  try {
+    return await withTransaction(async (client) => {
+      // Atomically claim the player - prevents double-signing
+      const claimResult = await client.query(
+        `UPDATE players SET team_id = $1, salary = $2
+         WHERE id = $3 AND team_id IS NULL
+         RETURNING *`,
+        [teamId, salaryPerYear, playerId]
+      );
+
+      if (claimResult.rows.length === 0) {
+        return false; // Player already signed
+      }
+
+      // Generate contract salaries
+      const salaries = generateYearlySalaries(salaryPerYear, years);
+      const contractId = uuidv4();
+
+      // Create contract
+      await client.query(
+        `INSERT INTO contracts
+         (id, player_id, team_id, total_years, years_remaining, base_salary,
+          year_1_salary, year_2_salary, year_3_salary, year_4_salary, year_5_salary,
+          contract_type, status, start_season_id)
+         VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $10, 'standard', 'active', $11)`,
+        [contractId, playerId, teamId, years, salaryPerYear,
+         salaries[0], salaries[1] || null, salaries[2] || null, salaries[3] || null, salaries[4] || null,
+         seasonId]
+      );
+
+      // Update free agent status
+      await client.query(
+        `UPDATE free_agents SET status = 'signed', signed_at = NOW() WHERE player_id = $1 AND season_id = $2`,
+        [playerId, seasonId]
+      );
+
+      // Update all offers for this player
+      await client.query(
+        `UPDATE contract_offers SET status = CASE WHEN id = $1 THEN 'accepted' ELSE 'rejected' END
+         WHERE player_id = $2 AND status = 'pending'`,
+        [offerId, playerId]
+      );
+
+      return true;
+    });
+  } catch (error) {
+    console.error('Atomic signing failed:', error);
+    return false;
+  }
+}
+
 // Simulate CPU free agent decisions (advance offseason)
 router.post('/simulate', async (req, res) => {
   try {
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
+    if (!seasonId) {
+      return res.status(400).json({ error: 'No active season' });
+    }
 
     // Get all pending offers
     const pendingOffers = await pool.query(
@@ -500,48 +545,30 @@ router.post('/simulate', async (req, res) => {
 
       // Accept if score > 50
       if (bestOffer && bestScore > 50) {
-        // Execute the signing
-        const salaries = generateYearlySalaries(bestOffer.salary_per_year, bestOffer.years);
-        const contractId = uuidv4();
-
-        // Create contract
-        await pool.query(
-          `INSERT INTO contracts
-           (id, player_id, team_id, total_years, years_remaining, base_salary,
-            year_1_salary, year_2_salary, year_3_salary, year_4_salary, year_5_salary,
-            contract_type, status, start_season_id)
-           VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, $10, 'standard', 'active', $11)`,
-          [contractId, playerId, bestOffer.team_id, bestOffer.years, bestOffer.salary_per_year,
-           salaries[0], salaries[1] || null, salaries[2] || null, salaries[3] || null, salaries[4] || null,
-           seasonId]
+        // Execute the signing atomically
+        const signed = await signFreeAgentAtomic(
+          playerId,
+          bestOffer.team_id,
+          bestOffer.years,
+          bestOffer.salary_per_year,
+          seasonId,
+          bestOffer.id
         );
 
-        // Update player
-        await pool.query(
-          `UPDATE players SET team_id = $1, salary = $2 WHERE id = $3`,
-          [bestOffer.team_id, bestOffer.salary_per_year, playerId]
-        );
-
-        // Update free agent status
-        await pool.query(
-          `UPDATE free_agents SET status = 'signed', signed_at = NOW() WHERE player_id = $1 AND season_id = $2`,
-          [playerId, seasonId]
-        );
-
-        // Update all offers for this player
-        await pool.query(
-          `UPDATE contract_offers SET status = CASE WHEN id = $1 THEN 'accepted' ELSE 'rejected' END
-           WHERE player_id = $2 AND status = 'pending'`,
-          [bestOffer.id, playerId]
-        );
-
-        decisions.push({
-          player_id: playerId,
-          decision: 'accepted',
-          team_id: bestOffer.team_id,
-          years: bestOffer.years,
-          salary: bestOffer.salary_per_year
-        });
+        if (signed) {
+          decisions.push({
+            player_id: playerId,
+            decision: 'accepted',
+            team_id: bestOffer.team_id,
+            years: bestOffer.years,
+            salary: bestOffer.salary_per_year
+          });
+        } else {
+          decisions.push({
+            player_id: playerId,
+            decision: 'already_signed'
+          });
+        }
       } else {
         decisions.push({
           player_id: playerId,

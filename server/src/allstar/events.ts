@@ -18,7 +18,7 @@ export interface EventResult {
 }
 
 // Rising Stars Challenge: Rookies vs Sophomores
-export async function simulateRisingStars(seasonId: number): Promise<EventResult> {
+export async function simulateRisingStars(seasonId: string): Promise<EventResult> {
   // Get rookies and sophomores
   const result = await pool.query(
     `SELECT
@@ -127,7 +127,7 @@ export async function simulateRisingStars(seasonId: number): Promise<EventResult
 }
 
 // Skills Challenge
-export async function simulateSkillsChallenge(seasonId: number): Promise<EventResult> {
+export async function simulateSkillsChallenge(seasonId: string): Promise<EventResult> {
   // Get 8 best ball-handlers (guards)
   const result = await pool.query(
     `SELECT p.id, p.first_name, p.last_name, p.position, p.overall,
@@ -215,7 +215,7 @@ export async function simulateSkillsChallenge(seasonId: number): Promise<EventRe
 }
 
 // Three-Point Contest
-export async function simulateThreePointContest(seasonId: number): Promise<EventResult> {
+export async function simulateThreePointContest(seasonId: string): Promise<EventResult> {
   // Get 8 best 3PT shooters
   const result = await pool.query(
     `SELECT p.id, p.first_name, p.last_name, p.overall,
@@ -311,7 +311,7 @@ export async function simulateThreePointContest(seasonId: number): Promise<Event
 }
 
 // Slam Dunk Contest
-export async function simulateDunkContest(seasonId: number): Promise<EventResult> {
+export async function simulateDunkContest(seasonId: string): Promise<EventResult> {
   // Get 4 best dunkers (athleticism + dunking)
   const result = await pool.query(
     `SELECT p.id, p.first_name, p.last_name, p.overall,
@@ -430,7 +430,7 @@ export async function simulateDunkContest(seasonId: number): Promise<EventResult
 }
 
 // All-Star Game
-export async function simulateAllStarGame(seasonId: number): Promise<EventResult> {
+export async function simulateAllStarGame(seasonId: string): Promise<EventResult> {
   // Get All-Star selections
   const result = await pool.query(
     `SELECT
@@ -559,7 +559,7 @@ export async function simulateAllStarGame(seasonId: number): Promise<EventResult
 }
 
 // Get event results
-export async function getEventResults(seasonId: number) {
+export async function getEventResults(seasonId: string) {
   const result = await pool.query(
     `SELECT
       ase.*,

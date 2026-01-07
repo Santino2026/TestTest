@@ -14,16 +14,15 @@ import {
 } from '../draft';
 import { authMiddleware } from '../auth';
 import { v4 as uuidv4 } from 'uuid';
+import { withTransaction } from '../db/transactions';
+import { getLatestSeasonId, getUserActiveFranchise } from '../db/queries';
 
 const router = Router();
 
 // Get current draft class (prospects)
 router.get('/prospects', async (req, res) => {
   try {
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
 
     if (!seasonId) {
       return res.json({ prospects: [] });
@@ -48,10 +47,7 @@ router.get('/prospects', async (req, res) => {
 // Generate new draft class
 router.post('/generate', async (req, res) => {
   try {
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
 
     if (!seasonId) {
       return res.status(400).json({ error: 'No active season' });
@@ -134,10 +130,7 @@ router.post('/generate', async (req, res) => {
 // Get lottery odds
 router.get('/lottery/odds', async (req, res) => {
   try {
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
 
     // Get bottom 14 teams by record
     const standingsResult = await pool.query(
@@ -170,10 +163,7 @@ router.get('/lottery/odds', async (req, res) => {
 // Run the draft lottery
 router.post('/lottery/run', async (req, res) => {
   try {
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
 
     // Check if lottery already run
     const existingResult = await pool.query(
@@ -289,10 +279,7 @@ router.post('/lottery/run', async (req, res) => {
 // Get draft order (after lottery)
 router.get('/order', async (req, res) => {
   try {
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
 
     // Get lottery results for picks 1-14
     const lotteryResult = await pool.query(
@@ -360,98 +347,113 @@ router.post('/pick', async (req, res) => {
       return res.status(400).json({ error: 'prospect_id and team_id required' });
     }
 
-    // Get prospect
-    const prospectResult = await pool.query(
-      `SELECT dp.*, dpa.*
-       FROM draft_prospects dp
-       LEFT JOIN draft_prospect_attributes dpa ON dp.id = dpa.prospect_id
-       WHERE dp.id = $1 AND dp.is_drafted = false`,
-      [prospect_id]
-    );
+    const result = await withTransaction(async (client) => {
+      // Atomically claim the prospect - prevents double-drafting
+      const claimResult = await client.query(
+        `UPDATE draft_prospects SET is_drafted = true
+         WHERE id = $1 AND is_drafted = false
+         RETURNING *`,
+        [prospect_id]
+      );
 
-    if (prospectResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Prospect not found or already drafted' });
-    }
+      if (claimResult.rows.length === 0) {
+        throw { status: 404, message: 'Prospect not found or already drafted' };
+      }
 
-    const prospect = prospectResult.rows[0];
+      const prospect = claimResult.rows[0];
 
-    // Create player from prospect
-    const playerId = uuidv4();
+      // Get prospect attributes
+      const attrsResult = await client.query(
+        `SELECT * FROM draft_prospect_attributes WHERE prospect_id = $1`,
+        [prospect_id]
+      );
+      const attrs = attrsResult.rows[0] || {};
 
-    await pool.query(
-      `INSERT INTO players
-       (id, first_name, last_name, team_id, position, archetype,
-        height_inches, weight_lbs, age, jersey_number, years_pro,
-        overall, potential, peak_age, durability, coachability,
-        greed, ego, loyalty, leadership, motor)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
-      [playerId, prospect.first_name, prospect.last_name, team_id,
-       prospect.position, prospect.archetype, prospect.height_inches,
-       prospect.weight_lbs, prospect.age, Math.floor(Math.random() * 99),
-       0, prospect.overall, prospect.potential, prospect.peak_age,
-       prospect.durability, prospect.coachability,
-       Math.floor(Math.random() * 60) + 20,
-       Math.floor(Math.random() * 60) + 20,
-       Math.floor(Math.random() * 40) + 30,
-       Math.floor(Math.random() * 30) + 30,
-       prospect.motor]
-    );
+      // Get current pick number
+      const state = await getDraftState(prospect.season_id);
+      const currentPick = state.current_pick;
+      const currentRound = state.current_round;
 
-    // Copy attributes
-    await pool.query(
-      `INSERT INTO player_attributes
-       (player_id, inside_scoring, close_shot, mid_range, three_point, free_throw,
-        shot_iq, offensive_consistency, layup, standing_dunk, driving_dunk, draw_foul,
-        post_moves, post_control, ball_handling, speed_with_ball, passing_accuracy,
-        passing_vision, passing_iq, offensive_iq, interior_defense, perimeter_defense,
-        steal, block, defensive_iq, defensive_consistency, lateral_quickness,
-        help_defense_iq, offensive_rebound, defensive_rebound, box_out, rebound_timing,
-        speed, acceleration, strength, vertical, stamina, hustle, basketball_iq,
-        clutch, consistency, work_ethic, aggression, streakiness, composure)
-       SELECT $1, inside_scoring, close_shot, mid_range, three_point, free_throw,
-        shot_iq, offensive_consistency, layup, standing_dunk, driving_dunk, draw_foul,
-        post_moves, post_control, ball_handling, speed_with_ball, passing_accuracy,
-        passing_vision, passing_iq, offensive_iq, interior_defense, perimeter_defense,
-        steal, block, defensive_iq, defensive_consistency, lateral_quickness,
-        help_defense_iq, offensive_rebound, defensive_rebound, box_out, rebound_timing,
-        speed, acceleration, strength, vertical, stamina, hustle, basketball_iq,
-        clutch, consistency, work_ethic, aggression, streakiness, composure
-       FROM draft_prospect_attributes WHERE prospect_id = $2`,
-      [playerId, prospect_id]
-    );
+      // Create player from prospect
+      const playerId = uuidv4();
 
-    // Get current pick number
-    const state = await getDraftState(prospect.season_id);
-    const currentPick = state.current_pick;
-    const currentRound = state.current_round;
+      await client.query(
+        `INSERT INTO players
+         (id, first_name, last_name, team_id, position, archetype,
+          height_inches, weight_lbs, age, jersey_number, years_pro,
+          overall, potential, peak_age, durability, coachability,
+          greed, ego, loyalty, leadership, motor)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+        [playerId, prospect.first_name, prospect.last_name, team_id,
+         prospect.position, prospect.archetype, prospect.height_inches,
+         prospect.weight_lbs, prospect.age, Math.floor(Math.random() * 99),
+         0, prospect.overall, prospect.potential, prospect.peak_age,
+         prospect.durability, prospect.coachability,
+         Math.floor(Math.random() * 60) + 20,
+         Math.floor(Math.random() * 60) + 20,
+         Math.floor(Math.random() * 40) + 30,
+         Math.floor(Math.random() * 30) + 30,
+         prospect.motor]
+      );
 
-    // Mark prospect as drafted
-    await pool.query(
-      `UPDATE draft_prospects
-       SET is_drafted = true, drafted_by_team_id = $1, draft_round = $2, draft_pick = $3
-       WHERE id = $4`,
-      [team_id, currentRound, currentPick, prospect_id]
-    );
+      // Copy attributes if they exist
+      if (attrs.inside_scoring !== undefined) {
+        await client.query(
+          `INSERT INTO player_attributes
+           (player_id, inside_scoring, close_shot, mid_range, three_point, free_throw,
+            shot_iq, offensive_consistency, layup, standing_dunk, driving_dunk, draw_foul,
+            post_moves, post_control, ball_handling, speed_with_ball, passing_accuracy,
+            passing_vision, passing_iq, offensive_iq, interior_defense, perimeter_defense,
+            steal, block, defensive_iq, defensive_consistency, lateral_quickness,
+            help_defense_iq, offensive_rebound, defensive_rebound, box_out, rebound_timing,
+            speed, acceleration, strength, vertical, stamina, hustle, basketball_iq,
+            clutch, consistency, work_ethic, aggression, streakiness, composure)
+           SELECT $1, inside_scoring, close_shot, mid_range, three_point, free_throw,
+            shot_iq, offensive_consistency, layup, standing_dunk, driving_dunk, draw_foul,
+            post_moves, post_control, ball_handling, speed_with_ball, passing_accuracy,
+            passing_vision, passing_iq, offensive_iq, interior_defense, perimeter_defense,
+            steal, block, defensive_iq, defensive_consistency, lateral_quickness,
+            help_defense_iq, offensive_rebound, defensive_rebound, box_out, rebound_timing,
+            speed, acceleration, strength, vertical, stamina, hustle, basketball_iq,
+            clutch, consistency, work_ethic, aggression, streakiness, composure
+           FROM draft_prospect_attributes WHERE prospect_id = $2`,
+          [playerId, prospect_id]
+        );
+      }
 
-    // Update draft_picks table to mark pick as used
-    await pool.query(
-      `UPDATE draft_picks
-       SET player_id = $1
-       WHERE season_id = $2 AND pick_number = $3`,
-      [playerId, prospect.season_id, currentPick]
-    );
+      // Update draft info on prospect
+      await client.query(
+        `UPDATE draft_prospects
+         SET drafted_by_team_id = $1, draft_round = $2, draft_pick = $3
+         WHERE id = $4`,
+        [team_id, currentRound, currentPick, prospect_id]
+      );
 
-    res.json({
-      message: 'Draft pick made',
-      player_id: playerId,
-      player_name: `${prospect.first_name} ${prospect.last_name}`,
-      position: prospect.position,
-      overall: prospect.overall,
-      potential: prospect.potential,
-      pick_number: currentPick,
-      round: currentRound
+      // Update draft_picks table to mark pick as used
+      await client.query(
+        `UPDATE draft_picks
+         SET player_id = $1
+         WHERE season_id = $2 AND pick_number = $3`,
+        [playerId, prospect.season_id, currentPick]
+      );
+
+      return {
+        message: 'Draft pick made',
+        player_id: playerId,
+        player_name: `${prospect.first_name} ${prospect.last_name}`,
+        position: prospect.position,
+        overall: prospect.overall,
+        potential: prospect.potential,
+        pick_number: currentPick,
+        round: currentRound
+      };
     });
-  } catch (error) {
+
+    res.json(result);
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Draft pick error:', error);
     res.status(500).json({ error: 'Failed to make draft pick' });
   }
@@ -460,17 +462,12 @@ router.post('/pick', async (req, res) => {
 // Get current draft state
 router.get('/state', authMiddleware(true), async (req: any, res) => {
   try {
-    // Get user's franchise
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const franchise = franchiseResult.rows[0];
     const seasonId = franchise.season_id;
 
     // Get draft state
@@ -514,16 +511,13 @@ router.get('/state', authMiddleware(true), async (req: any, res) => {
 // Get team needs for user's team
 router.get('/needs', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const needs = await evaluateTeamNeeds(franchiseResult.rows[0].team_id);
+    const needs = await evaluateTeamNeeds(franchise.team_id);
     res.json({ needs });
   } catch (error) {
     console.error('Team needs error:', error);
@@ -534,16 +528,12 @@ router.get('/needs', authMiddleware(true), async (req: any, res) => {
 // AI makes the current pick (for CPU teams)
 router.post('/ai-pick', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const franchise = franchiseResult.rows[0];
     const seasonId = franchise.season_id;
 
     // Get draft state
@@ -573,142 +563,24 @@ router.post('/ai-pick', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: 'No available prospects' });
     }
 
-    // Make the pick (same logic as /pick endpoint)
-    const prospectResult = await pool.query(
-      `SELECT dp.*, dpa.*
-       FROM draft_prospects dp
-       LEFT JOIN draft_prospect_attributes dpa ON dp.id = dpa.prospect_id
-       WHERE dp.id = $1`,
-      [selection.prospect_id]
-    );
-
-    const prospect = prospectResult.rows[0];
-    const playerId = uuidv4();
-
-    await pool.query(
-      `INSERT INTO players
-       (id, first_name, last_name, team_id, position, archetype,
-        height_inches, weight_lbs, age, jersey_number, years_pro,
-        overall, potential, peak_age, durability, coachability,
-        greed, ego, loyalty, leadership, motor)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
-      [playerId, prospect.first_name, prospect.last_name, currentPickInfo.team_id,
-       prospect.position, prospect.archetype, prospect.height_inches,
-       prospect.weight_lbs, prospect.age, Math.floor(Math.random() * 99),
-       0, prospect.overall, prospect.potential, prospect.peak_age,
-       prospect.durability, prospect.coachability,
-       Math.floor(Math.random() * 60) + 20,
-       Math.floor(Math.random() * 60) + 20,
-       Math.floor(Math.random() * 40) + 30,
-       Math.floor(Math.random() * 30) + 30,
-       prospect.motor]
-    );
-
-    // Copy attributes
-    await pool.query(
-      `INSERT INTO player_attributes
-       (player_id, inside_scoring, close_shot, mid_range, three_point, free_throw,
-        shot_iq, offensive_consistency, layup, standing_dunk, driving_dunk, draw_foul,
-        post_moves, post_control, ball_handling, speed_with_ball, passing_accuracy,
-        passing_vision, passing_iq, offensive_iq, interior_defense, perimeter_defense,
-        steal, block, defensive_iq, defensive_consistency, lateral_quickness,
-        help_defense_iq, offensive_rebound, defensive_rebound, box_out, rebound_timing,
-        speed, acceleration, strength, vertical, stamina, hustle, basketball_iq,
-        clutch, consistency, work_ethic, aggression, streakiness, composure)
-       SELECT $1, inside_scoring, close_shot, mid_range, three_point, free_throw,
-        shot_iq, offensive_consistency, layup, standing_dunk, driving_dunk, draw_foul,
-        post_moves, post_control, ball_handling, speed_with_ball, passing_accuracy,
-        passing_vision, passing_iq, offensive_iq, interior_defense, perimeter_defense,
-        steal, block, defensive_iq, defensive_consistency, lateral_quickness,
-        help_defense_iq, offensive_rebound, defensive_rebound, box_out, rebound_timing,
-        speed, acceleration, strength, vertical, stamina, hustle, basketball_iq,
-        clutch, consistency, work_ethic, aggression, streakiness, composure
-       FROM draft_prospect_attributes WHERE prospect_id = $2`,
-      [playerId, selection.prospect_id]
-    );
-
-    // Mark prospect as drafted
-    await pool.query(
-      `UPDATE draft_prospects SET is_drafted = true, drafted_by_team_id = $1, draft_round = $2, draft_pick = $3 WHERE id = $4`,
-      [currentPickInfo.team_id, state.current_round, state.current_pick, selection.prospect_id]
-    );
-
-    // Update draft_picks table to mark pick as used
-    await pool.query(
-      `UPDATE draft_picks SET player_id = $1 WHERE season_id = $2 AND pick_number = $3`,
-      [playerId, seasonId, state.current_pick]
-    );
-
-    // Get new state
-    const newState = await getDraftState(seasonId);
-    const nextPickInfo = draftOrder.find(p => p.pick === newState.current_pick);
-    const isNextUserPick = nextPickInfo?.team_id === franchise.team_id;
-
-    res.json({
-      pick: state.current_pick,
-      round: state.current_round,
-      team_name: currentPickInfo.team_name,
-      team_abbreviation: currentPickInfo.abbreviation,
-      player_name: `${selection.first_name} ${selection.last_name}`,
-      position: selection.position,
-      overall: selection.overall,
-      potential: selection.potential,
-      next_pick: newState.current_pick,
-      is_next_user_pick: isNextUserPick,
-      is_draft_complete: newState.is_draft_complete
-    });
-  } catch (error) {
-    console.error('AI pick error:', error);
-    res.status(500).json({ error: 'Failed to make AI pick' });
-  }
-});
-
-// Simulate picks until user's turn or draft complete
-router.post('/sim-to-pick', authMiddleware(true), async (req: any, res) => {
-  try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
-
-    if (franchiseResult.rows.length === 0) {
-      return res.status(404).json({ error: 'No active franchise' });
-    }
-
-    const franchise = franchiseResult.rows[0];
-    const seasonId = franchise.season_id;
-    const draftOrder = await buildDraftOrder(seasonId);
-
-    const picks: any[] = [];
-    let state = await getDraftState(seasonId);
-
-    // Simulate until user's turn or draft complete
-    while (!state.is_draft_complete) {
-      const currentPickInfo = draftOrder.find(p => p.pick === state.current_pick);
-
-      if (!currentPickInfo) break;
-
-      // Stop if it's user's pick
-      if (currentPickInfo.team_id === franchise.team_id) {
-        break;
-      }
-
-      // AI makes pick
-      const selection = await selectAIPick(currentPickInfo.team_id, seasonId);
-      if (!selection) break;
-
-      // Process pick
-      const prospectResult = await pool.query(
-        `SELECT dp.*, dpa.* FROM draft_prospects dp
-         LEFT JOIN draft_prospect_attributes dpa ON dp.id = dpa.prospect_id
-         WHERE dp.id = $1`,
+    // Use transaction with atomic prospect claim to prevent race conditions
+    const result = await withTransaction(async (client) => {
+      // Atomically claim the prospect - prevents double-drafting
+      const claimResult = await client.query(
+        `UPDATE draft_prospects SET is_drafted = true
+         WHERE id = $1 AND is_drafted = false
+         RETURNING *`,
         [selection.prospect_id]
       );
 
-      const prospect = prospectResult.rows[0];
+      if (claimResult.rows.length === 0) {
+        throw { status: 400, message: 'Prospect already drafted' };
+      }
+
+      const prospect = claimResult.rows[0];
       const playerId = uuidv4();
 
-      await pool.query(
+      await client.query(
         `INSERT INTO players
          (id, first_name, last_name, team_id, position, archetype,
           height_inches, weight_lbs, age, jersey_number, years_pro,
@@ -727,7 +599,8 @@ router.post('/sim-to-pick', authMiddleware(true), async (req: any, res) => {
          prospect.motor]
       );
 
-      await pool.query(
+      // Copy attributes
+      await client.query(
         `INSERT INTO player_attributes
          (player_id, inside_scoring, close_shot, mid_range, three_point, free_throw,
           shot_iq, offensive_consistency, layup, standing_dunk, driving_dunk, draw_foul,
@@ -749,16 +622,174 @@ router.post('/sim-to-pick', authMiddleware(true), async (req: any, res) => {
         [playerId, selection.prospect_id]
       );
 
-      await pool.query(
-        `UPDATE draft_prospects SET is_drafted = true, drafted_by_team_id = $1, draft_round = $2, draft_pick = $3 WHERE id = $4`,
+      // Update draft info on prospect
+      await client.query(
+        `UPDATE draft_prospects SET drafted_by_team_id = $1, draft_round = $2, draft_pick = $3 WHERE id = $4`,
         [currentPickInfo.team_id, state.current_round, state.current_pick, selection.prospect_id]
       );
 
-      // Update draft_picks table to mark pick as used
-      await pool.query(
+      // Update draft_picks table
+      await client.query(
         `UPDATE draft_picks SET player_id = $1 WHERE season_id = $2 AND pick_number = $3`,
         [playerId, seasonId, state.current_pick]
       );
+
+      return { playerId, prospect };
+    });
+
+    // Get new state after transaction
+    const newState = await getDraftState(seasonId);
+    const nextPickInfo = draftOrder.find(p => p.pick === newState.current_pick);
+    const isNextUserPick = nextPickInfo?.team_id === franchise.team_id;
+
+    res.json({
+      pick: state.current_pick,
+      round: state.current_round,
+      team_name: currentPickInfo.team_name,
+      team_abbreviation: currentPickInfo.abbreviation,
+      player_name: `${selection.first_name} ${selection.last_name}`,
+      position: selection.position,
+      overall: selection.overall,
+      potential: selection.potential,
+      next_pick: newState.current_pick,
+      is_next_user_pick: isNextUserPick,
+      is_draft_complete: newState.is_draft_complete
+    });
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('AI pick error:', error);
+    res.status(500).json({ error: 'Failed to make AI pick' });
+  }
+});
+
+// Helper function to process a single draft pick atomically
+async function processDraftPick(
+  prospectId: string,
+  teamId: string,
+  seasonId: string,
+  currentRound: number,
+  currentPick: number
+): Promise<{ playerId: string; prospect: any } | null> {
+  return withTransaction(async (client) => {
+    // Atomically claim the prospect - prevents double-drafting
+    const claimResult = await client.query(
+      `UPDATE draft_prospects SET is_drafted = true
+       WHERE id = $1 AND is_drafted = false
+       RETURNING *`,
+      [prospectId]
+    );
+
+    if (claimResult.rows.length === 0) {
+      return null; // Prospect already drafted
+    }
+
+    const prospect = claimResult.rows[0];
+    const playerId = uuidv4();
+
+    await client.query(
+      `INSERT INTO players
+       (id, first_name, last_name, team_id, position, archetype,
+        height_inches, weight_lbs, age, jersey_number, years_pro,
+        overall, potential, peak_age, durability, coachability,
+        greed, ego, loyalty, leadership, motor)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+      [playerId, prospect.first_name, prospect.last_name, teamId,
+       prospect.position, prospect.archetype, prospect.height_inches,
+       prospect.weight_lbs, prospect.age, Math.floor(Math.random() * 99),
+       0, prospect.overall, prospect.potential, prospect.peak_age,
+       prospect.durability, prospect.coachability,
+       Math.floor(Math.random() * 60) + 20,
+       Math.floor(Math.random() * 60) + 20,
+       Math.floor(Math.random() * 40) + 30,
+       Math.floor(Math.random() * 30) + 30,
+       prospect.motor]
+    );
+
+    // Copy attributes
+    await client.query(
+      `INSERT INTO player_attributes
+       (player_id, inside_scoring, close_shot, mid_range, three_point, free_throw,
+        shot_iq, offensive_consistency, layup, standing_dunk, driving_dunk, draw_foul,
+        post_moves, post_control, ball_handling, speed_with_ball, passing_accuracy,
+        passing_vision, passing_iq, offensive_iq, interior_defense, perimeter_defense,
+        steal, block, defensive_iq, defensive_consistency, lateral_quickness,
+        help_defense_iq, offensive_rebound, defensive_rebound, box_out, rebound_timing,
+        speed, acceleration, strength, vertical, stamina, hustle, basketball_iq,
+        clutch, consistency, work_ethic, aggression, streakiness, composure)
+       SELECT $1, inside_scoring, close_shot, mid_range, three_point, free_throw,
+        shot_iq, offensive_consistency, layup, standing_dunk, driving_dunk, draw_foul,
+        post_moves, post_control, ball_handling, speed_with_ball, passing_accuracy,
+        passing_vision, passing_iq, offensive_iq, interior_defense, perimeter_defense,
+        steal, block, defensive_iq, defensive_consistency, lateral_quickness,
+        help_defense_iq, offensive_rebound, defensive_rebound, box_out, rebound_timing,
+        speed, acceleration, strength, vertical, stamina, hustle, basketball_iq,
+        clutch, consistency, work_ethic, aggression, streakiness, composure
+       FROM draft_prospect_attributes WHERE prospect_id = $2`,
+      [playerId, prospectId]
+    );
+
+    // Update draft info on prospect
+    await client.query(
+      `UPDATE draft_prospects SET drafted_by_team_id = $1, draft_round = $2, draft_pick = $3 WHERE id = $4`,
+      [teamId, currentRound, currentPick, prospectId]
+    );
+
+    // Update draft_picks table
+    await client.query(
+      `UPDATE draft_picks SET player_id = $1 WHERE season_id = $2 AND pick_number = $3`,
+      [playerId, seasonId, currentPick]
+    );
+
+    return { playerId, prospect };
+  });
+}
+
+// Simulate picks until user's turn or draft complete
+router.post('/sim-to-pick', authMiddleware(true), async (req: any, res) => {
+  try {
+    const franchise = await getUserActiveFranchise(req.user.userId);
+
+    if (!franchise) {
+      return res.status(404).json({ error: 'No active franchise' });
+    }
+
+    const seasonId = franchise.season_id;
+    const draftOrder = await buildDraftOrder(seasonId);
+
+    const picks: any[] = [];
+    let state = await getDraftState(seasonId);
+
+    // Simulate until user's turn or draft complete
+    while (!state.is_draft_complete) {
+      const currentPickInfo = draftOrder.find(p => p.pick === state.current_pick);
+
+      if (!currentPickInfo) break;
+
+      // Stop if it's user's pick
+      if (currentPickInfo.team_id === franchise.team_id) {
+        break;
+      }
+
+      // AI makes pick
+      const selection = await selectAIPick(currentPickInfo.team_id, seasonId);
+      if (!selection) break;
+
+      // Process pick atomically using transaction
+      const result = await processDraftPick(
+        selection.prospect_id,
+        currentPickInfo.team_id,
+        seasonId,
+        state.current_round,
+        state.current_pick
+      );
+
+      if (!result) {
+        // Prospect already drafted - try next pick
+        state = await getDraftState(seasonId);
+        continue;
+      }
 
       picks.push({
         pick: state.current_pick,
@@ -792,16 +823,12 @@ router.post('/sim-to-pick', authMiddleware(true), async (req: any, res) => {
 // Auto-draft all remaining picks
 router.post('/auto-draft', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const franchise = franchiseResult.rows[0];
     const seasonId = franchise.season_id;
     const draftOrder = await buildDraftOrder(seasonId);
 
@@ -817,68 +844,20 @@ router.post('/auto-draft', authMiddleware(true), async (req: any, res) => {
       const selection = await selectAIPick(currentPickInfo.team_id, seasonId);
       if (!selection) break;
 
-      // Process pick
-      const prospectResult = await pool.query(
-        `SELECT dp.*, dpa.* FROM draft_prospects dp
-         LEFT JOIN draft_prospect_attributes dpa ON dp.id = dpa.prospect_id
-         WHERE dp.id = $1`,
-        [selection.prospect_id]
+      // Process pick atomically using transaction
+      const result = await processDraftPick(
+        selection.prospect_id,
+        currentPickInfo.team_id,
+        seasonId,
+        state.current_round,
+        state.current_pick
       );
 
-      const prospect = prospectResult.rows[0];
-      const playerId = uuidv4();
-
-      await pool.query(
-        `INSERT INTO players
-         (id, first_name, last_name, team_id, position, archetype,
-          height_inches, weight_lbs, age, jersey_number, years_pro,
-          overall, potential, peak_age, durability, coachability,
-          greed, ego, loyalty, leadership, motor)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
-        [playerId, prospect.first_name, prospect.last_name, currentPickInfo.team_id,
-         prospect.position, prospect.archetype, prospect.height_inches,
-         prospect.weight_lbs, prospect.age, Math.floor(Math.random() * 99),
-         0, prospect.overall, prospect.potential, prospect.peak_age,
-         prospect.durability, prospect.coachability,
-         Math.floor(Math.random() * 60) + 20,
-         Math.floor(Math.random() * 60) + 20,
-         Math.floor(Math.random() * 40) + 30,
-         Math.floor(Math.random() * 30) + 30,
-         prospect.motor]
-      );
-
-      await pool.query(
-        `INSERT INTO player_attributes
-         (player_id, inside_scoring, close_shot, mid_range, three_point, free_throw,
-          shot_iq, offensive_consistency, layup, standing_dunk, driving_dunk, draw_foul,
-          post_moves, post_control, ball_handling, speed_with_ball, passing_accuracy,
-          passing_vision, passing_iq, offensive_iq, interior_defense, perimeter_defense,
-          steal, block, defensive_iq, defensive_consistency, lateral_quickness,
-          help_defense_iq, offensive_rebound, defensive_rebound, box_out, rebound_timing,
-          speed, acceleration, strength, vertical, stamina, hustle, basketball_iq,
-          clutch, consistency, work_ethic, aggression, streakiness, composure)
-         SELECT $1, inside_scoring, close_shot, mid_range, three_point, free_throw,
-          shot_iq, offensive_consistency, layup, standing_dunk, driving_dunk, draw_foul,
-          post_moves, post_control, ball_handling, speed_with_ball, passing_accuracy,
-          passing_vision, passing_iq, offensive_iq, interior_defense, perimeter_defense,
-          steal, block, defensive_iq, defensive_consistency, lateral_quickness,
-          help_defense_iq, offensive_rebound, defensive_rebound, box_out, rebound_timing,
-          speed, acceleration, strength, vertical, stamina, hustle, basketball_iq,
-          clutch, consistency, work_ethic, aggression, streakiness, composure
-         FROM draft_prospect_attributes WHERE prospect_id = $2`,
-        [playerId, selection.prospect_id]
-      );
-
-      await pool.query(
-        `UPDATE draft_prospects SET is_drafted = true, drafted_by_team_id = $1, draft_round = $2, draft_pick = $3 WHERE id = $4`,
-        [currentPickInfo.team_id, state.current_round, state.current_pick, selection.prospect_id]
-      );
-
-      // Update draft_picks table to mark pick as used
-      await pool.query(
-        `UPDATE draft_picks SET player_id = $1 WHERE season_id = $2 AND pick_number = $3`,
-        [playerId, seasonId, state.current_pick]
-      );
+      if (!result) {
+        // Prospect already drafted - try next pick
+        state = await getDraftState(seasonId);
+        continue;
+      }
 
       const isUserPick = currentPickInfo.team_id === franchise.team_id;
 
