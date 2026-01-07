@@ -130,8 +130,6 @@ function calculateActionProbabilities(
   context: PossessionContext,
   shotClock: number
 ): Record<ActionType, number> {
-  const attrs = ballHandler.attributes;
-
   // Base probabilities
   let probs: Record<ActionType, number> = {
     shoot: 0.25,
@@ -141,6 +139,13 @@ function calculateActionProbabilities(
     pick_and_roll: 0.10,
     iso: 0.05
   };
+
+  // Safety check - return base probabilities if no valid ball handler
+  if (!ballHandler || !ballHandler.attributes) {
+    return probs;
+  }
+
+  const attrs = ballHandler.attributes;
 
   // Adjust based on shot clock
   if (shotClock <= 6) {

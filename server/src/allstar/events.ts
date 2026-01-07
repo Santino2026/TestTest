@@ -465,12 +465,12 @@ export async function simulateAllStarGame(seasonId: string): Promise<EventResult
   const baseScore = 170;
   const variance = 25;
 
-  let eastScore = baseScore + Math.floor((eastStrength - 80) * 3) + Math.floor(Math.random() * variance) - variance/2;
-  let westScore = baseScore + Math.floor((westStrength - 80) * 3) + Math.floor(Math.random() * variance) - variance/2;
+  let eastScore = baseScore + Math.floor((eastStrength - 80) * 3) + Math.floor(Math.random() * variance) - Math.floor(variance/2);
+  let westScore = baseScore + Math.floor((westStrength - 80) * 3) + Math.floor(Math.random() * variance) - Math.floor(variance/2);
 
-  // Ensure valid scores
-  eastScore = Math.max(150, Math.min(200, eastScore));
-  westScore = Math.max(150, Math.min(200, westScore));
+  // Ensure valid scores (round to integers)
+  eastScore = Math.round(Math.max(150, Math.min(200, eastScore)));
+  westScore = Math.round(Math.max(150, Math.min(200, westScore)));
 
   const winningTeam = eastScore > westScore ? 'east' : 'west';
   const winningRoster = winningTeam === 'east' ? eastTeam : westTeam;
