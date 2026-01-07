@@ -291,7 +291,7 @@ export async function getRisingStars(seasonId: string) {
       t.name as team_name,
       t.conference,
       COALESCE(ps.points / NULLIF(ps.games_played, 0), 0) as ppg,
-      COALESCE(ps.rebounds / NULLIF(ps.games_played, 0), 0) as rpg,
+      COALESCE((ps.oreb + ps.dreb) / NULLIF(ps.games_played, 0), 0) as rpg,
       COALESCE(ps.assists / NULLIF(ps.games_played, 0), 0) as apg
     FROM players p
     JOIN teams t ON p.team_id = t.id

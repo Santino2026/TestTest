@@ -8,19 +8,13 @@ import TeamDetailPage from './pages/TeamDetailPage';
 import PlayersPage from './pages/PlayersPage';
 import PlayerDetailPage from './pages/PlayerDetailPage';
 import StandingsPage from './pages/StandingsPage';
-import GamesPage from './pages/GamesPage';
 import GameDetailPage from './pages/GameDetailPage';
 import SchedulePage from './pages/SchedulePage';
-import PlayoffsPage from './pages/PlayoffsPage';
 import StatsPage from './pages/StatsPage';
-import DraftPage from './pages/DraftPage';
-import FreeAgencyPage from './pages/FreeAgencyPage';
 import TradesPage from './pages/TradesPage';
 import FranchisesPage from './pages/FranchisesPage';
 import DevelopmentPage from './pages/DevelopmentPage';
 import RosterPage from './pages/RosterPage';
-import AwardsPage from './pages/AwardsPage';
-import AllStarPage from './pages/AllStarPage';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
@@ -162,15 +156,15 @@ function AppRoutes() {
         <Route path="players" element={<PlayersPage />} />
         <Route path="players/:id" element={<PlayerDetailPage />} />
         <Route path="standings" element={<StandingsPage />} />
-        <Route path="games" element={<GamesPage />} />
         <Route path="games/:id" element={<GameDetailPage />} />
         <Route path="schedule" element={<SchedulePage />} />
-        <Route path="playoffs" element={<PlayoffsPage />} />
-        <Route path="awards" element={<AwardsPage />} />
-        <Route path="all-star" element={<AllStarPage />} />
+        {/* Legacy routes - redirect to unified Season page */}
+        <Route path="playoffs" element={<Navigate to="/basketball/schedule" replace />} />
+        <Route path="awards" element={<Navigate to="/basketball/schedule" replace />} />
+        <Route path="all-star" element={<Navigate to="/basketball/schedule" replace />} />
+        <Route path="draft" element={<Navigate to="/basketball/schedule" replace />} />
+        <Route path="free-agency" element={<Navigate to="/basketball/schedule" replace />} />
         <Route path="stats" element={<StatsPage />} />
-        <Route path="draft" element={<DraftPage />} />
-        <Route path="free-agency" element={<FreeAgencyPage />} />
         <Route path="trades" element={<TradesPage />} />
         <Route path="development" element={<DevelopmentPage />} />
       </Route>

@@ -2,22 +2,16 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
   Users,
-  Trophy,
   Calendar,
   BarChart3,
   User,
-  Play,
   LogOut,
   X,
   TrendingUp,
-  GraduationCap,
-  UserPlus,
   ArrowLeftRight,
   FolderOpen,
   Zap,
   ClipboardList,
-  Award,
-  Star,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFranchise } from '@/context/FranchiseContext';
@@ -25,20 +19,14 @@ import { useAuth } from '@/context/AuthContext';
 
 const navItems = [
   { path: '/basketball', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/basketball/schedule', label: 'Season', icon: Calendar },
   { path: '/basketball/roster', label: 'My Roster', icon: ClipboardList },
   { path: '/basketball/franchises', label: 'My Franchises', icon: FolderOpen },
-  { path: '/basketball/games', label: 'Games', icon: Play },
   { path: '/basketball/teams', label: 'Teams', icon: Users },
   { path: '/basketball/players', label: 'Players', icon: User },
   { path: '/basketball/development', label: 'Development', icon: Zap },
   { path: '/basketball/standings', label: 'Standings', icon: BarChart3 },
   { path: '/basketball/stats', label: 'Stats', icon: TrendingUp },
-  { path: '/basketball/schedule', label: 'Schedule', icon: Calendar },
-  { path: '/basketball/all-star', label: 'All-Star Weekend', icon: Star },
-  { path: '/basketball/playoffs', label: 'Playoffs', icon: Trophy },
-  { path: '/basketball/awards', label: 'Awards', icon: Award },
-  { path: '/basketball/draft', label: 'Draft', icon: GraduationCap },
-  { path: '/basketball/free-agency', label: 'Free Agency', icon: UserPlus },
   { path: '/basketball/trades', label: 'Trades', icon: ArrowLeftRight },
 ];
 
@@ -47,57 +35,13 @@ type NavItemState = 'enabled' | 'disabled';
 
 function getNavItemState(
   path: string,
-  phase: string,
-  offseasonPhase?: string
+  phase: string
 ): NavItemState {
-  // These pages are always accessible
-  const alwaysEnabled = [
-    '/basketball',
-    '/basketball/roster',
-    '/basketball/franchises',
-    '/basketball/games',
-    '/basketball/teams',
-    '/basketball/players',
-    '/basketball/development',
-    '/basketball/standings',
-    '/basketball/stats',
-    '/basketball/schedule',
-  ];
-
-  if (alwaysEnabled.includes(path)) return 'enabled';
-
-  // Phase-specific rules
-  switch (path) {
-    case '/basketball/all-star':
-      return phase === 'all_star' ? 'enabled' : 'disabled';
-
-    case '/basketball/playoffs':
-      return phase === 'playoffs' ? 'enabled' : 'disabled';
-
-    case '/basketball/awards':
-      return phase === 'offseason' ? 'enabled' : 'disabled';
-
-    case '/basketball/draft':
-      // Only during offseason lottery or draft phases
-      return phase === 'offseason' &&
-        ['lottery', 'draft'].includes(offseasonPhase || '')
-        ? 'enabled'
-        : 'disabled';
-
-    case '/basketball/free-agency':
-      // Only during offseason free_agency phase
-      return phase === 'offseason' && offseasonPhase === 'free_agency'
-        ? 'enabled'
-        : 'disabled';
-
-    case '/basketball/trades':
-      // Disabled during playoffs (after deadline)
-      if (phase === 'playoffs') return 'disabled';
-      return 'enabled';
-
-    default:
-      return 'enabled';
+  // Trades disabled during playoffs (after deadline)
+  if (path === '/basketball/trades' && phase === 'playoffs') {
+    return 'disabled';
   }
+  return 'enabled';
 }
 
 interface SidebarProps {
@@ -189,8 +133,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             const Icon = item.icon;
             const state = getNavItemState(
               item.path,
-              franchise?.phase || 'preseason',
-              franchise?.offseason_phase || undefined
+              franchise?.phase || 'preseason'
             );
             const isDisabled = state === 'disabled';
 

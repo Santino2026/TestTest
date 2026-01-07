@@ -1,85 +1,162 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PageTemplate } from '@/components/layout/PageTemplate';
-import { Card, CardContent, CardHeader, CardTitle, Button, Badge } from '@/components/ui';
+import { Card, CardContent, Button, Badge } from '@/components/ui';
 import { TeamLogo } from '@/components/team/TeamLogo';
-import { api } from '@/api/client';
+import { api, ScheduledGame } from '@/api/client';
 import { useFranchise } from '@/context/FranchiseContext';
 import { cn } from '@/lib/utils';
 import {
   ChevronLeft,
   ChevronRight,
   Play,
-  Calendar,
   FastForward,
   Trophy,
   Zap,
-  ArrowRight,
 } from 'lucide-react';
 
+// Phase-specific content components
+import { AllStarContent } from '@/components/season-hub/AllStarContent';
+import { AwardsContent } from '@/components/season-hub/AwardsContent';
+import { PlayoffsContent } from '@/components/season-hub/PlayoffsContent';
+import { OffseasonContent } from '@/components/season-hub/OffseasonContent';
+
+const PHASE_LABELS: Record<string, string> = {
+  preseason: 'Preseason',
+  regular_season: 'Regular Season',
+  all_star: 'All-Star Weekend',
+  awards: 'Season Awards',
+  playoffs: 'Playoffs',
+  offseason: 'Offseason',
+};
+
+const OFFSEASON_PHASE_LABELS: Record<string, string> = {
+  review: 'Season Review',
+  lottery: 'Draft Lottery',
+  draft: 'NBA Draft',
+  free_agency: 'Free Agency',
+  training_camp: 'Training Camp',
+};
+
 export default function SchedulePage() {
-  const navigate = useNavigate();
+  const { franchise } = useFranchise();
+
+  // Determine phase label
+  const getPhaseLabel = () => {
+    if (!franchise) return 'Loading...';
+    if (franchise.phase === 'offseason' && franchise.offseason_phase) {
+      return OFFSEASON_PHASE_LABELS[franchise.offseason_phase] || 'Offseason';
+    }
+    return PHASE_LABELS[franchise.phase] || franchise.phase;
+  };
+
+  // Render phase-specific content
+  const renderPhaseContent = () => {
+    switch (franchise?.phase) {
+      case 'preseason':
+      case 'regular_season':
+        return <CalendarContent />;
+      case 'all_star':
+        return <AllStarContent />;
+      case 'awards':
+        return <AwardsContent />;
+      case 'playoffs':
+        return <PlayoffsContent />;
+      case 'offseason':
+        return <OffseasonContent offseasonPhase={franchise.offseason_phase ?? undefined} />;
+      default:
+        return <CalendarContent />;
+    }
+  };
+
+  return (
+    <PageTemplate
+      title="Season"
+      subtitle={franchise ? `${franchise.team_name} - ${getPhaseLabel()}` : 'Loading...'}
+    >
+      {renderPhaseContent()}
+    </PageTemplate>
+  );
+}
+
+// Calendar Content (for preseason and regular season)
+function CalendarContent() {
   const queryClient = useQueryClient();
   const { franchise, refreshFranchise } = useFranchise();
   const [selectedMonth, setSelectedMonth] = useState('2024-10');
   const [simResult, setSimResult] = useState<any>(null);
 
+  const isPreseason = franchise?.phase === 'preseason';
+  const isRegularSeason = franchise?.phase === 'regular_season';
+
   // Fetch schedule
   const { data: schedule, isLoading: scheduleLoading } = useQuery({
-    queryKey: ['schedule', franchise?.team_id, franchise?.season_id, selectedMonth],
+    queryKey: ['schedule', franchise?.team_id, franchise?.season_id, selectedMonth, isPreseason],
     queryFn: () => api.getSchedule({
       team_id: franchise?.team_id,
       season_id: franchise?.season_id,
-      month: selectedMonth
+      month: selectedMonth,
+      include_preseason: isPreseason ? 'true' : undefined,
     }),
     enabled: !!franchise?.team_id && !!franchise?.season_id,
   });
 
-  // Fetch season progress
-  const { data: progress } = useQuery({
-    queryKey: ['seasonProgress'],
-    queryFn: api.getSeasonProgress,
-    enabled: franchise?.phase === 'regular_season',
-    refetchInterval: 5000,
+  // Fetch all schedule for finding next game
+  const { data: fullSchedule } = useQuery({
+    queryKey: ['schedule', 'full', franchise?.team_id, franchise?.season_id, isPreseason],
+    queryFn: () => api.getSchedule({
+      team_id: franchise?.team_id,
+      season_id: franchise?.season_id,
+      include_preseason: isPreseason ? 'true' : undefined,
+    }),
+    enabled: !!franchise?.team_id && !!franchise?.season_id,
   });
 
-  // Mutations with error handling
-  const generateSchedule = useMutation({
-    mutationFn: api.generateSchedule,
-    onSuccess: () => {
+  // Find next scheduled game
+  const nextGame = useMemo(() => {
+    if (!fullSchedule) return null;
+    return fullSchedule.find((g: ScheduledGame) => g.status === 'scheduled');
+  }, [fullSchedule]);
+
+  // Preseason mutations
+  const advancePreseasonDay = useMutation({
+    mutationFn: api.advancePreseasonDay,
+    onSuccess: (data) => {
+      setSimResult({ type: 'preseason_day', data });
       queryClient.invalidateQueries({ queryKey: ['schedule'] });
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
       refreshFranchise();
     },
     onError: (error: Error) => {
-      console.error('Generate schedule failed:', error);
-      alert(`Failed to generate schedule: ${error.message}`);
+      alert(`Failed to advance preseason: ${error.message}`);
     },
   });
 
-  const startSeason = useMutation({
-    mutationFn: api.startSeason,
-    onSuccess: () => {
+  const advancePreseasonAll = useMutation({
+    mutationFn: api.advancePreseasonAll,
+    onSuccess: (data) => {
+      setSimResult({ type: 'preseason_all', data });
       queryClient.invalidateQueries({ queryKey: ['schedule'] });
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
+      queryClient.invalidateQueries({ queryKey: ['season'] });
       refreshFranchise();
     },
     onError: (error: Error) => {
-      console.error('Start season failed:', error);
-      alert(`Failed to start season: ${error.message}`);
+      alert(`Failed to simulate preseason: ${error.message}`);
     },
   });
 
+  // Regular season mutations
   const advanceDay = useMutation({
     mutationFn: api.advanceDay,
     onSuccess: (data) => {
       setSimResult({ type: 'day', data });
       queryClient.invalidateQueries({ queryKey: ['schedule'] });
-      queryClient.invalidateQueries({ queryKey: ['seasonProgress'] });
       queryClient.invalidateQueries({ queryKey: ['standings'] });
       refreshFranchise();
     },
     onError: (error: Error) => {
-      console.error('Advance day failed:', error);
       alert(`Failed to advance day: ${error.message}`);
     },
   });
@@ -89,12 +166,10 @@ export default function SchedulePage() {
     onSuccess: (data) => {
       setSimResult({ type: 'week', data });
       queryClient.invalidateQueries({ queryKey: ['schedule'] });
-      queryClient.invalidateQueries({ queryKey: ['seasonProgress'] });
       queryClient.invalidateQueries({ queryKey: ['standings'] });
       refreshFranchise();
     },
     onError: (error: Error) => {
-      console.error('Advance week failed:', error);
       alert(`Failed to advance week: ${error.message}`);
     },
   });
@@ -108,567 +183,412 @@ export default function SchedulePage() {
       refreshFranchise();
     },
     onError: (error: Error) => {
-      console.error('Advance to playoffs failed:', error);
       alert(`Failed to simulate to playoffs: ${error.message}`);
     },
   });
 
   const months = [
-    { value: '2024-10', label: 'October' },
-    { value: '2024-11', label: 'November' },
-    { value: '2024-12', label: 'December' },
-    { value: '2025-01', label: 'January' },
-    { value: '2025-02', label: 'February' },
-    { value: '2025-03', label: 'March' },
-    { value: '2025-04', label: 'April' },
+    { value: '2024-10', label: 'October', year: 2024 },
+    { value: '2024-11', label: 'November', year: 2024 },
+    { value: '2024-12', label: 'December', year: 2024 },
+    { value: '2025-01', label: 'January', year: 2025 },
+    { value: '2025-02', label: 'February', year: 2025 },
+    { value: '2025-03', label: 'March', year: 2025 },
+    { value: '2025-04', label: 'April', year: 2025 },
   ];
 
   const currentMonthIndex = months.findIndex(m => m.value === selectedMonth);
+  const currentMonth = months[currentMonthIndex];
 
-  // Group schedule by date
-  const scheduleByDate: Record<string, typeof schedule> = {};
-  schedule?.forEach(game => {
-    const date = game.game_date.split('T')[0];
-    if (!scheduleByDate[date]) scheduleByDate[date] = [];
-    scheduleByDate[date].push(game);
-  });
-
-  const phaseLabels: Record<string, string> = {
-    preseason: 'Preseason',
-    regular_season: 'Regular Season',
-    playoffs: 'Playoffs',
-    offseason: 'Offseason',
-  };
-
-  const isSimulating = advanceDay.isPending || advanceWeek.isPending || advanceToPlayoffs.isPending;
+  const isSimulating = advanceDay.isPending || advanceWeek.isPending ||
+    advanceToPlayoffs.isPending || advancePreseasonDay.isPending || advancePreseasonAll.isPending;
 
   return (
-    <PageTemplate
-      title="Season"
-      subtitle={franchise ? `${franchise.team_name} - ${phaseLabels[franchise.phase] || franchise.phase}` : 'Loading...'}
-    >
-      {/* Phase-specific Control Panel */}
-      {franchise?.phase === 'preseason' && (
-        <PreseasonPanel
-          onGenerate={() => generateSchedule.mutate()}
-          onStart={() => startSeason.mutate()}
-          isGenerating={generateSchedule.isPending}
-          isStarting={startSeason.isPending}
-          hasSchedule={(schedule?.length || 0) > 0}
-        />
-      )}
+    <>
+      {/* Sim Controls Bar */}
+      <SimControlsBar
+        isPreseason={isPreseason}
+        isSimulating={isSimulating}
+        simResult={simResult}
+        onClearResult={() => setSimResult(null)}
+        onSimDay={() => isPreseason ? advancePreseasonDay.mutate() : advanceDay.mutate()}
+        onSimWeek={() => isPreseason ? advancePreseasonAll.mutate() : advanceWeek.mutate()}
+        onSimToPlayoffs={isRegularSeason ? () => advanceToPlayoffs.mutate() : undefined}
+      />
 
-      {franchise?.phase === 'regular_season' && (
-        <RegularSeasonPanel
-          progress={progress}
-          onSimDay={() => advanceDay.mutate()}
-          onSimWeek={() => advanceWeek.mutate()}
-          onSimToPlayoffs={() => advanceToPlayoffs.mutate()}
+      {/* Next Game Banner */}
+      {nextGame && (
+        <NextGameBanner
+          game={nextGame}
+          userTeamId={franchise?.team_id}
+          onSimDay={() => isPreseason ? advancePreseasonDay.mutate() : advanceDay.mutate()}
           isSimulating={isSimulating}
-          simResult={simResult}
-          onClearResult={() => setSimResult(null)}
         />
       )}
 
-      {franchise?.phase === 'playoffs' && (
-        <PlayoffsPanel onGoToPlayoffs={() => navigate('/basketball/playoffs')} />
-      )}
+      {/* Month Navigation */}
+      <Card className="mb-4">
+        <CardContent className="py-3">
+          <div className="flex items-center justify-between">
+            <Button
+              variant="ghost"
+              onClick={() => currentMonthIndex > 0 && setSelectedMonth(months[currentMonthIndex - 1].value)}
+              disabled={currentMonthIndex === 0}
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </Button>
 
-      {franchise?.phase === 'offseason' && (
-        <>
-          <SeasonSummaryPanel />
-          <OffseasonPanel />
-        </>
-      )}
+            <h3 className="text-lg font-bold text-white">
+              {currentMonth?.label} {currentMonth?.year}
+            </h3>
 
-      {/* Month Navigation - only show for regular season */}
-      {franchise?.phase === 'regular_season' && (
-        <Card className="mb-6">
-          <CardContent className="py-3">
-            <div className="flex items-center justify-between">
-              <Button
-                variant="ghost"
-                onClick={() => currentMonthIndex > 0 && setSelectedMonth(months[currentMonthIndex - 1].value)}
-                disabled={currentMonthIndex === 0}
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </Button>
-
-              <h3 className="text-lg font-bold text-white">
-                {months[currentMonthIndex]?.label} {selectedMonth.startsWith('2024') ? '2024' : '2025'}
-              </h3>
-
-              <Button
-                variant="ghost"
-                onClick={() => currentMonthIndex < months.length - 1 && setSelectedMonth(months[currentMonthIndex + 1].value)}
-                disabled={currentMonthIndex === months.length - 1}
-              >
-                <ChevronRight className="w-5 h-5" />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Schedule List */}
-      {scheduleLoading ? (
-        <div className="animate-pulse space-y-4">
-          <div className="h-20 bg-slate-800/50 rounded-xl" />
-          <div className="h-20 bg-slate-800/50 rounded-xl" />
-        </div>
-      ) : schedule && schedule.length > 0 ? (
-        <div className="space-y-4">
-          {Object.entries(scheduleByDate).map(([date, games]) => (
-            <Card key={date}>
-              <CardHeader className="py-3">
-                <CardTitle className="text-sm text-slate-400">
-                  {new Date(date).toLocaleDateString('en-US', {
-                    weekday: 'long',
-                    month: 'long',
-                    day: 'numeric',
-                  })}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="py-2">
-                <div className="space-y-2">
-                  {games?.map(game => {
-                    const isHome = game.home_team_id === franchise?.team_id;
-                    const opponent = isHome ? game.away_team_name : game.home_team_name;
-                    const opponentAbbrev = isHome ? game.away_abbrev : game.home_abbrev;
-                    const opponentColor = isHome ? game.away_color : game.home_color;
-                    const isCompleted = game.status === 'completed';
-
-                    let result = null;
-                    if (isCompleted && game.home_score !== undefined) {
-                      const myScore = isHome ? game.home_score : game.away_score;
-                      const oppScore = isHome ? game.away_score : game.home_score;
-                      const won = game.winner_id === franchise?.team_id;
-                      result = { won, myScore, oppScore };
-                    }
-
-                    return (
-                      <div
-                        key={game.id}
-                        className={cn(
-                          'flex items-center justify-between p-2.5 md:p-3 rounded-lg gap-2 min-h-[48px]',
-                          game.is_user_game && 'bg-blue-900/30'
-                        )}
-                      >
-                        <div className="flex items-center gap-2 md:gap-3 min-w-0 flex-1">
-                          <TeamLogo
-                            abbreviation={opponentAbbrev}
-                            primaryColor={opponentColor}
-                            size="sm"
-                          />
-                          <div className="min-w-0">
-                            <p className="font-medium text-sm md:text-base truncate text-white">
-                              {isHome ? 'vs' : '@'} <span className="hidden sm:inline">{opponent}</span><span className="sm:hidden">{opponentAbbrev}</span>
-                            </p>
-                            <p className="text-xs text-slate-400">
-                              Game {game.game_number}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0">
-                          {isCompleted && result ? (
-                            <>
-                              <Badge variant={result.won ? 'success' : 'danger'}>
-                                {result.won ? 'W' : 'L'}
-                              </Badge>
-                              <span className="font-mono font-medium text-sm md:text-base text-white">
-                                {result.myScore}-{result.oppScore}
-                              </span>
-                              {game.game_id && (
-                                <Link to={`/basketball/games/${game.game_id}`}>
-                                  <Button variant="ghost" size="sm" className="px-2 sm:px-3">
-                                    <span className="hidden sm:inline">Box Score</span>
-                                    <ChevronRight className="w-4 h-4 sm:hidden" />
-                                  </Button>
-                                </Link>
-                              )}
-                            </>
-                          ) : (
-                            <Badge variant="secondary">Scheduled</Badge>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <Card>
-          <CardContent className="py-8 text-center">
-            <p className="text-slate-400">
-              {franchise?.phase === 'preseason'
-                ? 'Generate a schedule to see your games.'
-                : 'No games scheduled for this month.'}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-    </PageTemplate>
-  );
-}
-
-// Preseason Panel Component
-function PreseasonPanel({
-  onGenerate,
-  onStart,
-  isGenerating,
-  isStarting,
-  hasSchedule,
-}: {
-  onGenerate: () => void;
-  onStart: () => void;
-  isGenerating: boolean;
-  isStarting: boolean;
-  hasSchedule: boolean;
-}) {
-  return (
-    <Card className="mb-4 md:mb-6 border-2 border-blue-500/30 bg-blue-900/20">
-      <CardContent className="py-4 md:py-6">
-        <div className="text-center">
-          <h2 className="text-lg md:text-xl font-bold text-white mb-2">Welcome to the Preseason!</h2>
-          <p className="text-sm md:text-base text-slate-300 mb-4 md:mb-6">
-            Follow these steps to start your season:
-          </p>
-
-          <div className="flex flex-col sm:flex-row justify-center items-center gap-3 sm:gap-4">
-            <div className={cn(
-              'flex flex-col items-center p-3 md:p-4 rounded-lg w-full sm:w-auto',
-              hasSchedule ? 'bg-green-900/30 text-green-400' : 'bg-slate-800/50'
-            )}>
-              <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold mb-2 text-sm md:text-base">
-                1
-              </div>
-              <Button
-                onClick={onGenerate}
-                disabled={isGenerating || hasSchedule}
-                variant={hasSchedule ? 'secondary' : 'primary'}
-                className="w-full sm:w-auto"
-              >
-                <Calendar className="w-4 h-4 mr-2" />
-                {hasSchedule ? 'Schedule Ready' : isGenerating ? 'Generating...' : 'Generate Schedule'}
-              </Button>
-            </div>
-
-            <div className="flex items-center">
-              <ArrowRight className="w-5 h-5 md:w-6 md:h-6 text-slate-400 rotate-90 sm:rotate-0" />
-            </div>
-
-            <div className="flex flex-col items-center p-3 md:p-4 rounded-lg bg-slate-800/50 w-full sm:w-auto">
-              <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold mb-2 text-sm md:text-base">
-                2
-              </div>
-              <Button
-                onClick={onStart}
-                disabled={isStarting || !hasSchedule}
-                className="w-full sm:w-auto"
-              >
-                <Play className="w-4 h-4 mr-2" />
-                {isStarting ? 'Starting...' : 'Start Season'}
-              </Button>
-            </div>
+            <Button
+              variant="ghost"
+              onClick={() => currentMonthIndex < months.length - 1 && setSelectedMonth(months[currentMonthIndex + 1].value)}
+              disabled={currentMonthIndex === months.length - 1}
+            >
+              <ChevronRight className="w-5 h-5" />
+            </Button>
           </div>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+
+      {/* Calendar Grid */}
+      {scheduleLoading ? (
+        <Card>
+          <CardContent className="py-8">
+            <div className="animate-pulse space-y-4">
+              <div className="grid grid-cols-7 gap-2">
+                {Array.from({ length: 35 }).map((_, i) => (
+                  <div key={i} className="h-16 bg-slate-800/50 rounded" />
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <MonthCalendar
+          month={selectedMonth}
+          games={schedule || []}
+          userTeamId={franchise?.team_id}
+          nextGameId={nextGame?.id}
+        />
+      )}
+    </>
   );
 }
 
-// Regular Season Panel Component
-function RegularSeasonPanel({
-  progress,
-  onSimDay,
-  onSimWeek,
-  onSimToPlayoffs,
+// Sim Controls Bar
+function SimControlsBar({
+  isPreseason,
   isSimulating,
   simResult,
   onClearResult,
+  onSimDay,
+  onSimWeek,
+  onSimToPlayoffs,
 }: {
-  progress: any;
-  onSimDay: () => void;
-  onSimWeek: () => void;
-  onSimToPlayoffs: () => void;
+  isPreseason?: boolean;
   isSimulating: boolean;
   simResult: any;
   onClearResult: () => void;
+  onSimDay: () => void;
+  onSimWeek: () => void;
+  onSimToPlayoffs?: () => void;
 }) {
-  const progressPct = progress ? (progress.current_day / progress.total_days) * 100 : 0;
-  const gamesProgressPct = progress ? (progress.user_games_completed / progress.user_games_total) * 100 : 0;
-
   return (
-    <Card className="mb-6">
-      <CardContent className="py-4">
-        {/* Progress Bar */}
-        {progress && (
-          <div className="mb-4">
-            <div className="flex justify-between text-sm text-slate-300 mb-1">
-              <span>Season Progress</span>
-              <span>Day {progress.current_day} of {progress.total_days}</span>
-            </div>
-            <div className="h-3 bg-slate-700/50 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-blue-600 transition-all duration-500"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-xs text-slate-400 mt-1">
-              <span>Your Games: {progress.user_games_completed} of {progress.user_games_total}</span>
-              <span>{Math.round(gamesProgressPct)}% complete</span>
-            </div>
-          </div>
-        )}
-
-        {/* Sim Result */}
+    <Card className="mb-4">
+      <CardContent className="py-3">
+        {/* Sim Result Banner */}
         {simResult && (
-          <div className="mb-4 p-3 bg-green-900/30 border border-green-500/30 rounded-lg">
-            <div className="flex justify-between items-start">
-              <div>
-                {simResult.type === 'day' && (
-                  <p className="text-green-400">
-                    Simulated Day {simResult.data.day}: {simResult.data.games_played} games played
-                  </p>
-                )}
-                {simResult.type === 'week' && (
-                  <p className="text-green-400">
-                    Simulated {simResult.data.days_simulated} days: {simResult.data.games_played} games played
-                  </p>
-                )}
-                {simResult.type === 'playoffs' && (
-                  <p className="text-green-400 font-bold">
-                    Regular Season Complete! Your Record: {simResult.data.user_record.wins}-{simResult.data.user_record.losses}
-                  </p>
-                )}
-              </div>
-              <button onClick={onClearResult} className="text-slate-400 hover:text-slate-300">
+          <div className="mb-3 p-2 bg-green-900/30 border border-green-500/30 rounded-lg">
+            <div className="flex justify-between items-center">
+              <p className="text-sm text-green-400">
+                {simResult.type === 'preseason_day' && `Simulated preseason day: ${simResult.data.games_played || 0} games played`}
+                {simResult.type === 'preseason_all' && `Preseason complete! Ready for regular season.`}
+                {simResult.type === 'day' && `Simulated Day ${simResult.data.day}: ${simResult.data.games_played} games played`}
+                {simResult.type === 'week' && `Simulated ${simResult.data.days_simulated} days: ${simResult.data.games_played} games played`}
+                {simResult.type === 'playoffs' && `Regular Season Complete! Record: ${simResult.data.user_record?.wins}-${simResult.data.user_record?.losses}`}
+              </p>
+              <button onClick={onClearResult} className="text-slate-400 hover:text-slate-300 px-2">
                 &times;
               </button>
             </div>
           </div>
         )}
 
-        {/* Simulation Controls */}
-        <div className="flex flex-wrap gap-2 md:gap-3">
-          <Button onClick={onSimDay} disabled={isSimulating} variant="secondary" className="min-h-[44px] flex-1 sm:flex-none">
-            <FastForward className="w-4 h-4 mr-1.5 md:mr-2" />
-            <span className="text-sm md:text-base">{isSimulating ? 'Simulating...' : 'Sim Day'}</span>
+        {/* Sim Buttons */}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            onClick={onSimDay}
+            disabled={isSimulating}
+            variant="secondary"
+            className="flex-1 sm:flex-none"
+          >
+            <FastForward className="w-4 h-4 mr-2" />
+            {isSimulating ? 'Simulating...' : 'Sim Day'}
           </Button>
 
-          <Button onClick={onSimWeek} disabled={isSimulating} variant="secondary" className="min-h-[44px] flex-1 sm:flex-none">
-            <Zap className="w-4 h-4 mr-1.5 md:mr-2" />
-            <span className="text-sm md:text-base">Sim Week</span>
+          <Button
+            onClick={onSimWeek}
+            disabled={isSimulating}
+            variant="secondary"
+            className="flex-1 sm:flex-none"
+          >
+            <Zap className="w-4 h-4 mr-2" />
+            {isPreseason ? 'Sim All Preseason' : 'Sim Week'}
           </Button>
 
-          <Button onClick={onSimToPlayoffs} disabled={isSimulating} className="min-h-[44px] w-full sm:w-auto">
-            <Trophy className="w-4 h-4 mr-1.5 md:mr-2" />
-            <span className="text-sm md:text-base">Sim to Playoffs</span>
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// Playoffs Panel Component
-function PlayoffsPanel({ onGoToPlayoffs }: { onGoToPlayoffs: () => void }) {
-  return (
-    <Card className="mb-4 md:mb-6 border-2 border-amber-500/30 bg-amber-900/20">
-      <CardContent className="py-5 md:py-6 text-center">
-        <Trophy className="w-10 h-10 md:w-12 md:h-12 text-amber-500 mx-auto mb-2 md:mb-3" />
-        <h2 className="text-lg md:text-xl font-bold text-white mb-2">Playoffs Time!</h2>
-        <p className="text-sm md:text-base text-slate-300 mb-3 md:mb-4 px-2">
-          The regular season is over. Continue to the playoffs!
-        </p>
-        <Button onClick={onGoToPlayoffs} size="lg" className="w-full sm:w-auto">
-          <Trophy className="w-5 h-5 mr-2" />
-          Go to Playoffs
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
-
-// Season Summary Panel Component (shows after playoffs complete)
-function SeasonSummaryPanel() {
-  const { data: summary, isLoading } = useQuery({
-    queryKey: ['seasonSummary'],
-    queryFn: api.getSeasonSummary,
-  });
-
-  if (isLoading) {
-    return (
-      <Card className="mb-4 md:mb-6 border-2 border-amber-500/30 bg-gradient-to-b from-amber-900/20 to-yellow-900/20">
-        <CardContent className="py-6 md:py-8 text-center">
-          <div className="animate-pulse text-sm md:text-base text-slate-400">Loading season summary...</div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!summary?.playoffs_complete) {
-    return null;
-  }
-
-  const isChampion = summary.user_team?.is_champion;
-
-  return (
-    <Card className={cn(
-      "mb-4 md:mb-6 border-2",
-      isChampion
-        ? "border-yellow-500/50 bg-gradient-to-b from-yellow-900/30 via-amber-900/20 to-orange-900/20"
-        : "border-white/10 bg-slate-800/50"
-    )}>
-      <CardContent className="py-5 md:py-8 text-center">
-        {/* Champion Banner */}
-        <div className="mb-4 md:mb-6">
-          <Trophy className={cn(
-            "w-12 h-12 md:w-16 md:h-16 mx-auto mb-2 md:mb-3",
-            isChampion ? "text-yellow-500" : "text-slate-500"
-          )} />
-          <h2 className={cn(
-            "text-xl md:text-2xl font-bold mb-2",
-            isChampion ? "text-yellow-400" : "text-slate-300"
-          )}>
-            Season {summary.season_number} Complete
-          </h2>
-        </div>
-
-        {/* Champion Info */}
-        {summary.champion && (
-          <div className={cn(
-            "p-4 md:p-6 rounded-xl mb-4 md:mb-6",
-            isChampion ? "bg-yellow-900/30" : "bg-slate-800/50"
-          )}>
-            <p className="text-xs md:text-sm font-medium text-slate-400 mb-1">
-              {isChampion ? 'CONGRATULATIONS!' : 'NBA CHAMPIONS'}
-            </p>
-            <h3 className={cn(
-              "text-2xl md:text-3xl font-bold mb-2 truncate",
-              isChampion ? "text-yellow-400" : "text-white"
-            )}>
-              {summary.champion.city} {summary.champion.name}
-            </h3>
-            <p className="text-sm md:text-base text-slate-300">
-              Won NBA Finals {summary.champion.series_score}
-            </p>
-          </div>
-        )}
-
-        {/* User Team Summary */}
-        <div className="bg-slate-800/50 p-3 md:p-4 rounded-xl mb-4 md:mb-6">
-          <h4 className="font-bold text-white mb-2 md:mb-3 text-sm md:text-base">Your Season</h4>
-          <div className="grid grid-cols-2 gap-3 md:gap-4 text-center">
-            <div>
-              <p className="text-xl md:text-2xl font-bold text-white">
-                {summary.user_team?.wins}-{summary.user_team?.losses}
-              </p>
-              <p className="text-xs md:text-sm text-slate-400">Regular Season</p>
-            </div>
-            <div>
-              <p className={cn(
-                "text-base md:text-lg font-bold truncate",
-                isChampion ? "text-yellow-400" : "text-white"
-              )}>
-                {summary.user_team?.playoff_finish}
-              </p>
-              <p className="text-xs md:text-sm text-slate-400">Playoff Result</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Top Teams */}
-        <div className="bg-slate-800/50 p-3 md:p-4 rounded-xl">
-          <h4 className="font-bold text-white mb-2 md:mb-3 text-sm md:text-base">Final Standings (Top 8)</h4>
-          <div className="space-y-1 text-xs md:text-sm">
-            {summary.top_standings?.map((team, idx) => (
-              <div
-                key={team.abbreviation}
-                className={cn(
-                  "flex justify-between px-2 py-1 rounded",
-                  team.abbreviation === summary.user_team?.abbreviation && "bg-blue-900/30"
-                )}
-              >
-                <span className="truncate text-white">{idx + 1}. {team.name}</span>
-                <span className="text-slate-400 flex-shrink-0 ml-2">{team.wins}-{team.losses}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// Offseason Panel Component
-function OffseasonPanel() {
-  const queryClient = useQueryClient();
-  const { refreshFranchise } = useFranchise();
-
-  const processOffseason = useMutation({
-    mutationFn: api.processOffseason,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['players'] });
-      refreshFranchise();
-    },
-  });
-
-  const startNewSeason = useMutation({
-    mutationFn: api.startNewSeason,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['schedule'] });
-      queryClient.invalidateQueries({ queryKey: ['standings'] });
-      queryClient.invalidateQueries({ queryKey: ['seasonSummary'] });
-      refreshFranchise();
-    },
-  });
-
-  return (
-    <Card className="mb-4 md:mb-6 border-2 border-purple-500/30 bg-purple-900/20">
-      <CardContent className="py-5 md:py-6 text-center">
-        <h2 className="text-lg md:text-xl font-bold text-white mb-2">Offseason</h2>
-        <p className="text-sm md:text-base text-slate-300 mb-3 md:mb-4 px-2">
-          Process player development, aging, and prepare for the next season.
-        </p>
-
-        {processOffseason.data ? (
-          <div className="mb-4 p-3 md:p-4 bg-slate-800/50 rounded-lg text-left">
-            <h3 className="font-bold mb-2 text-sm md:text-base text-white">Offseason Summary</h3>
-            <ul className="text-xs md:text-sm text-slate-300 space-y-1">
-              <li>Players improved: {processOffseason.data.summary.improved}</li>
-              <li>Players declined: {processOffseason.data.summary.declined}</li>
-              <li>Retirements: {processOffseason.data.summary.retirements}</li>
-              <li>Contracts expired: {processOffseason.data.summary.contracts_expired}</li>
-            </ul>
-          </div>
-        ) : null}
-
-        <div className="flex justify-center gap-3">
-          {!processOffseason.data ? (
+          {onSimToPlayoffs && (
             <Button
-              onClick={() => processOffseason.mutate()}
-              disabled={processOffseason.isPending}
+              onClick={onSimToPlayoffs}
+              disabled={isSimulating}
               className="w-full sm:w-auto"
             >
-              {processOffseason.isPending ? 'Processing...' : 'Process Offseason'}
-            </Button>
-          ) : (
-            <Button
-              onClick={() => startNewSeason.mutate()}
-              disabled={startNewSeason.isPending}
-              className="w-full sm:w-auto"
-            >
-              <Play className="w-4 h-4 mr-2" />
-              {startNewSeason.isPending ? 'Starting...' : 'Start New Season'}
+              <Trophy className="w-4 h-4 mr-2" />
+              Sim to Playoffs
             </Button>
           )}
         </div>
       </CardContent>
     </Card>
   );
+}
+
+// Next Game Banner
+function NextGameBanner({
+  game,
+  userTeamId,
+  onSimDay,
+  isSimulating,
+}: {
+  game: ScheduledGame;
+  userTeamId?: string;
+  onSimDay: () => void;
+  isSimulating: boolean;
+}) {
+  const isHome = game.home_team_id === userTeamId;
+  const opponent = isHome ? game.away_team_name : game.home_team_name;
+  const opponentAbbrev = isHome ? game.away_abbrev : game.home_abbrev;
+  const opponentColor = isHome ? game.away_color : game.home_color;
+  const gameDate = new Date(game.game_date);
+
+  return (
+    <Card className="mb-4 border-2 border-blue-500/50 bg-blue-900/20">
+      <CardContent className="py-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <TeamLogo abbreviation={opponentAbbrev} primaryColor={opponentColor} size="md" />
+            <div className="min-w-0">
+              <p className="text-xs text-blue-400 font-medium uppercase tracking-wide">Next Game</p>
+              <p className="font-bold text-white truncate">
+                {isHome ? 'vs' : '@'} {opponent}
+              </p>
+              <p className="text-sm text-slate-400">
+                {gameDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                {' '}&bull;{' '}
+                {isHome ? 'Home' : 'Away'}
+              </p>
+            </div>
+          </div>
+
+          <Button
+            onClick={onSimDay}
+            disabled={isSimulating}
+            size="lg"
+            className="flex-shrink-0"
+          >
+            <Play className="w-5 h-5 mr-2" />
+            {isSimulating ? 'Playing...' : 'Play'}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Month Calendar Grid
+function MonthCalendar({
+  month,
+  games,
+  userTeamId,
+  nextGameId,
+}: {
+  month: string;
+  games: ScheduledGame[];
+  userTeamId?: string;
+  nextGameId?: string;
+}) {
+  const [year, monthNum] = month.split('-').map(Number);
+
+  const firstDay = new Date(year, monthNum - 1, 1);
+  const lastDay = new Date(year, monthNum, 0);
+  const daysInMonth = lastDay.getDate();
+  const startDayOfWeek = firstDay.getDay();
+
+  const gamesByDate = useMemo(() => {
+    const map = new Map<number, ScheduledGame[]>();
+    games.forEach(game => {
+      const date = new Date(game.game_date);
+      if (date.getFullYear() === year && date.getMonth() === monthNum - 1) {
+        const day = date.getDate();
+        if (!map.has(day)) map.set(day, []);
+        map.get(day)!.push(game);
+      }
+    });
+    return map;
+  }, [games, year, monthNum]);
+
+  const weeks: (number | null)[][] = [];
+  let currentWeek: (number | null)[] = [];
+
+  for (let i = 0; i < startDayOfWeek; i++) {
+    currentWeek.push(null);
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    currentWeek.push(day);
+    if (currentWeek.length === 7) {
+      weeks.push(currentWeek);
+      currentWeek = [];
+    }
+  }
+
+  if (currentWeek.length > 0) {
+    while (currentWeek.length < 7) {
+      currentWeek.push(null);
+    }
+    weeks.push(currentWeek);
+  }
+
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  return (
+    <Card>
+      <CardContent className="py-4">
+        <div className="grid grid-cols-7 gap-1 mb-2">
+          {dayNames.map(day => (
+            <div key={day} className="text-center text-xs font-medium text-slate-500 py-1">
+              {day}
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7 gap-1">
+          {weeks.flat().map((day, idx) => {
+            if (day === null) {
+              return <div key={idx} className="min-h-[70px] md:min-h-[80px] bg-slate-900/30 rounded" />;
+            }
+
+            const dayGames = gamesByDate.get(day) || [];
+            const game = dayGames[0];
+
+            return (
+              <CalendarDay
+                key={idx}
+                day={day}
+                game={game}
+                userTeamId={userTeamId}
+                isNextGame={game?.id === nextGameId}
+              />
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Calendar Day Cell
+function CalendarDay({
+  day,
+  game,
+  userTeamId,
+  isNextGame,
+}: {
+  day: number;
+  game?: ScheduledGame;
+  userTeamId?: string;
+  isNextGame: boolean;
+}) {
+  if (!game) {
+    return (
+      <div className="min-h-[70px] md:min-h-[80px] p-1 bg-slate-800/30 rounded">
+        <span className="text-xs text-slate-600">{day}</span>
+      </div>
+    );
+  }
+
+  const isHome = game.home_team_id === userTeamId;
+  const opponentAbbrev = isHome ? game.away_abbrev : game.home_abbrev;
+  const opponentColor = isHome ? game.away_color : game.home_color;
+  const isCompleted = game.status === 'completed';
+
+  let result: { won: boolean; myScore: number; oppScore: number } | null = null;
+  if (isCompleted && game.home_score !== undefined && game.away_score !== undefined) {
+    const myScore = isHome ? game.home_score : game.away_score;
+    const oppScore = isHome ? game.away_score : game.home_score;
+    result = { won: game.winner_id === userTeamId, myScore, oppScore };
+  }
+
+  const cellContent = (
+    <div
+      className={cn(
+        'min-h-[70px] md:min-h-[80px] p-1 rounded transition-colors flex flex-col',
+        isNextGame && 'ring-2 ring-blue-500 bg-blue-900/40',
+        !isNextGame && isCompleted && result?.won && 'bg-green-900/30',
+        !isNextGame && isCompleted && !result?.won && 'bg-red-900/30',
+        !isNextGame && !isCompleted && 'bg-slate-800/50 hover:bg-slate-800/70'
+      )}
+    >
+      <span className={cn(
+        'text-xs',
+        isNextGame ? 'text-blue-400 font-bold' : 'text-slate-500'
+      )}>
+        {day}
+      </span>
+
+      <div className="flex-1 flex flex-col items-center justify-center gap-0.5">
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-slate-400">{isHome ? 'vs' : '@'}</span>
+          <div
+            className="w-4 h-4 rounded text-[8px] font-bold flex items-center justify-center text-white"
+            style={{ backgroundColor: opponentColor }}
+          >
+            {opponentAbbrev.slice(0, 2)}
+          </div>
+        </div>
+
+        {isCompleted && result ? (
+          <div className="text-center">
+            <Badge
+              variant={result.won ? 'success' : 'danger'}
+              className="text-[10px] px-1 py-0"
+            >
+              {result.won ? 'W' : 'L'}
+            </Badge>
+            <p className="text-[10px] text-slate-400 font-mono">
+              {result.myScore}-{result.oppScore}
+            </p>
+          </div>
+        ) : isNextGame ? (
+          <Badge variant="default" className="text-[10px] px-1 py-0 bg-blue-600">
+            NEXT
+          </Badge>
+        ) : (
+          <span className="text-[10px] text-slate-500">Sched</span>
+        )}
+      </div>
+    </div>
+  );
+
+  if (isCompleted && game.game_id) {
+    return (
+      <Link to={`/basketball/games/${game.game_id}`} className="block">
+        {cellContent}
+      </Link>
+    );
+  }
+
+  return cellContent;
 }

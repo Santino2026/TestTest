@@ -80,6 +80,7 @@ router.get('/', async (req, res) => {
     const seasonId = req.query.season_id as string;
     const date = req.query.date as string;
     const month = req.query.month as string;
+    const includePreseason = req.query.include_preseason === 'true';
 
     let query = `
       SELECT s.*,
@@ -95,6 +96,11 @@ router.get('/', async (req, res) => {
        WHERE 1=1
     `;
     const params: any[] = [];
+
+    // Filter out preseason games by default
+    if (!includePreseason) {
+      query += ` AND (s.is_preseason = false OR s.is_preseason IS NULL)`;
+    }
 
     // Filter by season_id (required for proper data isolation)
     if (seasonId) {

@@ -361,6 +361,7 @@ export interface ScheduledGame {
   game_date: string;
   status: 'scheduled' | 'completed' | 'simulated';
   is_user_game: boolean;
+  is_preseason?: boolean;
   home_team_name: string;
   home_abbrev: string;
   home_color: string;
@@ -722,12 +723,13 @@ export const api = {
     fetchAPI<{ message: string; total_games: number }>('/schedule/generate', {
       method: 'POST',
     }),
-  getSchedule: (params?: { team_id?: string; season_id?: number; date?: string; month?: string }) => {
+  getSchedule: (params?: { team_id?: string; season_id?: number; date?: string; month?: string; include_preseason?: string }) => {
     const searchParams = new URLSearchParams();
     if (params?.team_id) searchParams.set('team_id', params.team_id);
     if (params?.season_id) searchParams.set('season_id', params.season_id.toString());
     if (params?.date) searchParams.set('date', params.date);
     if (params?.month) searchParams.set('month', params.month);
+    if (params?.include_preseason) searchParams.set('include_preseason', params.include_preseason);
     const query = searchParams.toString();
     return fetchAPI<ScheduledGame[]>(`/schedule${query ? `?${query}` : ''}`);
   },
