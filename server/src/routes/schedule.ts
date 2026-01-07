@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db/pool';
-import { generateSchedule } from '../schedule/generator';
+import { generateSchedule, validateSchedule } from '../schedule/generator';
 import { authMiddleware } from '../auth';
 import { getUserActiveFranchise } from '../db/queries';
 import { withTransaction } from '../db/transactions';
@@ -31,6 +31,12 @@ router.post('/generate', authMiddleware(true), async (req: any, res) => {
 
     // Generate schedule (deterministic based on teams)
     const schedule = generateSchedule(teams);
+
+    // Validate schedule before saving
+    if (!validateSchedule(schedule, teams)) {
+      console.error('Schedule validation failed - generated invalid schedule');
+      return res.status(500).json({ error: 'Schedule generation produced invalid results' });
+    }
 
     // Wrap check + insert in transaction to prevent race conditions
     await withTransaction(async (client) => {
