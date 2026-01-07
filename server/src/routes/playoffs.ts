@@ -3,6 +3,9 @@ import { pool } from '../db/pool';
 import { simulateGame } from '../simulation';
 import { loadTeamForSimulation } from '../services/simulation';
 import { authMiddleware } from '../auth';
+import { getUserActiveFranchise, getCurrentSeasonId } from '../db/queries';
+import { withTransaction } from '../db/transactions';
+import { savePlayoffGame } from '../services/gamePersistence';
 import {
   generatePlayIn,
   generatePlayInGame3,
@@ -21,10 +24,7 @@ const router = Router();
 // Get current playoff state
 router.get('/', async (req, res) => {
   try {
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons WHERE status != 'completed' ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getCurrentSeasonId();
 
     if (!seasonId) {
       return res.json({ round: 0, series: [], isComplete: false, champion: null });
@@ -41,29 +41,15 @@ router.get('/', async (req, res) => {
 // Start playoffs (generate play-in tournament)
 router.post('/start', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(400).json({ error: 'No franchise selected' });
     }
 
-    const franchise = franchiseResult.rows[0];
     const seasonId = franchise.season_id;
 
-    // Check if playoffs already started
-    const existingResult = await pool.query(
-      'SELECT COUNT(*) FROM playoff_series WHERE season_id = $1',
-      [seasonId]
-    );
-
-    if (parseInt(existingResult.rows[0].count) > 0) {
-      return res.status(400).json({ error: 'Playoffs already started' });
-    }
-
-    // Validate standings data exists before generating play-in
+    // Validate standings data exists before generating play-in (idempotent check outside transaction)
     const standingsResult = await pool.query(
       `SELECT COUNT(*) as total,
               SUM(CASE WHEN t.conference = 'Eastern' THEN 1 ELSE 0 END) as eastern,
@@ -87,26 +73,40 @@ router.post('/start', authMiddleware(true), async (req: any, res) => {
       });
     }
 
-    // Generate play-in tournament
+    // Generate play-in tournament (generate data outside transaction, save inside)
     const playInSeries = await generatePlayIn(seasonId);
 
     if (playInSeries.length === 0) {
       return res.status(500).json({ error: 'Failed to generate play-in matchups - no series created' });
     }
 
-    await saveSeries(playInSeries);
+    // Wrap all writes in transaction to prevent race conditions
+    await withTransaction(async (client) => {
+      // Check if playoffs already started (inside transaction to prevent race)
+      const existingResult = await client.query(
+        'SELECT COUNT(*) FROM playoff_series WHERE season_id = $1',
+        [seasonId]
+      );
 
-    // Update franchise phase
-    await pool.query(
-      `UPDATE franchises SET phase = 'playoffs' WHERE id = $1`,
-      [franchise.id]
-    );
+      if (parseInt(existingResult.rows[0].count) > 0) {
+        throw { status: 400, message: 'Playoffs already started' };
+      }
 
-    // Update season status
-    await pool.query(
-      `UPDATE seasons SET status = 'playoffs' WHERE id = $1`,
-      [seasonId]
-    );
+      // Save series
+      await saveSeries(playInSeries, client);
+
+      // Update franchise phase
+      await client.query(
+        `UPDATE franchises SET phase = 'playoffs' WHERE id = $1`,
+        [franchise.id]
+      );
+
+      // Update season status
+      await client.query(
+        `UPDATE seasons SET status = 'playoffs' WHERE id = $1`,
+        [seasonId]
+      );
+    });
 
     res.json({
       message: 'Playoffs started',
@@ -114,7 +114,10 @@ router.post('/start', authMiddleware(true), async (req: any, res) => {
       roundName: getRoundName(0),
       series: playInSeries.length
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Start playoffs error:', error);
     res.status(500).json({ error: 'Failed to start playoffs' });
   }
@@ -156,25 +159,8 @@ router.post('/simulate', authMiddleware(true), async (req: any, res) => {
     const awayTeam = await loadTeamForSimulation(awayTeamId);
     const result = simulateGame(homeTeam, awayTeam);
 
-    // Save game
-    await pool.query(
-      `INSERT INTO games (id, season_id, home_team_id, away_team_id, home_score, away_score,
-                         winner_id, is_overtime, overtime_periods, status, is_playoff, completed_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'completed', true, NOW())
-       RETURNING id`,
-      [result.id, series.season_id, result.home_team_id, result.away_team_id,
-       result.home_score, result.away_score, result.winner_id,
-       result.is_overtime, result.overtime_periods]
-    );
-
-    // Save quarter scores
-    for (const quarter of result.quarters) {
-      await pool.query(
-        `INSERT INTO game_quarters (game_id, quarter, home_points, away_points)
-         VALUES ($1, $2, $3, $4)`,
-        [result.id, quarter.quarter, quarter.home_points, quarter.away_points]
-      );
-    }
+    // Save game using helper
+    await savePlayoffGame(result, series.season_id);
 
     // Update series
     const { seriesComplete, seriesWinner } = await updateSeriesResult(
@@ -320,24 +306,8 @@ router.post('/simulate/series', authMiddleware(true), async (req: any, res) => {
       const awayTeam = await loadTeamForSimulation(awayTeamId);
       const result = simulateGame(homeTeam, awayTeam);
 
-      // Save game
-      await pool.query(
-        `INSERT INTO games (id, season_id, home_team_id, away_team_id, home_score, away_score,
-                           winner_id, is_overtime, overtime_periods, status, is_playoff, completed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'completed', true, NOW())`,
-        [result.id, series.season_id, result.home_team_id, result.away_team_id,
-         result.home_score, result.away_score, result.winner_id,
-         result.is_overtime, result.overtime_periods]
-      );
-
-      // Save quarters
-      for (const quarter of result.quarters) {
-        await pool.query(
-          `INSERT INTO game_quarters (game_id, quarter, home_points, away_points)
-           VALUES ($1, $2, $3, $4)`,
-          [result.id, quarter.quarter, quarter.home_points, quarter.away_points]
-        );
-      }
+      // Save game using helper
+      await savePlayoffGame(result, series.season_id);
 
       // Update series
       await updateSeriesResult(series_id, result.winner_id, result.id);
@@ -428,16 +398,12 @@ router.post('/simulate/series', authMiddleware(true), async (req: any, res) => {
 // Simulate entire round
 router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(400).json({ error: 'No franchise selected' });
     }
 
-    const franchise = franchiseResult.rows[0];
     const seasonId = franchise.season_id;
 
     // Get current round
@@ -474,21 +440,8 @@ router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
         const awayTeam = await loadTeamForSimulation(awayTeamId);
         const result = simulateGame(homeTeam, awayTeam);
 
-        await pool.query(
-          `INSERT INTO games (id, season_id, home_team_id, away_team_id, home_score, away_score,
-                             winner_id, is_overtime, overtime_periods, status, is_playoff, completed_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'completed', true, NOW())`,
-          [result.id, seasonId, result.home_team_id, result.away_team_id,
-           result.home_score, result.away_score, result.winner_id,
-           result.is_overtime, result.overtime_periods]
-        );
-
-        for (const quarter of result.quarters) {
-          await pool.query(
-            `INSERT INTO game_quarters (game_id, quarter, home_points, away_points) VALUES ($1, $2, $3, $4)`,
-            [result.id, quarter.quarter, quarter.home_points, quarter.away_points]
-          );
-        }
+        // Save game using helper
+        await savePlayoffGame(result, seasonId);
 
         await updateSeriesResult(seriesRow.id, result.winner_id, result.id);
 
@@ -559,16 +512,12 @@ router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
 // Simulate all remaining playoffs
 router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(400).json({ error: 'No franchise selected' });
     }
 
-    const franchise = franchiseResult.rows[0];
     const seasonId = franchise.season_id;
 
     const roundResults = [];
@@ -624,21 +573,8 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
           const awayTeam = await loadTeamForSimulation(awayTeamId);
           const result = simulateGame(homeTeam, awayTeam);
 
-          await pool.query(
-            `INSERT INTO games (id, season_id, home_team_id, away_team_id, home_score, away_score,
-                               winner_id, is_overtime, overtime_periods, status, is_playoff, completed_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'completed', true, NOW())`,
-            [result.id, seasonId, result.home_team_id, result.away_team_id,
-             result.home_score, result.away_score, result.winner_id,
-             result.is_overtime, result.overtime_periods]
-          );
-
-          for (const quarter of result.quarters) {
-            await pool.query(
-              `INSERT INTO game_quarters (game_id, quarter, home_points, away_points) VALUES ($1, $2, $3, $4)`,
-              [result.id, quarter.quarter, quarter.home_points, quarter.away_points]
-            );
-          }
+          // Save game using helper
+          await savePlayoffGame(result, seasonId);
 
           await updateSeriesResult(seriesRow.id, result.winner_id, result.id);
 
@@ -729,10 +665,7 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
 // Get playoff standings (for seeding display)
 router.get('/standings', async (req, res) => {
   try {
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons WHERE status != 'completed' ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getCurrentSeasonId();
 
     if (!seasonId) {
       return res.json({ eastern: [], western: [] });

@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { pool } from '../db/pool';
 import { generateSchedule } from '../schedule/generator';
 import { authMiddleware } from '../auth';
+import { getUserActiveFranchise } from '../db/queries';
+import { withTransaction } from '../db/transactions';
 
 const router = Router();
 
@@ -9,55 +11,57 @@ const router = Router();
 router.post('/generate', authMiddleware(true), async (req: any, res) => {
   try {
     // Verify user has an active franchise
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(400).json({ error: 'No franchise found. Select a team first.' });
     }
 
-    const franchise = franchiseResult.rows[0];
     const seasonId = franchise.season_id;
 
     if (franchise.phase !== 'preseason') {
       return res.status(400).json({ error: 'Can only generate schedule during preseason' });
     }
 
-    // Get all teams
+    // Get all teams (idempotent read)
     const teamsResult = await pool.query(
       'SELECT id, conference, division FROM teams'
     );
     const teams = teamsResult.rows;
 
-    // Check if schedule already exists
-    const existingResult = await pool.query(
-      'SELECT COUNT(*) FROM schedule WHERE season_id = $1',
-      [seasonId]
-    );
-    if (parseInt(existingResult.rows[0].count) > 0) {
-      return res.status(400).json({ error: 'Schedule already exists for this season' });
-    }
-
-    // Generate schedule
+    // Generate schedule (deterministic based on teams)
     const schedule = generateSchedule(teams);
 
-    // Insert schedule into database
-    for (const game of schedule) {
-      await pool.query(
-        `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [seasonId, game.home_team_id, game.away_team_id,
-         game.game_number_home, game.game_date]
+    // Wrap check + insert in transaction to prevent race conditions
+    await withTransaction(async (client) => {
+      // Check if schedule already exists inside transaction
+      const existingResult = await client.query(
+        'SELECT COUNT(*) FROM schedule WHERE season_id = $1',
+        [seasonId]
       );
-    }
+      if (parseInt(existingResult.rows[0].count) > 0) {
+        throw { status: 400, message: 'Schedule already exists for this season' };
+      }
+
+      // Insert schedule into database
+      for (const game of schedule) {
+        await client.query(
+          `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [seasonId, game.home_team_id, game.away_team_id,
+           game.game_number_home, game.game_date]
+        );
+      }
+    });
 
     res.json({
       message: 'Schedule generated successfully',
       total_games: schedule.length
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Schedule generation error:', error);
     res.status(500).json({ error: 'Failed to generate schedule' });
   }

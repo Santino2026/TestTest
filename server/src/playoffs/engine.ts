@@ -2,6 +2,7 @@
 // Handles play-in tournament and 16-team playoffs
 
 import { pool } from '../db/pool';
+import { PoolClient } from 'pg';
 
 interface TeamStanding {
   team_id: string;
@@ -14,7 +15,7 @@ interface TeamStanding {
 
 interface PlayoffSeries {
   id?: string;
-  season_id: number;
+  season_id: string;
   round: number;
   conference: string | null;
   series_number: number;
@@ -27,7 +28,7 @@ interface PlayoffSeries {
 }
 
 // Get standings sorted by conference
-export async function getPlayoffStandings(seasonId: number): Promise<{
+export async function getPlayoffStandings(seasonId: string): Promise<{
   eastern: TeamStanding[];
   western: TeamStanding[];
 }> {
@@ -47,7 +48,7 @@ export async function getPlayoffStandings(seasonId: number): Promise<{
 }
 
 // Generate play-in tournament matchups
-export async function generatePlayIn(seasonId: number): Promise<PlayoffSeries[]> {
+export async function generatePlayIn(seasonId: string): Promise<PlayoffSeries[]> {
   const { eastern, western } = await getPlayoffStandings(seasonId);
 
   // Validate we have enough teams for play-in (need seeds 7-10 = indices 6-9)
@@ -102,7 +103,7 @@ export async function generatePlayIn(seasonId: number): Promise<PlayoffSeries[]>
 // Generate 3rd play-in game (loser of 7v8 vs winner of 9v10)
 // This should be called after both initial play-in games are complete
 export async function generatePlayInGame3(
-  seasonId: number,
+  seasonId: string,
   conference: string,
   loser7v8: string,
   winner9v10: string
@@ -123,7 +124,7 @@ export async function generatePlayInGame3(
 
 // Check if play-in games 1 and 2 are complete for a conference
 export async function checkPlayInGames12Complete(
-  seasonId: number,
+  seasonId: string,
   conference: string
 ): Promise<{
   complete: boolean;
@@ -163,7 +164,7 @@ export async function checkPlayInGames12Complete(
 
 // Generate first round matchups (after play-in complete)
 export async function generateFirstRound(
-  seasonId: number,
+  seasonId: string,
   playInResults: { eastern7: string; eastern8: string; western7: string; western8: string }
 ): Promise<PlayoffSeries[]> {
   const { eastern, western } = await getPlayoffStandings(seasonId);
@@ -226,7 +227,7 @@ export async function generateFirstRound(
 }
 
 // Generate next round matchups based on previous round winners
-export async function generateNextRound(seasonId: number, round: number): Promise<PlayoffSeries[]> {
+export async function generateNextRound(seasonId: string, round: number): Promise<PlayoffSeries[]> {
   // Get previous round winners
   const prevRoundResult = await pool.query(
     `SELECT * FROM playoff_series
@@ -290,9 +291,10 @@ export async function generateNextRound(seasonId: number, round: number): Promis
 }
 
 // Save series to database
-export async function saveSeries(series: PlayoffSeries[]): Promise<void> {
+export async function saveSeries(series: PlayoffSeries[], client?: PoolClient): Promise<void> {
+  const db = client || pool;
   for (const s of series) {
-    await pool.query(
+    await db.query(
       `INSERT INTO playoff_series
        (season_id, round, conference, series_number, higher_seed_id, lower_seed_id,
         higher_seed_wins, lower_seed_wins, winner_id, status)
@@ -370,7 +372,7 @@ export async function updateSeriesResult(
 }
 
 // Get current playoff state
-export async function getPlayoffState(seasonId: number): Promise<{
+export async function getPlayoffState(seasonId: string): Promise<{
   round: number;
   series: any[];
   isComplete: boolean;

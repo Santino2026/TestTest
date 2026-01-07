@@ -11,26 +11,21 @@ import {
 } from '../trading';
 import { SALARY_CAP } from '../freeagency';
 import { authMiddleware } from '../auth';
+import { withTransaction } from '../db/transactions';
+import { getLatestSeasonId, getUserActiveFranchise, getSeasonTradeDeadlineDay } from '../db/queries';
 
 const router = Router();
 
 // Helper to check trade deadline
 async function checkTradeDeadline(userId: string): Promise<{ allowed: boolean; message?: string; deadline_day?: number; current_day?: number; days_until?: number }> {
-  // Get user's franchise
-  const franchiseResult = await pool.query(
-    `SELECT f.*, s.trade_deadline_day
-     FROM franchises f
-     JOIN seasons s ON f.season_id = s.id
-     WHERE f.user_id = $1 AND f.is_active = TRUE`,
-    [userId]
-  );
+  // Get user's franchise using shared utility
+  const franchise = await getUserActiveFranchise(userId);
 
-  if (franchiseResult.rows.length === 0) {
+  if (!franchise) {
     return { allowed: false, message: 'No active franchise' };
   }
 
-  const franchise = franchiseResult.rows[0];
-  const deadlineDay = franchise.trade_deadline_day || 100;
+  const deadlineDay = await getSeasonTradeDeadlineDay(franchise.season_id);
   const currentDay = franchise.current_day || 1;
 
   // Trades allowed during regular season before deadline, or during offseason
@@ -145,10 +140,7 @@ router.post('/propose', authMiddleware(true), async (req: any, res) => {
     }
 
     // Get season
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
 
     // Get team info for validation
     const teamsResult = await pool.query(
@@ -372,84 +364,87 @@ router.post('/:tradeId/accept', authMiddleware(true), async (req: any, res) => {
       });
     }
 
-    // Get proposal
-    const proposalResult = await pool.query(
-      `SELECT * FROM trade_proposals WHERE id = $1 AND status = 'pending'`,
-      [tradeId]
-    );
+    const result = await withTransaction(async (client) => {
+      // Atomically claim the trade - prevents double-acceptance
+      const proposalResult = await client.query(
+        `UPDATE trade_proposals SET status = 'accepted', resolved_at = NOW()
+         WHERE id = $1 AND status = 'pending'
+         RETURNING *`,
+        [tradeId]
+      );
 
-    if (proposalResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Trade not found or not pending' });
-    }
-
-    const proposal = proposalResult.rows[0];
-
-    // Verify team is part of trade and not the proposer
-    if (!proposal.team_ids.includes(team_id)) {
-      return res.status(403).json({ error: 'Team not part of this trade' });
-    }
-
-    if (proposal.proposed_by_team_id === team_id) {
-      return res.status(400).json({ error: 'Cannot accept own proposal' });
-    }
-
-    // Get assets
-    const assetsResult = await pool.query(
-      `SELECT * FROM trade_assets WHERE trade_id = $1`,
-      [tradeId]
-    );
-
-    // Execute the trade
-    for (const asset of assetsResult.rows) {
-      if (asset.asset_type === 'player' && asset.player_id) {
-        // Transfer player
-        await pool.query(
-          `UPDATE players SET team_id = $1, last_traded_at = NOW() WHERE id = $2`,
-          [asset.to_team_id, asset.player_id]
-        );
-
-        // Update contract
-        await pool.query(
-          `UPDATE contracts SET team_id = $1, updated_at = NOW() WHERE player_id = $2 AND status = 'active'`,
-          [asset.to_team_id, asset.player_id]
-        );
-      } else if (asset.asset_type === 'draft_pick') {
-        // Transfer pick ownership
-        await pool.query(
-          `UPDATE draft_pick_ownership SET current_owner_id = $1, updated_at = NOW()
-           WHERE season_year = $2 AND round = $3 AND current_owner_id = $4`,
-          [asset.to_team_id, asset.pick_year, asset.pick_round, asset.from_team_id]
-        );
+      if (proposalResult.rows.length === 0) {
+        throw { status: 404, message: 'Trade not found or not pending' };
       }
-    }
 
-    // Update proposal status
-    await pool.query(
-      `UPDATE trade_proposals SET status = 'accepted', resolved_at = NOW() WHERE id = $1`,
-      [tradeId]
-    );
+      const proposal = proposalResult.rows[0];
 
-    // Log executed trade
-    await pool.query(
-      `INSERT INTO executed_trades (trade_proposal_id, season_id, details)
-       VALUES ($1, $2, $3)`,
-      [tradeId, proposal.season_id, JSON.stringify(assetsResult.rows)]
-    );
-
-    // Log transactions
-    for (const asset of assetsResult.rows) {
-      if (asset.asset_type === 'player' && asset.player_id) {
-        await pool.query(
-          `INSERT INTO transactions (season_id, transaction_type, player_id, team_id, other_team_id, details)
-           VALUES ($1, 'trade', $2, $3, $4, $5)`,
-          [proposal.season_id, asset.player_id, asset.to_team_id, asset.from_team_id,
-           JSON.stringify({ trade_id: tradeId })]
-        );
+      // Verify team is part of trade and not the proposer
+      if (!proposal.team_ids.includes(team_id)) {
+        throw { status: 403, message: 'Team not part of this trade' };
       }
-    }
 
-    res.json({ message: 'Trade accepted and executed' });
-  } catch (error) {
+      if (proposal.proposed_by_team_id === team_id) {
+        throw { status: 400, message: 'Cannot accept own proposal' };
+      }
+
+      // Get assets
+      const assetsResult = await client.query(
+        `SELECT * FROM trade_assets WHERE trade_id = $1`,
+        [tradeId]
+      );
+
+      // Execute the trade
+      for (const asset of assetsResult.rows) {
+        if (asset.asset_type === 'player' && asset.player_id) {
+          // Transfer player
+          await client.query(
+            `UPDATE players SET team_id = $1, last_traded_at = NOW() WHERE id = $2`,
+            [asset.to_team_id, asset.player_id]
+          );
+
+          // Update contract
+          await client.query(
+            `UPDATE contracts SET team_id = $1, updated_at = NOW() WHERE player_id = $2 AND status = 'active'`,
+            [asset.to_team_id, asset.player_id]
+          );
+        } else if (asset.asset_type === 'draft_pick') {
+          // Transfer pick ownership
+          await client.query(
+            `UPDATE draft_pick_ownership SET current_owner_id = $1, updated_at = NOW()
+             WHERE season_year = $2 AND round = $3 AND current_owner_id = $4`,
+            [asset.to_team_id, asset.pick_year, asset.pick_round, asset.from_team_id]
+          );
+        }
+      }
+
+      // Log executed trade
+      await client.query(
+        `INSERT INTO executed_trades (trade_proposal_id, season_id, details)
+         VALUES ($1, $2, $3)`,
+        [tradeId, proposal.season_id, JSON.stringify(assetsResult.rows)]
+      );
+
+      // Log transactions
+      for (const asset of assetsResult.rows) {
+        if (asset.asset_type === 'player' && asset.player_id) {
+          await client.query(
+            `INSERT INTO transactions (season_id, transaction_type, player_id, team_id, other_team_id, details)
+             VALUES ($1, 'trade', $2, $3, $4, $5)`,
+            [proposal.season_id, asset.player_id, asset.to_team_id, asset.from_team_id,
+             JSON.stringify({ trade_id: tradeId })]
+          );
+        }
+      }
+
+      return { message: 'Trade accepted and executed' };
+    });
+
+    res.json(result);
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Accept trade error:', error);
     res.status(500).json({ error: 'Failed to accept trade' });
   }
@@ -508,10 +503,7 @@ router.get('/history', async (req, res) => {
   try {
     const { limit = 50 } = req.query;
 
-    const seasonResult = await pool.query(
-      `SELECT id FROM seasons ORDER BY season_number DESC LIMIT 1`
-    );
-    const seasonId = seasonResult.rows[0]?.id;
+    const seasonId = await getLatestSeasonId();
 
     const result = await pool.query(
       `SELECT et.*, tp.summary, tp.team_ids

@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { pool } from '../db/pool';
 import { authMiddleware } from '../auth';
+import { getUserActiveFranchise, getSeasonAllStarDay } from '../db/queries';
 import {
   selectAllStars,
   getSelectedAllStars,
@@ -19,20 +20,14 @@ const router = Router();
 // Get All-Star Weekend state
 router.get('/state', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT f.*, s.all_star_day
-       FROM franchises f
-       JOIN seasons s ON f.season_id = s.id
-       WHERE f.user_id = $1 AND f.is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const franchise = franchiseResult.rows[0];
     const seasonId = franchise.season_id;
+    const allStarDay = await getSeasonAllStarDay(seasonId);
 
     // Get event results
     const events = await getEventResults(seasonId);
@@ -53,7 +48,7 @@ router.get('/state', authMiddleware(true), async (req: any, res) => {
 
     res.json({
       season_id: seasonId,
-      all_star_day: franchise.all_star_day || 85,
+      all_star_day: allStarDay,
       current_day: franchise.current_day,
       is_all_star_weekend: franchise.phase === 'all_star',
       all_star_complete: franchise.all_star_complete || allEventsComplete,
@@ -70,16 +65,13 @@ router.get('/state', authMiddleware(true), async (req: any, res) => {
 // Generate All-Star selections
 router.post('/select', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const seasonId = franchiseResult.rows[0].season_id;
+    const seasonId = franchise.season_id;
 
     // Check if already selected
     const existingResult = await pool.query(
@@ -123,16 +115,13 @@ router.post('/select', authMiddleware(true), async (req: any, res) => {
 // Get All-Star rosters
 router.get('/rosters', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const seasonId = franchiseResult.rows[0].season_id;
+    const seasonId = franchise.season_id;
     const selections = await getSelectedAllStars(seasonId);
 
     res.json({
@@ -150,16 +139,13 @@ router.get('/rosters', authMiddleware(true), async (req: any, res) => {
 // Get Rising Stars rosters
 router.get('/rising-stars', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const seasonId = franchiseResult.rows[0].season_id;
+    const seasonId = franchise.season_id;
     const risingStars = await getRisingStars(seasonId);
 
     res.json(risingStars);
@@ -172,16 +158,13 @@ router.get('/rising-stars', authMiddleware(true), async (req: any, res) => {
 // Simulate Rising Stars Challenge
 router.post('/simulate/rising-stars', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const seasonId = franchiseResult.rows[0].season_id;
+    const seasonId = franchise.season_id;
 
     // Check if already simulated
     const existingResult = await pool.query(
@@ -204,16 +187,13 @@ router.post('/simulate/rising-stars', authMiddleware(true), async (req: any, res
 // Simulate Skills Challenge
 router.post('/simulate/skills', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const seasonId = franchiseResult.rows[0].season_id;
+    const seasonId = franchise.season_id;
 
     const existingResult = await pool.query(
       `SELECT * FROM all_star_events WHERE season_id = $1 AND event_type = 'skills'`,
@@ -235,16 +215,13 @@ router.post('/simulate/skills', authMiddleware(true), async (req: any, res) => {
 // Simulate Three-Point Contest
 router.post('/simulate/three-point', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const seasonId = franchiseResult.rows[0].season_id;
+    const seasonId = franchise.season_id;
 
     const existingResult = await pool.query(
       `SELECT * FROM all_star_events WHERE season_id = $1 AND event_type = 'three_point'`,
@@ -266,16 +243,13 @@ router.post('/simulate/three-point', authMiddleware(true), async (req: any, res)
 // Simulate Dunk Contest
 router.post('/simulate/dunk', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const seasonId = franchiseResult.rows[0].season_id;
+    const seasonId = franchise.season_id;
 
     const existingResult = await pool.query(
       `SELECT * FROM all_star_events WHERE season_id = $1 AND event_type = 'dunk'`,
@@ -297,16 +271,13 @@ router.post('/simulate/dunk', authMiddleware(true), async (req: any, res) => {
 // Simulate All-Star Game
 router.post('/simulate/game', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const seasonId = franchiseResult.rows[0].season_id;
+    const seasonId = franchise.season_id;
 
     // Check if All-Stars are selected
     const selectionsResult = await pool.query(
@@ -341,16 +312,12 @@ router.post('/simulate/game', authMiddleware(true), async (req: any, res) => {
 // Simulate all remaining events
 router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const franchise = franchiseResult.rows[0];
     const seasonId = franchise.season_id;
 
     // Check if All-Stars are selected, if not select them
@@ -407,16 +374,13 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
 // Get event results
 router.get('/results', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
 
-    const seasonId = franchiseResult.rows[0].season_id;
+    const seasonId = franchise.season_id;
     const results = await getEventResults(seasonId);
 
     res.json({ events: results });
@@ -429,16 +393,11 @@ router.get('/results', authMiddleware(true), async (req: any, res) => {
 // Complete All-Star Weekend and return to regular season
 router.post('/complete', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchiseResult = await pool.query(
-      `SELECT * FROM franchises WHERE user_id = $1 AND is_active = TRUE`,
-      [req.user.userId]
-    );
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (franchiseResult.rows.length === 0) {
+    if (!franchise) {
       return res.status(404).json({ error: 'No active franchise' });
     }
-
-    const franchise = franchiseResult.rows[0];
 
     // Verify All-Star Game is complete
     const gameResult = await pool.query(

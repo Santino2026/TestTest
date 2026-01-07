@@ -54,7 +54,7 @@ function calculateAllStarScore(
 
 // Get All-Star candidates from a conference
 export async function getAllStarCandidates(
-  seasonId: number,
+  seasonId: string,
   conference: 'Eastern' | 'Western'
 ): Promise<AllStarCandidate[]> {
   // Get players with their season stats aggregated from game stats
@@ -136,7 +136,7 @@ export async function getAllStarCandidates(
 
 // Select All-Stars for a conference
 export async function selectAllStars(
-  seasonId: number,
+  seasonId: string,
   conference: 'Eastern' | 'Western'
 ): Promise<AllStarCandidate[]> {
   const candidates = await getAllStarCandidates(seasonId, conference);
@@ -254,7 +254,7 @@ export async function selectAllStars(
 }
 
 // Get already selected All-Stars
-export async function getSelectedAllStars(seasonId: number) {
+export async function getSelectedAllStars(seasonId: string) {
   const result = await pool.query(
     `SELECT
       ass.*,
@@ -279,7 +279,7 @@ export async function getSelectedAllStars(seasonId: number) {
 }
 
 // Get rising stars (rookies and sophomores)
-export async function getRisingStars(seasonId: number) {
+export async function getRisingStars(seasonId: string) {
   const result = await pool.query(
     `SELECT
       p.id as player_id,

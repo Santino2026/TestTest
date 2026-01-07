@@ -13,42 +13,33 @@ import {
   simulateDunkContest,
   simulateAllStarGame
 } from '../allstar';
+import {
+  getUserActiveFranchise,
+  updateFranchiseState,
+  updateSeasonStatus,
+  getSeasonAllStarDay,
+  getAllTeams
+} from '../db/queries';
+import { withTransaction, lockUserActiveFranchise } from '../db/transactions';
+import { saveCompleteGameResult, GameResult } from '../services/gamePersistence';
 
 const router = Router();
 
-// Helper to get user's active franchise
-async function getUserFranchise(userId: string) {
-  const result = await pool.query(
-    `SELECT f.*, t.name as team_name, t.abbreviation, t.city, t.conference, t.division, t.primary_color,
-            s.wins, s.losses
-     FROM franchises f
-     JOIN teams t ON f.team_id = t.id
-     LEFT JOIN standings s ON s.team_id = f.team_id AND s.season_id = f.season_id
-     WHERE f.user_id = $1 AND f.is_active = TRUE`,
-    [userId]
-  );
-  return result.rows[0] || null;
-}
-
-// Helper to simulate a single day's games
+// Helper to simulate a single day's games (regular season)
 async function simulateDayGames(franchise: any) {
   const seasonId = franchise.season_id;
   const currentDay = franchise.current_day;
 
   // Calculate the game date for this day
-  // Regular season starts at day 1 = Oct 23 (day after preseason day 0 = Oct 22)
   const seasonStart = new Date('2024-10-22');
   const gameDate = new Date(seasonStart);
   gameDate.setDate(gameDate.getDate() + currentDay);
   const gameDateStr = gameDate.toISOString().split('T')[0];
 
-  // Get all regular season games scheduled for this day (not preseason)
+  // Get all regular season games scheduled for this day
   const gamesResult = await pool.query(
     `SELECT s.*,
-            ht.name as home_team_name, ht.abbreviation as home_abbrev,
-            ht.conference as home_conference, ht.division as home_division,
-            at.name as away_team_name, at.abbreviation as away_abbrev,
-            at.conference as away_conference, at.division as away_division
+            ht.name as home_team_name, at.name as away_team_name
      FROM schedule s
      JOIN teams ht ON s.home_team_id = ht.id
      JOIN teams at ON s.away_team_id = at.id
@@ -65,260 +56,53 @@ async function simulateDayGames(franchise: any) {
     // Simulate the game
     const homeTeam = await loadTeamForSimulation(scheduledGame.home_team_id);
     const awayTeam = await loadTeamForSimulation(scheduledGame.away_team_id);
-    const result = simulateGame(homeTeam, awayTeam);
+    const simResult = simulateGame(homeTeam, awayTeam);
 
-    // Save game result
-    await pool.query(
-      `INSERT INTO games (id, season_id, home_team_id, away_team_id, home_score, away_score,
-                         winner_id, is_overtime, overtime_periods, status, completed_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'completed', NOW())
-       ON CONFLICT (id) DO NOTHING`,
-      [result.id, seasonId, result.home_team_id, result.away_team_id,
-       result.home_score, result.away_score, result.winner_id,
-       result.is_overtime, result.overtime_periods]
+    // Convert to GameResult format
+    const gameResult: GameResult = {
+      id: simResult.id,
+      home_team_id: simResult.home_team_id,
+      away_team_id: simResult.away_team_id,
+      home_score: simResult.home_score,
+      away_score: simResult.away_score,
+      winner_id: simResult.winner_id,
+      is_overtime: simResult.is_overtime,
+      overtime_periods: simResult.overtime_periods,
+      quarters: simResult.quarters,
+      home_stats: simResult.home_stats,
+      away_stats: simResult.away_stats,
+      home_player_stats: simResult.home_player_stats.map((ps: any) => ({
+        ...ps,
+        player_id: ps.player_id
+      })),
+      away_player_stats: simResult.away_player_stats.map((ps: any) => ({
+        ...ps,
+        player_id: ps.player_id
+      }))
+    };
+
+    // Save complete game result with standings and advanced stats
+    await saveCompleteGameResult(
+      gameResult,
+      seasonId,
+      { id: homeTeam.id, starters: homeTeam.starters },
+      { id: awayTeam.id, starters: awayTeam.starters },
+      true // Update standings for regular season
     );
 
     // Update schedule entry
     await pool.query(
       `UPDATE schedule SET status = 'completed', game_id = $1, is_user_game = $2
        WHERE id = $3`,
-      [result.id, isUserGame, scheduledGame.id]
+      [simResult.id, isUserGame, scheduledGame.id]
     );
-
-    // Insert quarter scores
-    for (const quarter of result.quarters) {
-      await pool.query(
-        `INSERT INTO game_quarters (game_id, quarter, home_points, away_points)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT DO NOTHING`,
-        [result.id, quarter.quarter, quarter.home_points, quarter.away_points]
-      );
-    }
-
-    // Update standings with home/away breakdown, points, and division/conference records
-    const homeWon = result.winner_id === result.home_team_id;
-    const sameConference = scheduledGame.home_conference === scheduledGame.away_conference;
-    const sameDivision = scheduledGame.home_division === scheduledGame.away_division;
-
-    // Update home team standings (home team's points_for = home_score, points_against = away_score)
-    if (homeWon) {
-      await pool.query(
-        `UPDATE standings SET
-           wins = wins + 1,
-           home_wins = COALESCE(home_wins, 0) + 1,
-           points_for = COALESCE(points_for, 0) + $3,
-           points_against = COALESCE(points_against, 0) + $4,
-           conference_wins = conference_wins + $5,
-           division_wins = division_wins + $6
-         WHERE season_id = $1 AND team_id = $2`,
-        [seasonId, result.home_team_id, result.home_score, result.away_score,
-         sameConference ? 1 : 0, sameDivision ? 1 : 0]
-      );
-      await pool.query(
-        `UPDATE standings SET
-           losses = losses + 1,
-           away_losses = COALESCE(away_losses, 0) + 1,
-           points_for = COALESCE(points_for, 0) + $3,
-           points_against = COALESCE(points_against, 0) + $4,
-           conference_losses = conference_losses + $5,
-           division_losses = division_losses + $6
-         WHERE season_id = $1 AND team_id = $2`,
-        [seasonId, result.away_team_id, result.away_score, result.home_score,
-         sameConference ? 1 : 0, sameDivision ? 1 : 0]
-      );
-    } else {
-      await pool.query(
-        `UPDATE standings SET
-           losses = losses + 1,
-           home_losses = COALESCE(home_losses, 0) + 1,
-           points_for = COALESCE(points_for, 0) + $3,
-           points_against = COALESCE(points_against, 0) + $4,
-           conference_losses = conference_losses + $5,
-           division_losses = division_losses + $6
-         WHERE season_id = $1 AND team_id = $2`,
-        [seasonId, result.home_team_id, result.home_score, result.away_score,
-         sameConference ? 1 : 0, sameDivision ? 1 : 0]
-      );
-      await pool.query(
-        `UPDATE standings SET
-           wins = wins + 1,
-           away_wins = COALESCE(away_wins, 0) + 1,
-           points_for = COALESCE(points_for, 0) + $3,
-           points_against = COALESCE(points_against, 0) + $4,
-           conference_wins = conference_wins + $5,
-           division_wins = division_wins + $6
-         WHERE season_id = $1 AND team_id = $2`,
-        [seasonId, result.away_team_id, result.away_score, result.home_score,
-         sameConference ? 1 : 0, sameDivision ? 1 : 0]
-      );
-    }
-
-    // Save player stats for box score display
-    for (const ps of [...result.home_player_stats, ...result.away_player_stats]) {
-      if (ps.minutes > 0) {
-        const playerTeamId = result.home_player_stats.includes(ps)
-          ? result.home_team_id
-          : result.away_team_id;
-        const isStarter = result.home_player_stats.includes(ps)
-          ? homeTeam.starters.some((s: any) => s.id === (ps as any).player_id)
-          : awayTeam.starters.some((s: any) => s.id === (ps as any).player_id);
-
-        await pool.query(
-          `INSERT INTO player_game_stats
-           (game_id, player_id, team_id, minutes, points, fgm, fga, three_pm, three_pa,
-            ftm, fta, oreb, dreb, rebounds, assists, steals, blocks, turnovers, fouls,
-            plus_minus, is_starter)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
-           ON CONFLICT (game_id, player_id) DO NOTHING`,
-          [result.id, (ps as any).player_id, playerTeamId, ps.minutes, ps.points,
-           ps.fgm, ps.fga, ps.three_pm, ps.three_pa, ps.ftm, ps.fta,
-           ps.oreb, ps.dreb, ps.rebounds, ps.assists, ps.steals, ps.blocks,
-           ps.turnovers, ps.fouls, ps.plus_minus, isStarter]
-        );
-      }
-    }
-
-    // Save team stats
-    await pool.query(
-      `INSERT INTO team_game_stats (game_id, team_id, is_home, points, fgm, fga, fg_pct,
-                                    three_pm, three_pa, three_pct, ftm, fta, ft_pct,
-                                    oreb, dreb, rebounds, assists, steals, blocks,
-                                    turnovers, fouls)
-       VALUES ($1, $2, true, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-       ON CONFLICT DO NOTHING`,
-      [result.id, result.home_team_id, result.home_stats.points,
-       result.home_stats.fgm, result.home_stats.fga, result.home_stats.fg_pct,
-       result.home_stats.three_pm, result.home_stats.three_pa, result.home_stats.three_pct,
-       result.home_stats.ftm, result.home_stats.fta, result.home_stats.ft_pct,
-       result.home_stats.oreb, result.home_stats.dreb, result.home_stats.rebounds,
-       result.home_stats.assists, result.home_stats.steals, result.home_stats.blocks,
-       result.home_stats.turnovers, result.home_stats.fouls]
-    );
-
-    await pool.query(
-      `INSERT INTO team_game_stats (game_id, team_id, is_home, points, fgm, fga, fg_pct,
-                                    three_pm, three_pa, three_pct, ftm, fta, ft_pct,
-                                    oreb, dreb, rebounds, assists, steals, blocks,
-                                    turnovers, fouls)
-       VALUES ($1, $2, false, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-       ON CONFLICT DO NOTHING`,
-      [result.id, result.away_team_id, result.away_stats.points,
-       result.away_stats.fgm, result.away_stats.fga, result.away_stats.fg_pct,
-       result.away_stats.three_pm, result.away_stats.three_pa, result.away_stats.three_pct,
-       result.away_stats.ftm, result.away_stats.fta, result.away_stats.ft_pct,
-       result.away_stats.oreb, result.away_stats.dreb, result.away_stats.rebounds,
-       result.away_stats.assists, result.away_stats.steals, result.away_stats.blocks,
-       result.away_stats.turnovers, result.away_stats.fouls]
-    );
-
-    // Aggregate team stats into team_season_stats
-    const updateTeamSeasonStats = async (teamId: string, stats: any, won: boolean, opponentPoints: number) => {
-      await pool.query(
-        `INSERT INTO team_season_stats
-         (team_id, season_id, games_played, wins, losses, points_for, points_against,
-          fgm, fga, three_pm, three_pa, ftm, fta, oreb, dreb, assists, steals, blocks, turnovers)
-         VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-         ON CONFLICT (team_id, season_id) DO UPDATE SET
-           games_played = team_season_stats.games_played + 1,
-           wins = team_season_stats.wins + EXCLUDED.wins,
-           losses = team_season_stats.losses + EXCLUDED.losses,
-           points_for = team_season_stats.points_for + EXCLUDED.points_for,
-           points_against = team_season_stats.points_against + EXCLUDED.points_against,
-           fgm = team_season_stats.fgm + EXCLUDED.fgm,
-           fga = team_season_stats.fga + EXCLUDED.fga,
-           three_pm = team_season_stats.three_pm + EXCLUDED.three_pm,
-           three_pa = team_season_stats.three_pa + EXCLUDED.three_pa,
-           ftm = team_season_stats.ftm + EXCLUDED.ftm,
-           fta = team_season_stats.fta + EXCLUDED.fta,
-           oreb = team_season_stats.oreb + EXCLUDED.oreb,
-           dreb = team_season_stats.dreb + EXCLUDED.dreb,
-           assists = team_season_stats.assists + EXCLUDED.assists,
-           steals = team_season_stats.steals + EXCLUDED.steals,
-           blocks = team_season_stats.blocks + EXCLUDED.blocks,
-           turnovers = team_season_stats.turnovers + EXCLUDED.turnovers,
-           fg_pct = (team_season_stats.fgm + EXCLUDED.fgm)::float / NULLIF(team_season_stats.fga + EXCLUDED.fga, 0),
-           three_pct = (team_season_stats.three_pm + EXCLUDED.three_pm)::float / NULLIF(team_season_stats.three_pa + EXCLUDED.three_pa, 0),
-           ft_pct = (team_season_stats.ftm + EXCLUDED.ftm)::float / NULLIF(team_season_stats.fta + EXCLUDED.fta, 0),
-           avg_point_diff = ((team_season_stats.points_for + EXCLUDED.points_for) - (team_season_stats.points_against + EXCLUDED.points_against))::float / (team_season_stats.games_played + 1),
-           pace = 100.0,
-           offensive_rating = ((team_season_stats.points_for + EXCLUDED.points_for)::float / (team_season_stats.games_played + 1)),
-           defensive_rating = ((team_season_stats.points_against + EXCLUDED.points_against)::float / (team_season_stats.games_played + 1)),
-           net_rating = ((team_season_stats.points_for + EXCLUDED.points_for) - (team_season_stats.points_against + EXCLUDED.points_against))::float / (team_season_stats.games_played + 1),
-           updated_at = NOW()`,
-        [
-          teamId, seasonId, won ? 1 : 0, won ? 0 : 1,
-          stats.points, opponentPoints,
-          stats.fgm, stats.fga, stats.three_pm, stats.three_pa,
-          stats.ftm, stats.fta, stats.oreb, stats.dreb,
-          stats.assists, stats.steals, stats.blocks, stats.turnovers
-        ]
-      );
-    };
-
-    const homeWonGame = result.winner_id === result.home_team_id;
-    await updateTeamSeasonStats(result.home_team_id, result.home_stats, homeWonGame, result.away_stats.points);
-    await updateTeamSeasonStats(result.away_team_id, result.away_stats, !homeWonGame, result.home_stats.points);
-
-    // Aggregate player stats into player_season_stats
-    for (const ps of [...result.home_player_stats, ...result.away_player_stats]) {
-      if (ps.minutes > 0) {
-        const playerTeamId = result.home_player_stats.includes(ps)
-          ? result.home_team_id
-          : result.away_team_id;
-
-        // Pre-calculate per-game values for initial insert
-        const rebounds = ps.oreb + ps.dreb;
-
-        await pool.query(
-          `INSERT INTO player_season_stats
-           (player_id, season_id, team_id, games_played, minutes, points, fgm, fga,
-            three_pm, three_pa, ftm, fta, oreb, dreb, assists, steals, blocks, turnovers, fouls,
-            ppg, rpg, apg, spg, bpg, mpg)
-           VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                   $5, $19, $14, $15, $16, $4)
-           ON CONFLICT (player_id, season_id) DO UPDATE SET
-             team_id = EXCLUDED.team_id,
-             games_played = player_season_stats.games_played + 1,
-             minutes = player_season_stats.minutes + EXCLUDED.minutes,
-             points = player_season_stats.points + EXCLUDED.points,
-             fgm = player_season_stats.fgm + EXCLUDED.fgm,
-             fga = player_season_stats.fga + EXCLUDED.fga,
-             three_pm = player_season_stats.three_pm + EXCLUDED.three_pm,
-             three_pa = player_season_stats.three_pa + EXCLUDED.three_pa,
-             ftm = player_season_stats.ftm + EXCLUDED.ftm,
-             fta = player_season_stats.fta + EXCLUDED.fta,
-             oreb = player_season_stats.oreb + EXCLUDED.oreb,
-             dreb = player_season_stats.dreb + EXCLUDED.dreb,
-             assists = player_season_stats.assists + EXCLUDED.assists,
-             steals = player_season_stats.steals + EXCLUDED.steals,
-             blocks = player_season_stats.blocks + EXCLUDED.blocks,
-             turnovers = player_season_stats.turnovers + EXCLUDED.turnovers,
-             fouls = player_season_stats.fouls + EXCLUDED.fouls,
-             ppg = (player_season_stats.points + EXCLUDED.points)::float / (player_season_stats.games_played + 1),
-             rpg = (player_season_stats.oreb + player_season_stats.dreb + EXCLUDED.oreb + EXCLUDED.dreb)::float / (player_season_stats.games_played + 1),
-             apg = (player_season_stats.assists + EXCLUDED.assists)::float / (player_season_stats.games_played + 1),
-             spg = (player_season_stats.steals + EXCLUDED.steals)::float / (player_season_stats.games_played + 1),
-             bpg = (player_season_stats.blocks + EXCLUDED.blocks)::float / (player_season_stats.games_played + 1),
-             mpg = (player_season_stats.minutes + EXCLUDED.minutes)::float / (player_season_stats.games_played + 1),
-             updated_at = NOW()`,
-          [
-            (ps as any).player_id, seasonId, playerTeamId,
-            ps.minutes, ps.points, ps.fgm, ps.fga,
-            ps.three_pm, ps.three_pa, ps.ftm, ps.fta,
-            ps.oreb, ps.dreb, ps.assists, ps.steals,
-            ps.blocks, ps.turnovers, ps.fouls,
-            rebounds  // $19 - pre-calculated rebounds for rpg
-          ]
-        );
-      }
-    }
 
     results.push({
-      game_id: result.id,
+      game_id: simResult.id,
       home_team: scheduledGame.home_team_name,
       away_team: scheduledGame.away_team_name,
-      home_score: result.home_score,
-      away_score: result.away_score,
+      home_score: simResult.home_score,
+      away_score: simResult.away_score,
       is_user_game: isUserGame
     });
   }
@@ -331,17 +115,16 @@ async function simulatePreseasonDayGames(franchise: any) {
   const seasonId = franchise.season_id;
   const currentDay = franchise.current_day; // -7 to 0 for preseason
 
-  // Calculate the game date for this day (relative to season start)
+  // Calculate the game date for this day
   const seasonStart = new Date('2024-10-22');
   const gameDate = new Date(seasonStart);
-  gameDate.setDate(gameDate.getDate() + currentDay); // currentDay is negative for preseason
+  gameDate.setDate(gameDate.getDate() + currentDay);
   const gameDateStr = gameDate.toISOString().split('T')[0];
 
   // Get all preseason games scheduled for this day
   const gamesResult = await pool.query(
     `SELECT s.*,
-            ht.name as home_team_name, ht.abbreviation as home_abbrev,
-            at.name as away_team_name, at.abbreviation as away_abbrev
+            ht.name as home_team_name, at.name as away_team_name
      FROM schedule s
      JOIN teams ht ON s.home_team_id = ht.id
      JOIN teams at ON s.away_team_id = at.id
@@ -358,69 +141,53 @@ async function simulatePreseasonDayGames(franchise: any) {
     // Simulate the game
     const homeTeam = await loadTeamForSimulation(scheduledGame.home_team_id);
     const awayTeam = await loadTeamForSimulation(scheduledGame.away_team_id);
-    const result = simulateGame(homeTeam, awayTeam);
+    const simResult = simulateGame(homeTeam, awayTeam);
 
-    // Save game result (marked as preseason)
-    await pool.query(
-      `INSERT INTO games (id, season_id, home_team_id, away_team_id, home_score, away_score,
-                         winner_id, is_overtime, overtime_periods, status, completed_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'completed', NOW())
-       ON CONFLICT (id) DO NOTHING`,
-      [result.id, seasonId, result.home_team_id, result.away_team_id,
-       result.home_score, result.away_score, result.winner_id,
-       result.is_overtime, result.overtime_periods]
+    // Convert to GameResult format
+    const gameResult: GameResult = {
+      id: simResult.id,
+      home_team_id: simResult.home_team_id,
+      away_team_id: simResult.away_team_id,
+      home_score: simResult.home_score,
+      away_score: simResult.away_score,
+      winner_id: simResult.winner_id,
+      is_overtime: simResult.is_overtime,
+      overtime_periods: simResult.overtime_periods,
+      quarters: simResult.quarters,
+      home_stats: simResult.home_stats,
+      away_stats: simResult.away_stats,
+      home_player_stats: simResult.home_player_stats.map((ps: any) => ({
+        ...ps,
+        player_id: ps.player_id
+      })),
+      away_player_stats: simResult.away_player_stats.map((ps: any) => ({
+        ...ps,
+        player_id: ps.player_id
+      }))
+    };
+
+    // Save complete game result WITHOUT standings (preseason)
+    await saveCompleteGameResult(
+      gameResult,
+      seasonId,
+      { id: homeTeam.id, starters: homeTeam.starters },
+      { id: awayTeam.id, starters: awayTeam.starters },
+      false // Don't update standings for preseason
     );
 
     // Update schedule entry
     await pool.query(
       `UPDATE schedule SET status = 'completed', game_id = $1, is_user_game = $2
        WHERE id = $3`,
-      [result.id, isUserGame, scheduledGame.id]
+      [simResult.id, isUserGame, scheduledGame.id]
     );
 
-    // Insert quarter scores
-    for (const quarter of result.quarters) {
-      await pool.query(
-        `INSERT INTO game_quarters (game_id, quarter, home_points, away_points)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT DO NOTHING`,
-        [result.id, quarter.quarter, quarter.home_points, quarter.away_points]
-      );
-    }
-
-    // NOTE: No standings updates for preseason games!
-
-    // Save player stats for box score display
-    for (const ps of [...result.home_player_stats, ...result.away_player_stats]) {
-      if (ps.minutes > 0) {
-        const playerTeamId = result.home_player_stats.includes(ps)
-          ? result.home_team_id
-          : result.away_team_id;
-        const isStarter = result.home_player_stats.includes(ps)
-          ? homeTeam.starters.some((s: any) => s.id === (ps as any).player_id)
-          : awayTeam.starters.some((s: any) => s.id === (ps as any).player_id);
-
-        await pool.query(
-          `INSERT INTO player_game_stats
-           (game_id, player_id, team_id, minutes, points, fgm, fga, three_pm, three_pa,
-            ftm, fta, oreb, dreb, rebounds, assists, steals, blocks, turnovers, fouls,
-            plus_minus, is_starter)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
-           ON CONFLICT (game_id, player_id) DO NOTHING`,
-          [result.id, (ps as any).player_id, playerTeamId, ps.minutes, ps.points,
-           ps.fgm, ps.fga, ps.three_pm, ps.three_pa, ps.ftm, ps.fta,
-           ps.oreb, ps.dreb, ps.rebounds, ps.assists, ps.steals, ps.blocks,
-           ps.turnovers, ps.fouls, ps.plus_minus, isStarter]
-        );
-      }
-    }
-
     results.push({
-      game_id: result.id,
+      game_id: simResult.id,
       home_team: scheduledGame.home_team_name,
       away_team: scheduledGame.away_team_name,
-      home_score: result.home_score,
-      away_score: result.away_score,
+      home_score: simResult.home_score,
+      away_score: simResult.away_score,
       is_user_game: isUserGame,
       is_preseason: true
     });
@@ -444,7 +211,7 @@ router.get('/', async (req, res) => {
 // Get season progress for user's franchise
 router.get('/progress', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchise = await getUserFranchise(req.user.userId);
+    const franchise = await getUserActiveFranchise(req.user.userId);
     if (!franchise) {
       return res.status(404).json({ error: 'No franchise found' });
     }
@@ -492,36 +259,49 @@ router.get('/progress', authMiddleware(true), async (req: any, res) => {
 // Start season (set phase to regular_season)
 router.post('/start', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchise = await getUserFranchise(req.user.userId);
-    if (!franchise) {
-      return res.status(404).json({ error: 'No franchise found' });
+    const result = await withTransaction(async (client) => {
+      // Lock franchise to prevent concurrent start
+      const franchise = await lockUserActiveFranchise(client, req.user.userId);
+      if (!franchise) {
+        throw { status: 404, message: 'No franchise found' };
+      }
+
+      // Check if already started
+      if (franchise.phase !== 'preseason') {
+        throw { status: 400, message: 'Season already started' };
+      }
+
+      // Check if schedule exists
+      const scheduleResult = await client.query(
+        'SELECT COUNT(*) FROM schedule WHERE season_id = $1',
+        [franchise.season_id]
+      );
+
+      if (parseInt(scheduleResult.rows[0].count) === 0) {
+        throw { status: 400, message: 'Generate schedule first' };
+      }
+
+      // Update phase
+      await client.query(
+        `UPDATE franchises SET phase = 'regular_season', current_day = 1, last_played_at = NOW()
+         WHERE id = $1`,
+        [franchise.id]
+      );
+
+      // Update season status
+      await client.query(
+        `UPDATE seasons SET status = 'regular' WHERE id = $1`,
+        [franchise.season_id]
+      );
+
+      return { message: 'Season started', phase: 'regular_season' };
+    });
+
+    res.json(result);
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
     }
-
-    // Check if schedule exists
-    const scheduleResult = await pool.query(
-      'SELECT COUNT(*) FROM schedule WHERE season_id = $1',
-      [franchise.season_id]
-    );
-
-    if (parseInt(scheduleResult.rows[0].count) === 0) {
-      return res.status(400).json({ error: 'Generate schedule first' });
-    }
-
-    // Update phase
-    await pool.query(
-      `UPDATE franchises SET phase = 'regular_season', current_day = 1, last_played_at = NOW()
-       WHERE id = $1`,
-      [franchise.id]
-    );
-
-    // Update season status
-    await pool.query(
-      `UPDATE seasons SET status = 'regular' WHERE id = $1`,
-      [franchise.season_id]
-    );
-
-    res.json({ message: 'Season started', phase: 'regular_season' });
-  } catch (error) {
     res.status(500).json({ error: 'Failed to start season' });
   }
 });
@@ -529,46 +309,55 @@ router.post('/start', authMiddleware(true), async (req: any, res) => {
 // Advance one day in preseason
 router.post('/advance/preseason', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchise = await getUserFranchise(req.user.userId);
-    if (!franchise) {
-      return res.status(404).json({ error: 'No franchise found' });
-    }
+    const result = await withTransaction(async (client) => {
+      // Lock franchise to prevent concurrent advancement
+      const franchise = await lockUserActiveFranchise(client, req.user.userId);
+      if (!franchise) {
+        throw { status: 404, message: 'No franchise found' };
+      }
 
-    if (franchise.phase !== 'preseason') {
-      return res.status(400).json({ error: 'Not in preseason' });
-    }
+      if (franchise.phase !== 'preseason') {
+        throw { status: 400, message: 'Not in preseason' };
+      }
 
-    const { gameDateStr, results } = await simulatePreseasonDayGames(franchise);
+      // Simulate games (outside transaction for performance, but safe since games are idempotent)
+      const { gameDateStr, results } = await simulatePreseasonDayGames(franchise);
 
-    // Advance the day
-    const newDay = franchise.current_day + 1;
-    let newPhase = franchise.phase;
+      // Advance the day
+      const newDay = franchise.current_day + 1;
+      let newPhase = franchise.phase;
 
-    // Check if preseason is complete (after day 0)
-    if (newDay > 0) {
-      newPhase = 'regular_season';
-      // Update season status
-      await pool.query(
-        `UPDATE seasons SET status = 'regular' WHERE id = $1`,
-        [franchise.season_id]
+      // Check if preseason is complete (after day 0)
+      if (newDay > 0) {
+        newPhase = 'regular_season';
+        // Update season status
+        await client.query(
+          `UPDATE seasons SET status = 'regular' WHERE id = $1`,
+          [franchise.season_id]
+        );
+      }
+
+      await client.query(
+        `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW()
+         WHERE id = $3`,
+        [newPhase === 'regular_season' ? 1 : newDay, newPhase, franchise.id]
       );
-    }
 
-    await pool.query(
-      `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW()
-       WHERE id = $3`,
-      [newPhase === 'regular_season' ? 1 : newDay, newPhase, franchise.id]
-    );
-
-    res.json({
-      day: newDay,
-      date: gameDateStr,
-      phase: newPhase,
-      games_played: results.length,
-      results,
-      preseason_complete: newPhase === 'regular_season'
+      return {
+        day: newDay,
+        date: gameDateStr,
+        phase: newPhase,
+        games_played: results.length,
+        results,
+        preseason_complete: newPhase === 'regular_season'
+      };
     });
-  } catch (error) {
+
+    res.json(result);
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Advance preseason day error:', error);
     res.status(500).json({ error: 'Failed to advance preseason day' });
   }
@@ -577,60 +366,68 @@ router.post('/advance/preseason', authMiddleware(true), async (req: any, res) =>
 // Simulate entire preseason
 router.post('/advance/preseason/all', authMiddleware(true), async (req: any, res) => {
   try {
-    let franchise = await getUserFranchise(req.user.userId);
-    if (!franchise) {
-      return res.status(404).json({ error: 'No franchise found' });
-    }
+    // First, lock and validate in a transaction
+    const initialFranchise = await withTransaction(async (client) => {
+      const franchise = await lockUserActiveFranchise(client, req.user.userId);
+      if (!franchise) {
+        throw { status: 404, message: 'No franchise found' };
+      }
 
-    if (franchise.phase !== 'preseason') {
-      return res.status(400).json({ error: 'Not in preseason' });
-    }
+      if (franchise.phase !== 'preseason') {
+        throw { status: 400, message: 'Not in preseason' };
+      }
+
+      return franchise;
+    });
 
     const allResults: any[] = [];
     let daysSimulated = 0;
+    let currentDay = initialFranchise.current_day;
 
-    // Simulate until preseason is complete
-    while (franchise && franchise.phase === 'preseason' && franchise.current_day <= 0) {
-      const { results } = await simulatePreseasonDayGames(franchise);
+    // Simulate until preseason is complete (game simulation outside transaction for performance)
+    while (currentDay <= 0) {
+      const { results } = await simulatePreseasonDayGames({ ...initialFranchise, current_day: currentDay });
       allResults.push(...results);
 
-      const newDay = franchise.current_day + 1;
-      let newPhase = franchise.phase;
-
-      if (newDay > 0) {
-        newPhase = 'regular_season';
-        await pool.query(
-          `UPDATE seasons SET status = 'regular' WHERE id = $1`,
-          [franchise.season_id]
-        );
-      }
-
-      await pool.query(
-        `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW()
-         WHERE id = $3`,
-        [newPhase === 'regular_season' ? 1 : newDay, newPhase, franchise.id]
-      );
-
+      currentDay++;
       daysSimulated++;
 
-      if (newPhase === 'regular_season') break;
-
-      // Refresh franchise
-      franchise = await getUserFranchise(req.user.userId);
+      if (currentDay > 0) break;
     }
 
-    // Get final franchise state
-    franchise = await getUserFranchise(req.user.userId);
+    // Final update in transaction with lock
+    const result = await withTransaction(async (client) => {
+      // Re-lock to ensure no concurrent changes
+      await lockUserActiveFranchise(client, req.user.userId);
 
-    res.json({
-      message: 'Preseason complete!',
-      days_simulated: daysSimulated,
-      phase: 'regular_season',
-      current_day: franchise?.current_day || 1,
-      games_played: allResults.length,
-      user_games: allResults.filter(r => r.is_user_game)
+      // Update season status
+      await client.query(
+        `UPDATE seasons SET status = 'regular' WHERE id = $1`,
+        [initialFranchise.season_id]
+      );
+
+      // Update franchise to regular season
+      await client.query(
+        `UPDATE franchises SET current_day = 1, phase = 'regular_season', last_played_at = NOW()
+         WHERE id = $1`,
+        [initialFranchise.id]
+      );
+
+      return {
+        message: 'Preseason complete!',
+        days_simulated: daysSimulated,
+        phase: 'regular_season',
+        current_day: 1,
+        games_played: allResults.length,
+        user_games: allResults.filter(r => r.is_user_game)
+      };
     });
-  } catch (error) {
+
+    res.json(result);
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Simulate all preseason error:', error);
     res.status(500).json({ error: 'Failed to simulate preseason' });
   }
@@ -639,52 +436,57 @@ router.post('/advance/preseason/all', authMiddleware(true), async (req: any, res
 // Advance one day in the season
 router.post('/advance/day', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchise = await getUserFranchise(req.user.userId);
-    if (!franchise) {
-      return res.status(404).json({ error: 'No franchise found' });
-    }
+    const result = await withTransaction(async (client) => {
+      // Lock franchise to prevent concurrent advancement
+      const franchise = await lockUserActiveFranchise(client, req.user.userId);
+      if (!franchise) {
+        throw { status: 404, message: 'No franchise found' };
+      }
 
-    if (franchise.phase !== 'regular_season') {
-      return res.status(400).json({ error: 'Not in regular season' });
-    }
+      if (franchise.phase !== 'regular_season') {
+        throw { status: 400, message: 'Not in regular season' };
+      }
 
-    const { gameDateStr, results } = await simulateDayGames(franchise);
+      // Simulate games (safe outside transaction since games are idempotent)
+      const { gameDateStr, results } = await simulateDayGames(franchise);
 
-    // Advance the day
-    const newDay = franchise.current_day + 1;
-    let newPhase = franchise.phase;
+      // Advance the day
+      const newDay = franchise.current_day + 1;
+      let newPhase = franchise.phase;
 
-    // Get All-Star day from season settings
-    const seasonResult = await pool.query(
-      `SELECT all_star_day FROM seasons WHERE id = $1`,
-      [franchise.season_id]
-    );
-    const allStarDay = seasonResult.rows[0]?.all_star_day || 85;
+      // Get All-Star day from season settings
+      const allStarDay = await getSeasonAllStarDay(franchise.season_id, client);
 
-    // Check if it's All-Star Weekend (and not already completed)
-    if (newDay >= allStarDay && !franchise.all_star_complete && newDay < allStarDay + 4) {
-      newPhase = 'all_star';
-    }
-    // Check if season is complete (after ~174 days) - go to awards first
-    else if (newDay > 174) {
-      newPhase = 'awards';
-    }
+      // Check if it's All-Star Weekend (and not already completed)
+      if (newDay >= allStarDay && !franchise.all_star_complete && newDay < allStarDay + 4) {
+        newPhase = 'all_star';
+      }
+      // Check if season is complete (after ~174 days) - go to awards first
+      else if (newDay > 174) {
+        newPhase = 'awards';
+      }
 
-    await pool.query(
-      `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW()
-       WHERE id = $3`,
-      [newDay, newPhase, franchise.id]
-    );
+      await client.query(
+        `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW()
+         WHERE id = $3`,
+        [newDay, newPhase, franchise.id]
+      );
 
-    res.json({
-      day: newDay,
-      date: gameDateStr,
-      phase: newPhase,
-      games_played: results.length,
-      results,
-      all_star_weekend: newPhase === 'all_star'
+      return {
+        day: newDay,
+        date: gameDateStr,
+        phase: newPhase,
+        games_played: results.length,
+        results,
+        all_star_weekend: newPhase === 'all_star'
+      };
     });
-  } catch (error) {
+
+    res.json(result);
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Advance day error:', error);
     res.status(500).json({ error: 'Failed to advance day' });
   }
@@ -693,71 +495,71 @@ router.post('/advance/day', authMiddleware(true), async (req: any, res) => {
 // Advance one week (7 days)
 router.post('/advance/week', authMiddleware(true), async (req: any, res) => {
   try {
-    let franchise = await getUserFranchise(req.user.userId);
-    if (!franchise) {
-      return res.status(404).json({ error: 'No franchise found' });
-    }
-
-    if (franchise.phase !== 'regular_season') {
-      return res.status(400).json({ error: 'Not in regular season' });
-    }
-
-    // Get All-Star day from season settings
-    const seasonResult = await pool.query(
-      `SELECT all_star_day FROM seasons WHERE id = $1`,
-      [franchise.season_id]
-    );
-    const allStarDay = seasonResult.rows[0]?.all_star_day || 85;
-
-    const allResults: any[] = [];
-    let daysSimulated = 0;
-    let finalPhase = franchise.phase;
-
-    for (let i = 0; i < 7; i++) {
-      // Refresh franchise data
-      franchise = await getUserFranchise(req.user.userId);
-      if (!franchise || franchise.phase !== 'regular_season') break;
-
-      const { results } = await simulateDayGames(franchise);
-      allResults.push(...results);
-
-      const newDay = franchise.current_day + 1;
-      let newPhase = franchise.phase;
-
-      // Check for All-Star Weekend
-      if (newDay >= allStarDay && !franchise.all_star_complete && newDay < allStarDay + 4) {
-        newPhase = 'all_star';
-      }
-      // Check if season is complete - go to awards first
-      else if (newDay > 174) {
-        newPhase = 'awards';
+    const result = await withTransaction(async (client) => {
+      // Lock franchise to prevent concurrent advancement
+      let franchise = await lockUserActiveFranchise(client, req.user.userId);
+      if (!franchise) {
+        throw { status: 404, message: 'No franchise found' };
       }
 
-      await pool.query(
+      if (franchise.phase !== 'regular_season') {
+        throw { status: 400, message: 'Not in regular season' };
+      }
+
+      // Get All-Star day from season settings
+      const allStarDay = await getSeasonAllStarDay(franchise.season_id, client);
+
+      const allResults: any[] = [];
+      let daysSimulated = 0;
+      let finalPhase = franchise.phase;
+      let currentDay = franchise.current_day;
+
+      for (let i = 0; i < 7; i++) {
+        if (finalPhase !== 'regular_season') break;
+
+        // Simulate games for current day
+        const { results } = await simulateDayGames({ ...franchise, current_day: currentDay });
+        allResults.push(...results);
+
+        const newDay = currentDay + 1;
+        let newPhase: string = 'regular_season';
+
+        // Check for All-Star Weekend
+        if (newDay >= allStarDay && !franchise.all_star_complete && newDay < allStarDay + 4) {
+          newPhase = 'all_star';
+        }
+        // Check if season is complete - go to awards first
+        else if (newDay > 174) {
+          newPhase = 'awards';
+        }
+
+        currentDay = newDay;
+        daysSimulated++;
+        finalPhase = newPhase;
+      }
+
+      // Update franchise with final state
+      await client.query(
         `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW()
          WHERE id = $3`,
-        [newDay, newPhase, franchise.id]
+        [currentDay, finalPhase, franchise.id]
       );
 
-      daysSimulated++;
-      finalPhase = newPhase;
-
-      // Stop if we hit All-Star or playoffs
-      if (newPhase !== 'regular_season') break;
-    }
-
-    // Get updated franchise
-    franchise = await getUserFranchise(req.user.userId);
-
-    res.json({
-      days_simulated: daysSimulated,
-      current_day: franchise?.current_day || 0,
-      phase: finalPhase,
-      games_played: allResults.length,
-      user_games: allResults.filter(r => r.is_user_game),
-      all_star_weekend: finalPhase === 'all_star'
+      return {
+        days_simulated: daysSimulated,
+        current_day: currentDay,
+        phase: finalPhase,
+        games_played: allResults.length,
+        user_games: allResults.filter(r => r.is_user_game),
+        all_star_weekend: finalPhase === 'all_star'
+      };
     });
-  } catch (error) {
+
+    res.json(result);
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Advance week error:', error);
     res.status(500).json({ error: 'Failed to advance week' });
   }
@@ -766,29 +568,35 @@ router.post('/advance/week', authMiddleware(true), async (req: any, res) => {
 // Simulate to end of regular season (playoffs)
 router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => {
   try {
-    let franchise = await getUserFranchise(req.user.userId);
-    if (!franchise) {
-      return res.status(404).json({ error: 'No franchise found' });
-    }
+    // First, lock and validate in a transaction
+    const initialData = await withTransaction(async (client) => {
+      const franchise = await lockUserActiveFranchise(client, req.user.userId);
+      if (!franchise) {
+        throw { status: 404, message: 'No franchise found' };
+      }
 
-    if (franchise.phase !== 'regular_season') {
-      return res.status(400).json({ error: 'Not in regular season' });
-    }
+      if (franchise.phase !== 'regular_season') {
+        throw { status: 400, message: 'Not in regular season' };
+      }
 
-    // Get All-Star day from season settings
-    const seasonResult = await pool.query(
-      `SELECT all_star_day FROM seasons WHERE id = $1`,
-      [franchise.season_id]
-    );
-    const allStarDay = seasonResult.rows[0]?.all_star_day || 85;
+      // Get All-Star day from season settings
+      const allStarDay = await getSeasonAllStarDay(franchise.season_id, client);
+
+      return { franchise, allStarDay };
+    });
+
+    let franchise = initialData.franchise;
+    const allStarDay = initialData.allStarDay;
 
     const userResults: any[] = [];
     let daysSimulated = 0;
     let allStarSimulated = false;
+    let currentDay = franchise.current_day;
+    let allStarComplete = franchise.all_star_complete;
 
-    // Simulate until playoffs
-    while (franchise && franchise.phase === 'regular_season' && franchise.current_day <= 174) {
-      const { results } = await simulateDayGames(franchise);
+    // Simulate until playoffs (game simulation outside transaction for performance)
+    while (currentDay <= 174) {
+      const { results } = await simulateDayGames({ ...franchise, current_day: currentDay });
 
       // Track user's games
       for (const r of results) {
@@ -797,11 +605,10 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
         }
       }
 
-      const newDay = franchise.current_day + 1;
-      let newPhase = franchise.phase;
+      const newDay = currentDay + 1;
 
       // Auto-simulate All-Star Weekend if needed
-      if (newDay >= allStarDay && !franchise.all_star_complete && !allStarSimulated) {
+      if (newDay >= allStarDay && !allStarComplete && !allStarSimulated) {
         try {
           // Select All-Stars
           await selectAllStars(franchise.season_id, 'Eastern');
@@ -820,40 +627,39 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
           console.error('All-Star Weekend failed, skipping:', allStarError);
         }
 
-        // Mark All-Star complete (even if it failed, don't retry)
-        await pool.query(
-          `UPDATE franchises SET all_star_complete = TRUE WHERE id = $1`,
-          [franchise.id]
-        );
+        allStarComplete = true;
       }
 
-      if (newDay > 174) {
-        newPhase = 'awards';
-      }
-
-      await pool.query(
-        `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW()
-         WHERE id = $3`,
-        [newDay, newPhase, franchise.id]
-      );
-
+      currentDay = newDay;
       daysSimulated++;
 
-      if (newPhase === 'awards') break;
-
-      // Refresh franchise
-      franchise = await getUserFranchise(req.user.userId);
+      if (newDay > 174) break;
     }
 
-    // Get final standings
-    const standingsResult = await pool.query(
-      `SELECT s.*, t.name, t.abbreviation, t.conference
-       FROM standings s
-       JOIN teams t ON s.team_id = t.id
-       WHERE s.season_id = $1
-       ORDER BY s.wins DESC`,
-      [franchise?.season_id]
-    );
+    // Final update in transaction with lock
+    const finalResult = await withTransaction(async (client) => {
+      // Re-lock to ensure no concurrent changes
+      await lockUserActiveFranchise(client, req.user.userId);
+
+      // Update franchise to awards phase
+      await client.query(
+        `UPDATE franchises SET current_day = $1, phase = 'awards', all_star_complete = $2, last_played_at = NOW()
+         WHERE id = $3`,
+        [currentDay, allStarComplete, franchise.id]
+      );
+
+      // Get final standings
+      const standingsResult = await client.query(
+        `SELECT s.*, t.name, t.abbreviation, t.conference
+         FROM standings s
+         JOIN teams t ON s.team_id = t.id
+         WHERE s.season_id = $1
+         ORDER BY s.wins DESC`,
+        [franchise.season_id]
+      );
+
+      return standingsResult.rows;
+    });
 
     res.json({
       message: 'Regular season complete! View awards before playoffs.',
@@ -870,9 +676,12 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
           (r.away_score < r.home_score && r.away_team === franchise?.team_name)
         ).length
       },
-      top_standings: standingsResult.rows.slice(0, 10)
+      top_standings: finalResult.slice(0, 10)
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Advance to playoffs error:', error);
     res.status(500).json({
       error: 'Failed to advance to playoffs',
@@ -884,26 +693,34 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
 // Advance from awards phase to playoffs
 router.post('/advance/start-playoffs', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchise = await getUserFranchise(req.user.userId);
-    if (!franchise) {
-      return res.status(404).json({ error: 'No franchise found' });
-    }
+    const result = await withTransaction(async (client) => {
+      // Lock franchise to prevent concurrent phase change
+      const franchise = await lockUserActiveFranchise(client, req.user.userId);
+      if (!franchise) {
+        throw { status: 404, message: 'No franchise found' };
+      }
 
-    if (franchise.phase !== 'awards') {
-      return res.status(400).json({ error: 'Must be in awards phase to start playoffs' });
-    }
+      if (franchise.phase !== 'awards') {
+        throw { status: 400, message: 'Must be in awards phase to start playoffs' };
+      }
 
-    // Update franchise to playoffs phase
-    await pool.query(
-      `UPDATE franchises SET phase = 'playoffs', last_played_at = NOW() WHERE id = $1`,
-      [franchise.id]
-    );
+      // Update franchise to playoffs phase
+      await client.query(
+        `UPDATE franchises SET phase = 'playoffs', last_played_at = NOW() WHERE id = $1`,
+        [franchise.id]
+      );
 
-    res.json({
-      message: 'Awards complete! Playoffs are ready to begin.',
-      phase: 'playoffs'
+      return {
+        message: 'Awards complete! Playoffs are ready to begin.',
+        phase: 'playoffs'
+      };
     });
-  } catch (error) {
+
+    res.json(result);
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Start playoffs error:', error);
     res.status(500).json({ error: 'Failed to start playoffs' });
   }
@@ -912,7 +729,7 @@ router.post('/advance/start-playoffs', authMiddleware(true), async (req: any, re
 // Process offseason (player development, aging, retirements)
 router.post('/offseason', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchise = await getUserFranchise(req.user.userId);
+    const franchise = await getUserActiveFranchise(req.user.userId);
     if (!franchise) {
       return res.status(404).json({ error: 'No franchise found' });
     }
@@ -1112,7 +929,7 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
 // Finalize playoffs and transition to offseason
 router.post('/finalize-playoffs', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchise = await getUserFranchise(req.user.userId);
+    const franchise = await getUserActiveFranchise(req.user.userId);
     if (!franchise) {
       return res.status(404).json({ error: 'No franchise found' });
     }
@@ -1175,7 +992,7 @@ router.post('/finalize-playoffs', authMiddleware(true), async (req: any, res) =>
 // Get season summary (for championship display)
 router.get('/summary', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchise = await getUserFranchise(req.user.userId);
+    const franchise = await getUserActiveFranchise(req.user.userId);
     if (!franchise) {
       return res.status(404).json({ error: 'No franchise found' });
     }
@@ -1284,7 +1101,7 @@ router.get('/summary', authMiddleware(true), async (req: any, res) => {
 // Get current offseason state
 router.get('/offseason', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchise = await getUserFranchise(req.user.userId);
+    const franchise = await getUserActiveFranchise(req.user.userId);
     if (!franchise) {
       return res.status(404).json({ error: 'No franchise found' });
     }
@@ -1312,47 +1129,55 @@ router.get('/offseason', authMiddleware(true), async (req: any, res) => {
 // Advance to next offseason phase
 router.post('/offseason/advance', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchise = await getUserFranchise(req.user.userId);
-    if (!franchise) {
-      return res.status(404).json({ error: 'No franchise found' });
-    }
+    const result = await withTransaction(async (client) => {
+      // Lock franchise to prevent concurrent phase change
+      const franchise = await lockUserActiveFranchise(client, req.user.userId);
+      if (!franchise) {
+        throw { status: 404, message: 'No franchise found' };
+      }
 
-    if (franchise.phase !== 'offseason') {
-      return res.status(400).json({ error: 'Not in offseason' });
-    }
+      if (franchise.phase !== 'offseason') {
+        throw { status: 400, message: 'Not in offseason' };
+      }
 
-    const PHASE_ORDER = ['review', 'lottery', 'draft', 'free_agency', 'training_camp'];
-    const PHASE_LABELS: Record<string, string> = {
-      review: 'Season Review',
-      lottery: 'Draft Lottery',
-      draft: 'NBA Draft',
-      free_agency: 'Free Agency',
-      training_camp: 'Training Camp'
-    };
+      const PHASE_ORDER = ['review', 'lottery', 'draft', 'free_agency', 'training_camp'];
+      const PHASE_LABELS: Record<string, string> = {
+        review: 'Season Review',
+        lottery: 'Draft Lottery',
+        draft: 'NBA Draft',
+        free_agency: 'Free Agency',
+        training_camp: 'Training Camp'
+      };
 
-    const currentPhase = franchise.offseason_phase || 'review';
-    const currentIndex = PHASE_ORDER.indexOf(currentPhase);
+      const currentPhase = franchise.offseason_phase || 'review';
+      const currentIndex = PHASE_ORDER.indexOf(currentPhase);
 
-    if (currentIndex >= PHASE_ORDER.length - 1) {
-      return res.status(400).json({ error: 'Already at final offseason phase. Start new season.' });
-    }
+      if (currentIndex >= PHASE_ORDER.length - 1) {
+        throw { status: 400, message: 'Already at final offseason phase. Start new season.' };
+      }
 
-    const nextPhase = PHASE_ORDER[currentIndex + 1];
+      const nextPhase = PHASE_ORDER[currentIndex + 1];
 
-    // Update franchise offseason phase
-    await pool.query(
-      `UPDATE franchises SET offseason_phase = $1, last_played_at = NOW() WHERE id = $2`,
-      [nextPhase, franchise.id]
-    );
+      // Update franchise offseason phase
+      await client.query(
+        `UPDATE franchises SET offseason_phase = $1, last_played_at = NOW() WHERE id = $2`,
+        [nextPhase, franchise.id]
+      );
 
-    res.json({
-      message: `Advanced to ${PHASE_LABELS[nextPhase]}`,
-      previous_phase: currentPhase,
-      offseason_phase: nextPhase,
-      phase_label: PHASE_LABELS[nextPhase],
-      can_start_new_season: nextPhase === 'training_camp'
+      return {
+        message: `Advanced to ${PHASE_LABELS[nextPhase]}`,
+        previous_phase: currentPhase,
+        offseason_phase: nextPhase,
+        phase_label: PHASE_LABELS[nextPhase],
+        can_start_new_season: nextPhase === 'training_camp'
+      };
     });
-  } catch (error) {
+
+    res.json(result);
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Advance offseason phase error:', error);
     res.status(500).json({ error: 'Failed to advance offseason phase' });
   }
@@ -1362,41 +1187,50 @@ router.post('/offseason/advance', authMiddleware(true), async (req: any, res) =>
 router.post('/offseason/skip-to', authMiddleware(true), async (req: any, res) => {
   try {
     const { target_phase } = req.body;
-    const franchise = await getUserFranchise(req.user.userId);
-
-    if (!franchise) {
-      return res.status(404).json({ error: 'No franchise found' });
-    }
-
-    if (franchise.phase !== 'offseason') {
-      return res.status(400).json({ error: 'Not in offseason' });
-    }
 
     const VALID_PHASES = ['review', 'lottery', 'draft', 'free_agency', 'training_camp'];
     if (!VALID_PHASES.includes(target_phase)) {
       return res.status(400).json({ error: 'Invalid target phase' });
     }
 
-    await pool.query(
-      `UPDATE franchises SET offseason_phase = $1, last_played_at = NOW() WHERE id = $2`,
-      [target_phase, franchise.id]
-    );
+    const result = await withTransaction(async (client) => {
+      // Lock franchise to prevent concurrent phase change
+      const franchise = await lockUserActiveFranchise(client, req.user.userId);
 
-    const PHASE_LABELS: Record<string, string> = {
-      review: 'Season Review',
-      lottery: 'Draft Lottery',
-      draft: 'NBA Draft',
-      free_agency: 'Free Agency',
-      training_camp: 'Training Camp'
-    };
+      if (!franchise) {
+        throw { status: 404, message: 'No franchise found' };
+      }
 
-    res.json({
-      message: `Skipped to ${PHASE_LABELS[target_phase]}`,
-      offseason_phase: target_phase,
-      phase_label: PHASE_LABELS[target_phase],
-      can_start_new_season: target_phase === 'training_camp'
+      if (franchise.phase !== 'offseason') {
+        throw { status: 400, message: 'Not in offseason' };
+      }
+
+      await client.query(
+        `UPDATE franchises SET offseason_phase = $1, last_played_at = NOW() WHERE id = $2`,
+        [target_phase, franchise.id]
+      );
+
+      const PHASE_LABELS: Record<string, string> = {
+        review: 'Season Review',
+        lottery: 'Draft Lottery',
+        draft: 'NBA Draft',
+        free_agency: 'Free Agency',
+        training_camp: 'Training Camp'
+      };
+
+      return {
+        message: `Skipped to ${PHASE_LABELS[target_phase]}`,
+        offseason_phase: target_phase,
+        phase_label: PHASE_LABELS[target_phase],
+        can_start_new_season: target_phase === 'training_camp'
+      };
     });
-  } catch (error) {
+
+    res.json(result);
+  } catch (error: any) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('Skip to offseason phase error:', error);
     res.status(500).json({ error: 'Failed to skip to phase' });
   }
@@ -1405,7 +1239,7 @@ router.post('/offseason/skip-to', authMiddleware(true), async (req: any, res) =>
 // Start new season (after offseason - requires training_camp phase)
 router.post('/new', authMiddleware(true), async (req: any, res) => {
   try {
-    const franchise = await getUserFranchise(req.user.userId);
+    const franchise = await getUserActiveFranchise(req.user.userId);
     if (!franchise) {
       return res.status(404).json({ error: 'No franchise found' });
     }

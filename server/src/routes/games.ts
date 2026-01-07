@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { pool } from '../db/pool';
 import { simulateGame } from '../simulation';
 import { loadTeamForSimulation } from '../services/simulation';
+import { getCurrentSeasonId } from '../db/queries';
+import { saveCompleteGameResult, GameResult } from '../services/gamePersistence';
 
 const router = Router();
 
@@ -23,138 +25,39 @@ router.post('/simulate', async (req, res) => {
 
     // Optionally save to database
     if (save_result) {
-      // Get current season
-      const seasonResult = await pool.query(
-        `SELECT id FROM seasons WHERE status != 'completed' ORDER BY season_number DESC LIMIT 1`
-      );
-      const seasonId = seasonResult.rows[0]?.id;
+      const seasonId = await getCurrentSeasonId();
 
-      // Insert game record
-      await pool.query(
-        `INSERT INTO games (id, season_id, home_team_id, away_team_id, home_score, away_score,
-                           winner_id, is_overtime, overtime_periods, status, completed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'completed', NOW())
-         RETURNING id`,
-        [result.id, seasonId, result.home_team_id, result.away_team_id,
-         result.home_score, result.away_score, result.winner_id,
-         result.is_overtime, result.overtime_periods]
-      );
-
-      // Insert quarter scores
-      for (const quarter of result.quarters) {
-        await pool.query(
-          `INSERT INTO game_quarters (game_id, quarter, home_points, away_points)
-           VALUES ($1, $2, $3, $4)`,
-          [result.id, quarter.quarter, quarter.home_points, quarter.away_points]
-        );
-      }
-
-      // Insert team stats
-      await pool.query(
-        `INSERT INTO team_game_stats (game_id, team_id, is_home, points, fgm, fga, fg_pct,
-                                      three_pm, three_pa, three_pct, ftm, fta, ft_pct,
-                                      oreb, dreb, rebounds, assists, steals, blocks,
-                                      turnovers, fouls)
-         VALUES ($1, $2, true, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
-        [result.id, result.home_team_id, result.home_stats.points,
-         result.home_stats.fgm, result.home_stats.fga, result.home_stats.fg_pct,
-         result.home_stats.three_pm, result.home_stats.three_pa, result.home_stats.three_pct,
-         result.home_stats.ftm, result.home_stats.fta, result.home_stats.ft_pct,
-         result.home_stats.oreb, result.home_stats.dreb, result.home_stats.rebounds,
-         result.home_stats.assists, result.home_stats.steals, result.home_stats.blocks,
-         result.home_stats.turnovers, result.home_stats.fouls]
-      );
-
-      await pool.query(
-        `INSERT INTO team_game_stats (game_id, team_id, is_home, points, fgm, fga, fg_pct,
-                                      three_pm, three_pa, three_pct, ftm, fta, ft_pct,
-                                      oreb, dreb, rebounds, assists, steals, blocks,
-                                      turnovers, fouls)
-         VALUES ($1, $2, false, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
-        [result.id, result.away_team_id, result.away_stats.points,
-         result.away_stats.fgm, result.away_stats.fga, result.away_stats.fg_pct,
-         result.away_stats.three_pm, result.away_stats.three_pa, result.away_stats.three_pct,
-         result.away_stats.ftm, result.away_stats.fta, result.away_stats.ft_pct,
-         result.away_stats.oreb, result.away_stats.dreb, result.away_stats.rebounds,
-         result.away_stats.assists, result.away_stats.steals, result.away_stats.blocks,
-         result.away_stats.turnovers, result.away_stats.fouls]
-      );
-
-      // Insert player stats (only for players who played)
-      for (const ps of [...result.home_player_stats, ...result.away_player_stats]) {
-        if (ps.minutes > 0) {
-          const playerTeamId = result.home_player_stats.includes(ps)
-            ? result.home_team_id
-            : result.away_team_id;
-          const isStarter = result.home_player_stats.includes(ps)
-            ? homeTeam.starters.some(s => s.id === (ps as any).player_id)
-            : awayTeam.starters.some(s => s.id === (ps as any).player_id);
-
-          await pool.query(
-            `INSERT INTO player_game_stats
-             (game_id, player_id, team_id, minutes, points, fgm, fga, three_pm, three_pa,
-              ftm, fta, oreb, dreb, rebounds, assists, steals, blocks, turnovers, fouls,
-              plus_minus, is_starter)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
-             ON CONFLICT (game_id, player_id) DO NOTHING`,
-            [result.id, (ps as any).player_id, playerTeamId, ps.minutes, ps.points,
-             ps.fgm, ps.fga, ps.three_pm, ps.three_pa, ps.ftm, ps.fta,
-             ps.oreb, ps.dreb, ps.rebounds, ps.assists, ps.steals, ps.blocks,
-             ps.turnovers, ps.fouls, ps.plus_minus, isStarter]
-          );
-        }
-      }
-
-      // Update standings with wins/losses, points, and division/conference records
       if (seasonId) {
-        const homeWon = result.winner_id === result.home_team_id;
+        // Convert to GameResult format
+        const gameResult: GameResult = {
+          id: result.id,
+          home_team_id: result.home_team_id,
+          away_team_id: result.away_team_id,
+          home_score: result.home_score,
+          away_score: result.away_score,
+          winner_id: result.winner_id,
+          is_overtime: result.is_overtime,
+          overtime_periods: result.overtime_periods,
+          quarters: result.quarters,
+          home_stats: result.home_stats,
+          away_stats: result.away_stats,
+          home_player_stats: result.home_player_stats.map((ps: any) => ({
+            ...ps,
+            player_id: ps.player_id
+          })),
+          away_player_stats: result.away_player_stats.map((ps: any) => ({
+            ...ps,
+            player_id: ps.player_id
+          }))
+        };
 
-        // Get conference/division info for both teams
-        const teamsInfoResult = await pool.query(
-          `SELECT id, conference, division FROM teams WHERE id IN ($1, $2)`,
-          [result.home_team_id, result.away_team_id]
-        );
-        const teamsInfo = teamsInfoResult.rows.reduce((acc: any, t: any) => {
-          acc[t.id] = t;
-          return acc;
-        }, {});
-        const homeInfo = teamsInfo[result.home_team_id];
-        const awayInfo = teamsInfo[result.away_team_id];
-        const sameConference = homeInfo?.conference === awayInfo?.conference;
-        const sameDivision = homeInfo?.division === awayInfo?.division;
-
-        // Update home team
-        await pool.query(
-          `UPDATE standings SET
-             wins = wins + $3,
-             losses = losses + $4,
-             points_for = COALESCE(points_for, 0) + $5,
-             points_against = COALESCE(points_against, 0) + $6,
-             conference_wins = conference_wins + $7,
-             conference_losses = conference_losses + $8,
-             division_wins = division_wins + $9,
-             division_losses = division_losses + $10
-           WHERE season_id = $1 AND team_id = $2`,
-          [seasonId, result.home_team_id, homeWon ? 1 : 0, homeWon ? 0 : 1, result.home_score, result.away_score,
-           sameConference && homeWon ? 1 : 0, sameConference && !homeWon ? 1 : 0,
-           sameDivision && homeWon ? 1 : 0, sameDivision && !homeWon ? 1 : 0]
-        );
-
-        // Update away team
-        await pool.query(
-          `UPDATE standings SET
-             wins = wins + $3,
-             losses = losses + $4,
-             points_for = COALESCE(points_for, 0) + $5,
-             points_against = COALESCE(points_against, 0) + $6,
-             conference_wins = conference_wins + $7,
-             conference_losses = conference_losses + $8,
-             division_wins = division_wins + $9,
-             division_losses = division_losses + $10
-           WHERE season_id = $1 AND team_id = $2`,
-          [seasonId, result.away_team_id, homeWon ? 0 : 1, homeWon ? 1 : 0, result.away_score, result.home_score,
-           sameConference && !homeWon ? 1 : 0, sameConference && homeWon ? 1 : 0,
-           sameDivision && !homeWon ? 1 : 0, sameDivision && homeWon ? 1 : 0]
+        // Save complete game result with standings and advanced stats
+        await saveCompleteGameResult(
+          gameResult,
+          seasonId,
+          { id: homeTeam.id, starters: homeTeam.starters },
+          { id: awayTeam.id, starters: awayTeam.starters },
+          true // Update standings
         );
       }
     }

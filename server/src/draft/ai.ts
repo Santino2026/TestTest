@@ -98,7 +98,7 @@ export function calculateBPAScore(overall: number, potential: number, mockPositi
 // Evaluate all available prospects for a team
 export async function evaluateProspects(
   teamId: string,
-  seasonId: number
+  seasonId: string
 ): Promise<ProspectEvaluation[]> {
   // Get team needs
   const needs = await evaluateTeamNeeds(teamId);
@@ -149,7 +149,7 @@ export async function evaluateProspects(
 }
 
 // Select the best prospect for AI team
-export async function selectAIPick(teamId: string, seasonId: number): Promise<ProspectEvaluation | null> {
+export async function selectAIPick(teamId: string, seasonId: string): Promise<ProspectEvaluation | null> {
   const evaluations = await evaluateProspects(teamId, seasonId);
 
   if (evaluations.length === 0) {
@@ -168,7 +168,7 @@ export async function selectAIPick(teamId: string, seasonId: number): Promise<Pr
 }
 
 // Get current draft state
-export async function getDraftState(seasonId: number) {
+export async function getDraftState(seasonId: string) {
   // Get total picks made
   const picksResult = await pool.query(
     `SELECT COUNT(*) as picks_made FROM draft_prospects WHERE season_id = $1 AND is_drafted = true`,
@@ -194,7 +194,7 @@ export async function getDraftState(seasonId: number) {
 }
 
 // Get team picking at specific position
-export async function getTeamAtPick(seasonId: number, pickNumber: number): Promise<string | null> {
+export async function getTeamAtPick(seasonId: string, pickNumber: number): Promise<string | null> {
   const round = pickNumber <= 30 ? 1 : 2;
   const pickInRound = round === 1 ? pickNumber : pickNumber - 30;
 
@@ -229,7 +229,7 @@ export async function getTeamAtPick(seasonId: number, pickNumber: number): Promi
 }
 
 // Build full draft order from draft_picks table (respects traded picks)
-export async function buildDraftOrder(seasonId: number): Promise<{ pick: number; round: number; team_id: string; team_name: string; abbreviation: string; original_team_id: string; was_traded: boolean }[]> {
+export async function buildDraftOrder(seasonId: string): Promise<{ pick: number; round: number; team_id: string; team_name: string; abbreviation: string; original_team_id: string; was_traded: boolean }[]> {
   // Try to get from draft_picks table first (respects traded picks)
   const picksResult = await pool.query(
     `SELECT dp.pick_number, dp.round, dp.current_team_id, dp.original_team_id, dp.was_traded,
