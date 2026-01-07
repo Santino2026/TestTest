@@ -121,7 +121,7 @@ interface Matchup {
 function generateAllMatchups(teams: Team[]): Matchup[] {
   const matchups: Matchup[] = [];
 
-  // Group teams
+  // Group teams by division and conference
   const teamsByDivision: Map<string, Team[]> = new Map();
   const teamsByConference: Map<string, Team[]> = new Map();
 
@@ -137,81 +137,66 @@ function generateAllMatchups(teams: Team[]): Matchup[] {
     teamsByConference.get(team.conference)!.push(team);
   }
 
-  for (const team of teams) {
-    const myConf = team.conference;
-    const myDiv = team.division;
+  // Process unique pairs only once (avoid duplicates)
+  const processedPairs = new Set<string>();
 
-    // Get related teams
-    const divisionRivals = teams.filter(
-      t => t.division === myDiv && t.id !== team.id
-    );
-    const confNonDiv = teams.filter(
-      t => t.conference === myConf && t.division !== myDiv
-    );
-    const otherConf = teams.filter(t => t.conference !== myConf);
+  // Helper to get pair key (sorted for consistency)
+  const getPairKey = (a: string, b: string) => [a, b].sort().join('-');
 
-    // Division rivals: 4 games each (2 home, 2 away)
-    // 4 rivals x 4 games = 16 games
-    for (const rival of divisionRivals) {
-      // 2 home games
-      matchups.push({ home: team.id, away: rival.id });
-      matchups.push({ home: team.id, away: rival.id });
+  // Helper to add games for a pair
+  const addGames = (teamA: Team, teamB: Team, totalGames: number) => {
+    const pairKey = getPairKey(teamA.id, teamB.id);
+    if (processedPairs.has(pairKey)) return;
+    processedPairs.add(pairKey);
+
+    // Split home/away evenly (odd games alternate who gets extra)
+    const homeForA = Math.ceil(totalGames / 2);
+    const homeForB = totalGames - homeForA;
+
+    for (let i = 0; i < homeForA; i++) {
+      matchups.push({ home: teamA.id, away: teamB.id });
     }
+    for (let i = 0; i < homeForB; i++) {
+      matchups.push({ home: teamB.id, away: teamA.id });
+    }
+  };
 
-    // Conference non-division: 36 games total
-    // 10 teams: 6 teams get 4 games (2 home), 4 teams get 3 games (1 or 2 home)
-    const confShuffled = [...confNonDiv];
-    shuffleArray(confShuffled);
+  // For conference non-division, we need consistent 4-game vs 3-game assignments
+  // Create a deterministic mapping based on sorted team IDs
+  const getConfNonDivGames = (teamA: Team, teamB: Team): number => {
+    // Get all conf non-div opponents for teamA (sorted by ID for consistency)
+    const confNonDiv = teams
+      .filter(t => t.conference === teamA.conference && t.division !== teamA.division)
+      .sort((a, b) => a.id.localeCompare(b.id));
 
-    for (let i = 0; i < confShuffled.length; i++) {
-      const opponent = confShuffled[i];
-      const gamesVs = i < 6 ? 4 : 3;
-      const homeGames = Math.ceil(gamesVs / 2); // Give home advantage
+    // First 6 get 4 games, last 4 get 3 games
+    const idx = confNonDiv.findIndex(t => t.id === teamB.id);
+    return idx < 6 ? 4 : 3;
+  };
 
-      for (let g = 0; g < homeGames; g++) {
-        matchups.push({ home: team.id, away: opponent.id });
+  for (const teamA of teams) {
+    for (const teamB of teams) {
+      if (teamA.id >= teamB.id) continue; // Process each pair once
+
+      const sameDiv = teamA.division === teamB.division;
+      const sameConf = teamA.conference === teamB.conference;
+
+      if (sameDiv) {
+        // Division rivals: 4 games each (2 home, 2 away)
+        addGames(teamA, teamB, 4);
+      } else if (sameConf) {
+        // Conference non-division: 3 or 4 games
+        // Use consistent assignment based on sorted order
+        const games = getConfNonDivGames(teamA, teamB);
+        addGames(teamA, teamB, games);
+      } else {
+        // Inter-conference: 2 games (1 home each)
+        addGames(teamA, teamB, 2);
       }
     }
-
-    // Other conference: 30 games (2 vs each)
-    // 15 teams x 2 games = 30 games (1 home each)
-    for (const opponent of otherConf) {
-      matchups.push({ home: team.id, away: opponent.id });
-    }
   }
 
-  // Filter to unique matchups by tracking pairs
-  // Since each team generates their home games, we need to avoid duplicates
-  const uniqueMatchups: Matchup[] = [];
-  const pairCount: Map<string, number> = new Map();
-
-  // First pass: count how many times each pair appears
-  for (const m of matchups) {
-    // Create a canonical key (smaller id first)
-    const [t1, t2] = [m.home, m.away].sort();
-    const pairKey = `${t1}-${t2}`;
-    const currentCount = pairCount.get(pairKey) || 0;
-    pairCount.set(pairKey, currentCount + 1);
-  }
-
-  // Second pass: add matchups respecting the count
-  const addedCount: Map<string, number> = new Map();
-
-  for (const m of matchups) {
-    const [t1, t2] = [m.home, m.away].sort();
-    const pairKey = `${t1}-${t2}`;
-    const maxGames = pairCount.get(pairKey) || 0;
-    const added = addedCount.get(pairKey) || 0;
-
-    // Only add up to half (rounded up) of the total games for this pair
-    // This ensures we get the right number of games
-    if (added < Math.ceil(maxGames / 2)) {
-      uniqueMatchups.push(m);
-      addedCount.set(pairKey, added + 1);
-    }
-  }
-
-  return uniqueMatchups;
+  return matchups;
 }
 
 function shuffleArray<T>(arr: T[]): void {
