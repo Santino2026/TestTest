@@ -448,7 +448,7 @@ async function updateSinglePlayerSeasonStats(
     [
       ps.player_id, seasonId, teamId,
       isStarter ? 1 : 0,  // games_started
-      ps.minutes, ps.points, ps.fgm, ps.fga,
+      Math.round(ps.minutes), ps.points, ps.fgm, ps.fga,
       ps.three_pm, ps.three_pa, ps.ftm, ps.fta,
       ps.oreb, ps.dreb, ps.assists, ps.steals,
       ps.blocks, ps.turnovers, ps.fouls
