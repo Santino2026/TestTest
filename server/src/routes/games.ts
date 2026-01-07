@@ -124,11 +124,23 @@ router.get('/:id', async (req, res) => {
       [id]
     );
 
+    // Convert DECIMAL fields to numbers (PostgreSQL returns DECIMAL as strings)
+    const teamStats = teamStatsResult.rows.map(ts => ({
+      ...ts,
+      fg_pct: parseFloat(ts.fg_pct) || 0,
+      three_pct: parseFloat(ts.three_pct) || 0,
+    }));
+
+    const playerStats = playerStatsResult.rows.map(ps => ({
+      ...ps,
+      minutes: parseFloat(ps.minutes) || 0,
+    }));
+
     res.json({
       ...gameResult.rows[0],
       quarters: quartersResult.rows,
-      team_stats: teamStatsResult.rows,
-      player_stats: playerStatsResult.rows
+      team_stats: teamStats,
+      player_stats: playerStats
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch game' });
