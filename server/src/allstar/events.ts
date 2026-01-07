@@ -48,12 +48,12 @@ export async function simulateRisingStars(seasonId: string): Promise<EventResult
   const baseScore = 150;
   const variance = 30;
 
-  let rookieScore = baseScore + Math.floor((rookieStrength - 70) * 2) + Math.floor(Math.random() * variance) - variance/2;
-  let sophScore = baseScore + Math.floor((sophStrength - 70) * 2) + Math.floor(Math.random() * variance) - variance/2;
+  let rookieScore = baseScore + Math.floor((rookieStrength - 70) * 2) + Math.floor(Math.random() * variance) - Math.floor(variance/2);
+  let sophScore = baseScore + Math.floor((sophStrength - 70) * 2) + Math.floor(Math.random() * variance) - Math.floor(variance/2);
 
-  // Ensure valid scores
-  rookieScore = Math.max(120, Math.min(180, rookieScore));
-  sophScore = Math.max(120, Math.min(180, sophScore));
+  // Ensure valid scores (round to integers for database)
+  rookieScore = Math.round(Math.max(120, Math.min(180, rookieScore)));
+  sophScore = Math.round(Math.max(120, Math.min(180, sophScore)));
 
   // Determine winner and MVP
   const winningTeam = rookieScore > sophScore ? 'rookies' : 'sophomores';

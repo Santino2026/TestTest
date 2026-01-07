@@ -284,11 +284,11 @@ async function signFreeAgentForCPU(
 
       // Create contract
       await client.query(
-        `INSERT INTO contracts (player_id, team_id, salary, years, years_remaining, status)
-         VALUES ($1, $2, $3, $4, $4, 'active')
+        `INSERT INTO contracts (player_id, team_id, total_years, years_remaining, base_salary, year_1_salary, contract_type, status)
+         VALUES ($1, $2, $3, $3, $4, $4, 'standard', 'active')
          ON CONFLICT (player_id) DO UPDATE SET
-           team_id = $2, salary = $3, years = $4, years_remaining = $4, status = 'active'`,
-        [playerId, teamId, salary, years]
+           team_id = $2, total_years = $3, years_remaining = $3, base_salary = $4, year_1_salary = $4, status = 'active'`,
+        [playerId, teamId, years, salary]
       );
 
       return true;
