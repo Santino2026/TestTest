@@ -167,6 +167,7 @@ export function useAdvancePreseasonDay() {
       queryClient.invalidateQueries({ queryKey: ['franchise'] });
       queryClient.invalidateQueries({ queryKey: ['schedule'] });
       queryClient.invalidateQueries({ queryKey: ['games'] });
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
     },
   });
 }
@@ -181,6 +182,7 @@ export function useAdvancePreseasonAll() {
       queryClient.invalidateQueries({ queryKey: ['schedule'] });
       queryClient.invalidateQueries({ queryKey: ['games'] });
       queryClient.invalidateQueries({ queryKey: ['season'] });
+      queryClient.invalidateQueries({ queryKey: ['trades'] });
     },
   });
 }
