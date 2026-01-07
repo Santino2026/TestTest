@@ -8,9 +8,19 @@ Premium single-player basketball franchise simulation. $10 one-time purchase via
 
 ## Rules
 
-1. Always ensure everything is wired up. Don't assume.
-2. Always make sure the flow makes sense.
-3. Test API endpoints exist before wiring frontend.
+-Be honest.
+-Be efficient.
+-Never overengineer/create unnecessary code.
+-Never duplicate code.
+-Never create race conditions
+-Don’t hardcode secrets. All secrets go into .env. With .gitignore ignoring .env.
+-Don’t assume you know the code.
+-Never create god objects or allow a file to become a god object. If a file starts to become a god object, then notify for a refactor
+-Don’t create fallbacks. Just show the error.
+-Stick to the design theme, templates, and components. If we need new design then create components that fit the theme and build off one another. Don’t hardcode.
+-Keep main directory organized logically.
+-Put all documentation created organized properly into a /docs folder.
+
 
 ---
 

@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { pool } from '../db/pool';
 import { authMiddleware } from '../auth';
 import { getUserActiveFranchise, getSeasonAllStarDay } from '../db/queries';
+import { withAdvisoryLock } from '../db/transactions';
 import {
   selectAllStars,
   getSelectedAllStars,
@@ -320,51 +321,56 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
 
     const seasonId = franchise.season_id;
 
-    // Check if All-Stars are selected, if not select them
-    const selectionsResult = await pool.query(
-      `SELECT COUNT(*) FROM all_star_selections WHERE season_id = $1`,
-      [seasonId]
-    );
+    // Use advisory lock to prevent concurrent All-Star simulations
+    const result = await withAdvisoryLock(`allstar-${seasonId}`, async (client) => {
+      // Check if All-Stars are selected, if not select them
+      const selectionsResult = await client.query(
+        `SELECT COUNT(*) FROM all_star_selections WHERE season_id = $1`,
+        [seasonId]
+      );
 
-    if (parseInt(selectionsResult.rows[0].count) === 0) {
-      await selectAllStars(seasonId, 'Eastern');
-      await selectAllStars(seasonId, 'Western');
-    }
+      if (parseInt(selectionsResult.rows[0].count) === 0) {
+        await selectAllStars(seasonId, 'Eastern');
+        await selectAllStars(seasonId, 'Western');
+      }
 
-    const results: any[] = [];
+      const results: any[] = [];
 
-    // Get existing events
-    const existingEvents = await getEventResults(seasonId);
-    const completedTypes = existingEvents.map(e => e.event_type);
+      // Get existing events
+      const existingEvents = await getEventResults(seasonId);
+      const completedTypes = existingEvents.map(e => e.event_type);
 
-    // Simulate missing events in order
-    if (!completedTypes.includes('rising_stars')) {
-      results.push(await simulateRisingStars(seasonId));
-    }
-    if (!completedTypes.includes('skills')) {
-      results.push(await simulateSkillsChallenge(seasonId));
-    }
-    if (!completedTypes.includes('three_point')) {
-      results.push(await simulateThreePointContest(seasonId));
-    }
-    if (!completedTypes.includes('dunk')) {
-      results.push(await simulateDunkContest(seasonId));
-    }
-    if (!completedTypes.includes('game')) {
-      results.push(await simulateAllStarGame(seasonId));
-    }
+      // Simulate missing events in order
+      if (!completedTypes.includes('rising_stars')) {
+        results.push(await simulateRisingStars(seasonId));
+      }
+      if (!completedTypes.includes('skills')) {
+        results.push(await simulateSkillsChallenge(seasonId));
+      }
+      if (!completedTypes.includes('three_point')) {
+        results.push(await simulateThreePointContest(seasonId));
+      }
+      if (!completedTypes.includes('dunk')) {
+        results.push(await simulateDunkContest(seasonId));
+      }
+      if (!completedTypes.includes('game')) {
+        results.push(await simulateAllStarGame(seasonId));
+      }
 
-    // Mark All-Star weekend complete
-    await pool.query(
-      `UPDATE franchises SET all_star_complete = TRUE WHERE id = $1`,
-      [franchise.id]
-    );
+      // Mark All-Star weekend complete
+      await client.query(
+        `UPDATE franchises SET all_star_complete = TRUE WHERE id = $1`,
+        [franchise.id]
+      );
 
-    res.json({
-      message: 'All-Star Weekend complete!',
-      events_simulated: results.length,
-      results
+      return {
+        message: 'All-Star Weekend complete!',
+        events_simulated: results.length,
+        results
+      };
     });
+
+    res.json(result);
   } catch (error) {
     console.error('Simulate all error:', error);
     res.status(500).json({ error: 'Failed to simulate All-Star Weekend' });

@@ -44,6 +44,7 @@ app.get('/api/health', async (req, res) => {
 // Mount all API routes
 app.use('/api', routes);
 
+
 // Start server
 app.listen(PORT, () => {
   console.log(`🏀 Sports League Office API running on port ${PORT}`);
