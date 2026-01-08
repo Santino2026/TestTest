@@ -443,7 +443,9 @@ function NotificationsPanel({
     iconColor: 'text-blue-400',
     borderColor: 'bg-blue-500',
     title: PHASE_LABELS[franchise.phase] || franchise.phase,
-    description: `Day ${franchise.current_day}`,
+    description: franchise.phase === 'preseason'
+      ? `Game ${(franchise.current_day ?? -7) + 8}/8`
+      : `Day ${franchise.current_day}`,
   });
 
   // Team Record

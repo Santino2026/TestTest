@@ -118,7 +118,9 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           <p className="text-sm font-semibold text-white">
             {franchise?.phase === 'offseason' && franchise?.offseason_phase
               ? offseasonPhaseLabels[franchise.offseason_phase] || 'Offseason'
-              : `${phaseLabels[franchise?.phase || 'preseason'] || 'Preseason'} - Day ${franchise?.current_day || 1}`}
+              : franchise?.phase === 'preseason'
+                ? `Preseason - Game ${(franchise?.current_day ?? -7) + 8}/8`
+                : `${phaseLabels[franchise?.phase || 'preseason'] || 'Preseason'} - Day ${franchise?.current_day || 1}`}
           </p>
         </div>
       </div>
