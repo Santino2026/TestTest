@@ -2,7 +2,6 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { FranchiseProvider, useFranchise } from './context/FranchiseContext';
 import Layout from './components/layout/Layout';
-import Dashboard from './pages/Dashboard';
 import TeamsPage from './pages/TeamsPage';
 import TeamDetailPage from './pages/TeamDetailPage';
 import PlayersPage from './pages/PlayersPage';
@@ -149,7 +148,7 @@ function AppRoutes() {
           </FranchiseRequiredRoute>
         }
       >
-        <Route index element={<Dashboard />} />
+        <Route index element={<SchedulePage />} />
         <Route path="roster" element={<RosterPage />} />
         <Route path="teams" element={<TeamsPage />} />
         <Route path="teams/:id" element={<TeamDetailPage />} />
@@ -157,13 +156,13 @@ function AppRoutes() {
         <Route path="players/:id" element={<PlayerDetailPage />} />
         <Route path="standings" element={<StandingsPage />} />
         <Route path="games/:id" element={<GameDetailPage />} />
-        <Route path="schedule" element={<SchedulePage />} />
         {/* Legacy routes - redirect to unified Season page */}
-        <Route path="playoffs" element={<Navigate to="/basketball/schedule" replace />} />
-        <Route path="awards" element={<Navigate to="/basketball/schedule" replace />} />
-        <Route path="all-star" element={<Navigate to="/basketball/schedule" replace />} />
-        <Route path="draft" element={<Navigate to="/basketball/schedule" replace />} />
-        <Route path="free-agency" element={<Navigate to="/basketball/schedule" replace />} />
+        <Route path="schedule" element={<Navigate to="/basketball" replace />} />
+        <Route path="playoffs" element={<Navigate to="/basketball" replace />} />
+        <Route path="awards" element={<Navigate to="/basketball" replace />} />
+        <Route path="all-star" element={<Navigate to="/basketball" replace />} />
+        <Route path="draft" element={<Navigate to="/basketball" replace />} />
+        <Route path="free-agency" element={<Navigate to="/basketball" replace />} />
         <Route path="stats" element={<StatsPage />} />
         <Route path="trades" element={<TradesPage />} />
         <Route path="development" element={<DevelopmentPage />} />

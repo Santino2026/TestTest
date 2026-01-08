@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, Button, Badge } from '@/components/ui';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { api, ScheduledGame } from '@/api/client';
@@ -22,34 +21,8 @@ import { AwardsContent } from '@/components/season-hub/AwardsContent';
 import { PlayoffsContent } from '@/components/season-hub/PlayoffsContent';
 import { OffseasonContent } from '@/components/season-hub/OffseasonContent';
 
-const PHASE_LABELS: Record<string, string> = {
-  preseason: 'Preseason',
-  regular_season: 'Regular Season',
-  all_star: 'All-Star Weekend',
-  awards: 'Season Awards',
-  playoffs: 'Playoffs',
-  offseason: 'Offseason',
-};
-
-const OFFSEASON_PHASE_LABELS: Record<string, string> = {
-  review: 'Season Review',
-  lottery: 'Draft Lottery',
-  draft: 'NBA Draft',
-  free_agency: 'Free Agency',
-  training_camp: 'Training Camp',
-};
-
 export default function SchedulePage() {
   const { franchise } = useFranchise();
-
-  // Determine phase label
-  const getPhaseLabel = () => {
-    if (!franchise) return 'Loading...';
-    if (franchise.phase === 'offseason' && franchise.offseason_phase) {
-      return OFFSEASON_PHASE_LABELS[franchise.offseason_phase] || 'Offseason';
-    }
-    return PHASE_LABELS[franchise.phase] || franchise.phase;
-  };
 
   // Render phase-specific content
   const renderPhaseContent = () => {
@@ -70,13 +43,11 @@ export default function SchedulePage() {
     }
   };
 
+  // No PageTemplate wrapper - content fills the main area directly
   return (
-    <PageTemplate
-      title="Season"
-      subtitle={franchise ? `${franchise.team_name} - ${getPhaseLabel()}` : 'Loading...'}
-    >
+    <div className="p-4 md:p-6">
       {renderPhaseContent()}
-    </PageTemplate>
+    </div>
   );
 }
 
@@ -205,9 +176,8 @@ function CalendarContent() {
 
   return (
     <>
-      {/* Sim Controls Bar */}
+      {/* Sim Controls */}
       <SimControlsBar
-        isPreseason={isPreseason}
         isSimulating={isSimulating}
         simResult={simResult}
         onClearResult={() => setSimResult(null)}
@@ -278,9 +248,8 @@ function CalendarContent() {
   );
 }
 
-// Sim Controls Bar
+// Sim Controls Bar - compact controls with result display
 function SimControlsBar({
-  isPreseason,
   isSimulating,
   simResult,
   onClearResult,
@@ -288,7 +257,6 @@ function SimControlsBar({
   onSimWeek,
   onSimToPlayoffs,
 }: {
-  isPreseason?: boolean;
   isSimulating: boolean;
   simResult: any;
   onClearResult: () => void;
@@ -297,61 +265,59 @@ function SimControlsBar({
   onSimToPlayoffs?: () => void;
 }) {
   return (
-    <Card className="mb-4">
-      <CardContent className="py-3">
-        {/* Sim Result Banner */}
-        {simResult && (
-          <div className="mb-3 p-2 bg-green-900/30 border border-green-500/30 rounded-lg">
-            <div className="flex justify-between items-center">
-              <p className="text-sm text-green-400">
-                {simResult.type === 'preseason_day' && `Simulated preseason day: ${simResult.data.games_played || 0} games played`}
-                {simResult.type === 'preseason_all' && `Preseason complete! Ready for regular season.`}
-                {simResult.type === 'day' && `Simulated Day ${simResult.data.day}: ${simResult.data.games_played} games played`}
-                {simResult.type === 'week' && `Simulated ${simResult.data.days_simulated} days: ${simResult.data.games_played} games played`}
-                {simResult.type === 'playoffs' && `Regular Season Complete! Record: ${simResult.data.user_record?.wins}-${simResult.data.user_record?.losses}`}
-              </p>
-              <button onClick={onClearResult} className="text-slate-400 hover:text-slate-300 px-2">
-                &times;
-              </button>
-            </div>
+    <>
+      {/* Sim Result Banner */}
+      {simResult && (
+        <div className="mb-3 p-2 bg-green-900/30 border border-green-500/30 rounded-lg">
+          <div className="flex justify-between items-center">
+            <p className="text-sm text-green-400">
+              {simResult.type === 'preseason_day' && `Day simulated: ${simResult.data.games_played || 0} games`}
+              {simResult.type === 'preseason_all' && `Preseason complete!`}
+              {simResult.type === 'day' && `Day ${simResult.data.day}: ${simResult.data.games_played} games`}
+              {simResult.type === 'week' && `${simResult.data.days_simulated} days: ${simResult.data.games_played} games`}
+              {simResult.type === 'playoffs' && `Season Complete! ${simResult.data.user_record?.wins}-${simResult.data.user_record?.losses}`}
+            </p>
+            <button onClick={onClearResult} className="text-slate-400 hover:text-slate-300 px-2">
+              ×
+            </button>
           </div>
-        )}
-
-        {/* Sim Buttons */}
-        <div className="flex flex-wrap gap-2">
-          <Button
-            onClick={onSimDay}
-            disabled={isSimulating}
-            variant="secondary"
-            className="flex-1 sm:flex-none"
-          >
-            <FastForward className="w-4 h-4 mr-2" />
-            {isSimulating ? 'Simulating...' : 'Sim Day'}
-          </Button>
-
-          <Button
-            onClick={onSimWeek}
-            disabled={isSimulating}
-            variant="secondary"
-            className="flex-1 sm:flex-none"
-          >
-            <Zap className="w-4 h-4 mr-2" />
-            {isPreseason ? 'Sim All Preseason' : 'Sim Week'}
-          </Button>
-
-          {onSimToPlayoffs && (
-            <Button
-              onClick={onSimToPlayoffs}
-              disabled={isSimulating}
-              className="w-full sm:w-auto"
-            >
-              <Trophy className="w-4 h-4 mr-2" />
-              Sim to Playoffs
-            </Button>
-          )}
         </div>
-      </CardContent>
-    </Card>
+      )}
+
+      {/* Compact Sim Buttons */}
+      <div className="flex gap-2 mb-4">
+        <Button
+          onClick={onSimDay}
+          disabled={isSimulating}
+          variant="secondary"
+          size="sm"
+        >
+          <FastForward className="w-4 h-4 mr-1" />
+          {isSimulating ? '...' : 'Sim Day'}
+        </Button>
+
+        <Button
+          onClick={onSimWeek}
+          disabled={isSimulating}
+          variant="secondary"
+          size="sm"
+        >
+          <Zap className="w-4 h-4 mr-1" />
+          Sim Week
+        </Button>
+
+        {onSimToPlayoffs && (
+          <Button
+            onClick={onSimToPlayoffs}
+            disabled={isSimulating}
+            size="sm"
+          >
+            <Trophy className="w-4 h-4 mr-1" />
+            Sim to Playoffs
+          </Button>
+        )}
+      </div>
+    </>
   );
 }
 
