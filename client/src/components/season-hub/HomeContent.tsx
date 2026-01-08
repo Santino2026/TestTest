@@ -26,7 +26,7 @@ const PHASE_LABELS: Record<string, string> = {
 export function HomeContent() {
   const queryClient = useQueryClient();
   const { franchise, refreshFranchise } = useFranchise();
-  const { data: standings } = useStandings();
+  const { data: standings } = useStandings({ season_id: franchise?.season_id });
   const { data: tradeDeadline } = useTradeDeadlineStatus();
 
   const isPreseason = franchise?.phase === 'preseason';
