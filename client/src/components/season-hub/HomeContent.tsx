@@ -11,7 +11,6 @@ import {
   Calendar,
   TrendingUp,
   ClipboardList,
-  Search,
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<string, string> = {
@@ -57,15 +56,6 @@ export function HomeContent() {
     },
   });
 
-  const advancePreseasonAll = useMutation({
-    mutationFn: api.advancePreseasonAll,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['schedule'] });
-      queryClient.invalidateQueries({ queryKey: ['standings'] });
-      refreshFranchise();
-    },
-  });
-
   const advanceDay = useMutation({
     mutationFn: api.advanceDay,
     onSuccess: () => {
@@ -75,17 +65,7 @@ export function HomeContent() {
     },
   });
 
-  const advanceWeek = useMutation({
-    mutationFn: api.advanceWeek,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['schedule'] });
-      queryClient.invalidateQueries({ queryKey: ['standings'] });
-      refreshFranchise();
-    },
-  });
-
-  const isSimulating = advanceDay.isPending || advanceWeek.isPending ||
-    advancePreseasonDay.isPending || advancePreseasonAll.isPending;
+  const isSimulating = advanceDay.isPending || advancePreseasonDay.isPending;
 
   const handleSimDay = () => {
     if (isPreseason) {
@@ -95,25 +75,34 @@ export function HomeContent() {
     }
   };
 
-  const handleSimWeek = () => {
-    if (isPreseason) {
-      advancePreseasonAll.mutate();
-    } else {
-      advanceWeek.mutate();
-    }
-  };
-
-  // Get conference rank for a team
+  // Get conference rank for a team (with defensive checks)
   const getConferenceRank = (teamId: string, conference: string) => {
-    if (!standings) return null;
+    if (!standings || standings.length === 0) return null;
+
+    // Filter by conference
     const confTeams = standings.filter((s: Standing) => s.conference === conference);
+
+    // Defensive check: each conference should have exactly 15 teams
+    // If we have more, there's corrupted data - return null
+    if (confTeams.length > 15) {
+      console.warn(`Corrupted standings: ${confTeams.length} teams in ${conference}`);
+      return null;
+    }
+
+    // Sort by win percentage (handle 0-0 records)
     confTeams.sort((a: Standing, b: Standing) => {
-      const aWinPct = a.wins / (a.wins + a.losses) || 0;
-      const bWinPct = b.wins / (b.wins + b.losses) || 0;
-      return bWinPct - aWinPct;
+      const aGames = a.wins + a.losses;
+      const bGames = b.wins + b.losses;
+      const aWinPct = aGames > 0 ? a.wins / aGames : 0;
+      const bWinPct = bGames > 0 ? b.wins / bGames : 0;
+      if (bWinPct !== aWinPct) return bWinPct - aWinPct;
+      // Tiebreaker: more wins
+      return b.wins - a.wins;
     });
+
     const rank = confTeams.findIndex((s: Standing) => s.team_id === teamId) + 1;
-    return rank > 0 ? rank : null;
+    // Validate rank is in valid range (1-15)
+    return rank > 0 && rank <= 15 ? rank : null;
   };
 
   // Get opponent data from standings
@@ -163,7 +152,6 @@ export function HomeContent() {
       {/* Action Buttons */}
       <ActionButtonsBar
         onSimDay={handleSimDay}
-        onSimWeek={handleSimWeek}
         isSimulating={isSimulating}
       />
     </div>
@@ -621,15 +609,13 @@ function MetallicButton({
 // Action Buttons Bar
 function ActionButtonsBar({
   onSimDay,
-  onSimWeek,
   isSimulating,
 }: {
   onSimDay: () => void;
-  onSimWeek: () => void;
   isSimulating: boolean;
 }) {
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <div className="grid grid-cols-2 gap-3">
       {/* Set Lineup / My Roster */}
       <Link
         to="/basketball/roster"
@@ -649,7 +635,7 @@ function ActionButtonsBar({
         <span className="sm:hidden">LINEUP</span>
       </Link>
 
-      {/* Sim Game - Primary Action */}
+      {/* Sim Day - Primary Action */}
       <button
         onClick={onSimDay}
         disabled={isSimulating}
@@ -666,27 +652,7 @@ function ActionButtonsBar({
         }}
       >
         <FastForward className="w-5 h-5" />
-        <span>{isSimulating ? 'SIMULATING...' : 'SIM GAME'}</span>
-      </button>
-
-      {/* Scout Prospects / Sim Week */}
-      <button
-        onClick={onSimWeek}
-        disabled={isSimulating}
-        className="relative flex items-center justify-center gap-2 py-4 rounded-lg text-sm font-bold tracking-wider uppercase transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
-        style={{
-          background: 'linear-gradient(180deg, #374151 0%, #1f2937 50%, #111827 100%)',
-          boxShadow: `
-            inset 0 1px 0 rgba(255,255,255,0.05),
-            inset 0 -1px 0 rgba(0,0,0,0.3),
-            0 4px 12px rgba(0,0,0,0.4)
-          `,
-          color: '#9ca3af',
-        }}
-      >
-        <Search className="w-5 h-5" />
-        <span className="hidden sm:inline">SIM WEEK</span>
-        <span className="sm:hidden">WEEK</span>
+        <span>{isSimulating ? 'SIMULATING...' : 'SIM DAY'}</span>
       </button>
     </div>
   );
