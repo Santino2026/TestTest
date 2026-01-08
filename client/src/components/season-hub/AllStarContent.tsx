@@ -26,7 +26,7 @@ const EVENT_LABELS: Record<string, { label: string; icon: any; description: stri
 };
 
 export function AllStarContent() {
-  const { franchise } = useFranchise();
+  const { franchise, refreshFranchise } = useFranchise();
   const [selectedTab, setSelectedTab] = useState<'events' | 'rosters'>('events');
 
   const { data: state } = useAllStarState();
@@ -233,7 +233,7 @@ export function AllStarContent() {
       <div className="flex flex-wrap gap-3 mb-4">
         {!state?.selections_made && (
           <Button
-            onClick={() => selectAllStars.mutate()}
+            onClick={() => selectAllStars.mutate(undefined, { onSuccess: () => refreshFranchise() })}
             disabled={selectAllStars.isPending}
           >
             <Star className="w-4 h-4 mr-2" />
@@ -242,7 +242,7 @@ export function AllStarContent() {
         )}
         {state?.selections_made && !state?.all_events_complete && (
           <Button
-            onClick={() => simulateAll.mutate()}
+            onClick={() => simulateAll.mutate(undefined, { onSuccess: () => refreshFranchise() })}
             disabled={isAnySimulating}
             variant="secondary"
           >
@@ -252,7 +252,7 @@ export function AllStarContent() {
         )}
         {state?.all_events_complete && franchise?.phase === 'all_star' && (
           <Button
-            onClick={() => completeAllStar.mutate()}
+            onClick={() => completeAllStar.mutate(undefined, { onSuccess: () => refreshFranchise() })}
             disabled={completeAllStar.isPending}
           >
             <ChevronRight className="w-4 h-4 mr-2" />

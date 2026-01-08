@@ -222,7 +222,7 @@ function StatLeaderCard({ type, award }: StatLeaderCardProps) {
           {award.label}
         </p>
         <div className={`text-3xl font-bold mb-2 ${colorClass}`}>
-          {award.stat_value?.toFixed(1)}
+          {award.stat_value != null ? Number(award.stat_value).toFixed(1) : '-'}
         </div>
         <Link
           to={`/basketball/players/${award.player_id}`}
@@ -282,11 +282,11 @@ function TeamCard({ type, players, isDefensive }: TeamCardProps) {
               </div>
               {isDefensive ? (
                 <span className="text-xs text-blue-400">
-                  {player.stat_value?.toFixed(1)} SPG+BPG
+                  {player.stat_value != null ? Number(player.stat_value).toFixed(1) : '-'} SPG+BPG
                 </span>
               ) : (
                 <span className="text-xs text-amber-400">
-                  {player.stat_value?.toFixed(1)} PPG
+                  {player.stat_value != null ? Number(player.stat_value).toFixed(1) : '-'} PPG
                 </span>
               )}
             </Link>
