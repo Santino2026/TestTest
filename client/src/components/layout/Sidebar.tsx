@@ -1,6 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard,
   Users,
   Calendar,
   BarChart3,
@@ -18,8 +17,7 @@ import { useFranchise } from '@/context/FranchiseContext';
 import { useAuth } from '@/context/AuthContext';
 
 const navItems = [
-  { path: '/basketball', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/basketball/schedule', label: 'Season', icon: Calendar },
+  { path: '/basketball', label: 'Season', icon: Calendar },
   { path: '/basketball/roster', label: 'My Roster', icon: ClipboardList },
   { path: '/basketball/franchises', label: 'My Franchises', icon: FolderOpen },
   { path: '/basketball/teams', label: 'Teams', icon: Users },
