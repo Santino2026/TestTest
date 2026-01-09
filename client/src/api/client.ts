@@ -344,6 +344,8 @@ export interface Franchise {
   division: string;
   wins: number;
   losses: number;
+  preseason_wins?: number;
+  preseason_losses?: number;
   name?: string;
   is_active?: boolean;
   season_number?: number;
