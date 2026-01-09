@@ -70,7 +70,15 @@ export async function simulateRisingStars(seasonId: string): Promise<EventResult
     let remaining = totalScore;
 
     roster.forEach((p: any, idx: number) => {
-      const share = idx === 0 ? 0.2 : (idx < 3 ? 0.15 : 0.1);
+      // Top player gets 20%, next 2 get 15% each, rest get 10%
+      let share: number;
+      if (idx === 0) {
+        share = 0.2;
+      } else if (idx < 3) {
+        share = 0.15;
+      } else {
+        share = 0.1;
+      }
       const pts = Math.floor(remaining * share * (0.8 + Math.random() * 0.4));
       scores.push({
         player_id: p.id,
@@ -440,7 +448,7 @@ export async function simulateAllStarGame(seasonId: string): Promise<EventResult
      JOIN players p ON ass.player_id = p.id
      LEFT JOIN player_attributes pa ON p.id = pa.player_id
      WHERE ass.season_id = $1
-     ORDER BY ass.conference, ass.is_captain DESC, ass.votes DESC`,
+     ORDER BY ass.conference, ass.is_starter DESC, ass.is_captain DESC, ass.votes DESC`,
     [seasonId]
   );
 

@@ -57,53 +57,53 @@ export function generateSchedule(
     teamGamesOnDate.set(date.toISOString().split('T')[0], new Set());
   }
 
-  // Shuffle matchups for variety
-  shuffleArray(allMatchups);
+  // Sort matchups deterministically for consistent scheduling
+  allMatchups.sort((a, b) => {
+    // Primary sort: by home team ID
+    const homeCompare = a.home.localeCompare(b.home);
+    if (homeCompare !== 0) return homeCompare;
+    // Secondary sort: by away team ID
+    return a.away.localeCompare(b.away);
+  });
 
-  // Schedule each matchup on a valid date
+  // Schedule each matchup on a valid date - deterministic sequential approach
   for (const matchup of allMatchups) {
     const homeTeamId = matchup.home;
     const awayTeamId = matchup.away;
 
-    // Find a date where neither team is playing
     let scheduled = false;
 
-    // Try to spread games evenly - find date with fewest total games
-    // and where neither team is playing
-    const availableDates = dates.filter(date => {
+    // Try each date sequentially until we find one that works
+    for (const date of dates) {
       const dateKey = date.toISOString().split('T')[0];
       const teamsOnDate = teamGamesOnDate.get(dateKey)!;
-      return !teamsOnDate.has(homeTeamId) && !teamsOnDate.has(awayTeamId);
-    });
 
-    if (availableDates.length > 0) {
-      // Pick a random date from available dates for better distribution
-      const dateIndex = Math.floor(Math.random() * availableDates.length);
-      const gameDate = availableDates[dateIndex];
-      const dateKey = gameDate.toISOString().split('T')[0];
+      // Check if neither team is playing on this date
+      if (!teamsOnDate.has(homeTeamId) && !teamsOnDate.has(awayTeamId)) {
+        const homeGameNum = (gameCountByTeam.get(homeTeamId) || 0) + 1;
+        const awayGameNum = (gameCountByTeam.get(awayTeamId) || 0) + 1;
 
-      const homeGameNum = (gameCountByTeam.get(homeTeamId) || 0) + 1;
-      const awayGameNum = (gameCountByTeam.get(awayTeamId) || 0) + 1;
+        schedule.push({
+          home_team_id: homeTeamId,
+          away_team_id: awayTeamId,
+          game_date: new Date(date),
+          game_number_home: homeGameNum,
+          game_number_away: awayGameNum,
+        });
 
-      schedule.push({
-        home_team_id: homeTeamId,
-        away_team_id: awayTeamId,
-        game_date: new Date(gameDate),
-        game_number_home: homeGameNum,
-        game_number_away: awayGameNum,
-      });
+        // Mark both teams as playing on this date
+        teamsOnDate.add(homeTeamId);
+        teamsOnDate.add(awayTeamId);
 
-      // Mark both teams as playing on this date
-      teamGamesOnDate.get(dateKey)!.add(homeTeamId);
-      teamGamesOnDate.get(dateKey)!.add(awayTeamId);
-
-      gameCountByTeam.set(homeTeamId, homeGameNum);
-      gameCountByTeam.set(awayTeamId, awayGameNum);
-      scheduled = true;
+        gameCountByTeam.set(homeTeamId, homeGameNum);
+        gameCountByTeam.set(awayTeamId, awayGameNum);
+        scheduled = true;
+        break;
+      }
     }
 
     if (!scheduled) {
-      console.warn(`Could not schedule game: ${homeTeamId} vs ${awayTeamId}`);
+      throw new Error(`Failed to schedule game: ${homeTeamId} vs ${awayTeamId} - no available dates`);
     }
   }
 
@@ -229,49 +229,79 @@ export function generatePreseasonSchedule(
     teamGamesOnDate.set(date.toISOString().split('T')[0], new Set());
   }
 
-  // Generate matchups - each team plays 8 games
-  // Mix of division, conference, and inter-conference opponents
-  for (const team of teams) {
-    const opponents = teams.filter(t => t.id !== team.id);
-    shuffleArray(opponents);
+  // Sort teams deterministically for consistent pairing
+  const sortedTeams = [...teams].sort((a, b) => a.id.localeCompare(b.id));
 
-    let gamesScheduled = gameCountByTeam.get(team.id) || 0;
+  // Generate matchups deterministically - pair teams in round-robin style
+  // 30 teams, 8 games each = 120 total games = 15 games per day
+  const matchups: { home: string; away: string }[] = [];
 
-    for (const opponent of opponents) {
-      if (gamesScheduled >= gamesPerTeam) break;
+  // Create deterministic pairings: team[i] vs team[(i + offset) % n] for different offsets
+  for (let offset = 1; offset <= 8; offset++) {
+    for (let i = 0; i < sortedTeams.length / 2; i++) {
+      const teamA = sortedTeams[i];
+      const teamB = sortedTeams[(i + offset) % sortedTeams.length];
 
-      const opponentGames = gameCountByTeam.get(opponent.id) || 0;
-      if (opponentGames >= gamesPerTeam) continue;
+      // Only add if both teams need more games
+      const aGames = gameCountByTeam.get(teamA.id) || 0;
+      const bGames = gameCountByTeam.get(teamB.id) || 0;
 
-      // Find available date
-      const availableDate = dates.find(date => {
-        const dateKey = date.toISOString().split('T')[0];
-        const teamsOnDate = teamGamesOnDate.get(dateKey)!;
-        return !teamsOnDate.has(team.id) && !teamsOnDate.has(opponent.id);
-      });
+      if (aGames < gamesPerTeam && bGames < gamesPerTeam) {
+        // Alternate home/away based on offset
+        const isHome = offset % 2 === 1;
+        matchups.push({
+          home: isHome ? teamA.id : teamB.id,
+          away: isHome ? teamB.id : teamA.id
+        });
+        gameCountByTeam.set(teamA.id, aGames + 1);
+        gameCountByTeam.set(teamB.id, bGames + 1);
+      }
+    }
+  }
 
-      if (availableDate) {
-        const dateKey = availableDate.toISOString().split('T')[0];
+  // Reset game counts for scheduling
+  teams.forEach(t => gameCountByTeam.set(t.id, 0));
 
-        // Alternate home/away
-        const isHome = gamesScheduled % 2 === 0;
+  // Schedule matchups on dates deterministically
+  for (const matchup of matchups) {
+    let scheduled = false;
+
+    for (const date of dates) {
+      const dateKey = date.toISOString().split('T')[0];
+      const teamsOnDate = teamGamesOnDate.get(dateKey)!;
+
+      if (!teamsOnDate.has(matchup.home) && !teamsOnDate.has(matchup.away)) {
+        const homeGameNum = (gameCountByTeam.get(matchup.home) || 0) + 1;
+        const awayGameNum = (gameCountByTeam.get(matchup.away) || 0) + 1;
 
         preseasonGames.push({
-          home_team_id: isHome ? team.id : opponent.id,
-          away_team_id: isHome ? opponent.id : team.id,
-          game_date: new Date(availableDate),
-          game_number_home: (gameCountByTeam.get(isHome ? team.id : opponent.id) || 0) + 1,
-          game_number_away: (gameCountByTeam.get(isHome ? opponent.id : team.id) || 0) + 1,
+          home_team_id: matchup.home,
+          away_team_id: matchup.away,
+          game_date: new Date(date),
+          game_number_home: homeGameNum,
+          game_number_away: awayGameNum,
           is_preseason: true,
         });
 
-        teamGamesOnDate.get(dateKey)!.add(team.id);
-        teamGamesOnDate.get(dateKey)!.add(opponent.id);
-
-        gameCountByTeam.set(team.id, gamesScheduled + 1);
-        gameCountByTeam.set(opponent.id, opponentGames + 1);
-        gamesScheduled++;
+        teamsOnDate.add(matchup.home);
+        teamsOnDate.add(matchup.away);
+        gameCountByTeam.set(matchup.home, homeGameNum);
+        gameCountByTeam.set(matchup.away, awayGameNum);
+        scheduled = true;
+        break;
       }
+    }
+
+    if (!scheduled) {
+      throw new Error(`Failed to schedule preseason game: ${matchup.home} vs ${matchup.away}`);
+    }
+  }
+
+  // Verify all teams have 8 games
+  for (const team of teams) {
+    const count = gameCountByTeam.get(team.id) || 0;
+    if (count !== 8) {
+      throw new Error(`Team ${team.id} has ${count} preseason games (expected 8)`);
     }
   }
 
@@ -328,18 +358,18 @@ export function validateSchedule(schedule: ScheduledGame[], teams: Team[]): bool
     }
   }
 
-  // Check all teams have reasonable game counts
+  // Check all teams have exactly 82 games and 41 home games
   for (const team of teams) {
     const total = gamesByTeam.get(team.id) || 0;
     const home = homeGamesByTeam.get(team.id) || 0;
 
-    if (total < 70 || total > 90) {
-      console.error(`Team ${team.id} has ${total} games (expected ~82)`);
+    if (total !== 82) {
+      console.error(`Team ${team.id} has ${total} games (expected exactly 82)`);
       return false;
     }
 
-    if (home < 30 || home > 50) {
-      console.error(`Team ${team.id} has ${home} home games (expected ~41)`);
+    if (home !== 41) {
+      console.error(`Team ${team.id} has ${home} home games (expected exactly 41)`);
       return false;
     }
   }

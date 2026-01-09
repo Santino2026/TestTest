@@ -141,6 +141,12 @@ export function calculatePickProbability(
   }
 }
 
+function getChangeIndicator(change: number): string {
+  if (change > 0) return `↑${change}`;
+  if (change < 0) return `↓${Math.abs(change)}`;
+  return '→';
+}
+
 // Generate lottery results summary
 export function generateLotterySummary(results: LotteryTeam[]): string {
   const movedUp = results.filter(t => t.lottery_win);
@@ -154,7 +160,7 @@ export function generateLotterySummary(results: LotteryTeam[]): string {
 
   for (const team of results.slice(0, 4)) {
     const change = team.pre_lottery_position - (team.post_lottery_position || 0);
-    const indicator = change > 0 ? `↑${change}` : change < 0 ? `↓${Math.abs(change)}` : '→';
+    const indicator = getChangeIndicator(change);
     summary += `Pick #${team.post_lottery_position}: ${team.team_name} ${indicator}\n`;
   }
 

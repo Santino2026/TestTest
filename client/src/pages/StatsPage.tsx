@@ -6,6 +6,21 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import { api } from '@/api/client';
 import { cn, getStatColor } from '@/lib/utils';
 
+function getRankColor(index: number): string {
+  switch (index) {
+    case 0: return 'text-amber-500';
+    case 1: return 'text-slate-400';
+    case 2: return 'text-orange-500';
+    default: return 'text-slate-500';
+  }
+}
+
+function getNetRatingColor(rating: number): string {
+  if (rating > 0) return 'text-green-400';
+  if (rating < 0) return 'text-red-400';
+  return 'text-slate-300';
+}
+
 const STAT_CATEGORIES = [
   { key: 'points', label: 'Points' },
   { key: 'rebounds', label: 'Rebounds' },
@@ -69,37 +84,37 @@ export default function StatsPage() {
               </div>
             ) : (
               <div className="divide-y divide-white/5">
-                {leaders?.map((player, idx) => (
-                  <Link
-                    key={player.player_id}
-                    to={`/basketball/players/${player.player_id}`}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors"
-                  >
-                    <span className={cn(
-                      'w-6 text-center font-bold',
-                      idx === 0 ? 'text-amber-500' : idx === 1 ? 'text-slate-400' : idx === 2 ? 'text-orange-500' : 'text-slate-500'
-                    )}>
-                      {idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-white truncate">
-                        {player.first_name} {player.last_name}
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        {player.team_abbrev} · {player.position}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className={cn('text-lg font-bold', getStatColor(player.stat_value))}>
-                        {selectedStat.includes('pct')
-                          ? `${(player.stat_value * 100).toFixed(1)}%`
-                          : player.stat_value.toFixed(1)
-                        }
-                      </p>
-                      <p className="text-xs text-slate-400">{player.games_played} GP</p>
-                    </div>
-                  </Link>
-                ))}
+                {leaders?.map((player, idx) => {
+                  const statValue = Number(player.stat_value) || 0;
+                  return (
+                    <Link
+                      key={player.player_id}
+                      to={`/basketball/players/${player.player_id}`}
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors"
+                    >
+                      <span className={cn('w-6 text-center font-bold', getRankColor(idx))}>
+                        {idx + 1}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-white truncate">
+                          {player.first_name} {player.last_name}
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          {player.team_abbrev} · {player.position}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className={cn('text-lg font-bold', getStatColor(statValue))}>
+                          {selectedStat.includes('pct')
+                            ? `${(statValue * 100).toFixed(1)}%`
+                            : statValue.toFixed(1)
+                          }
+                        </p>
+                        <p className="text-xs text-slate-400">{player.games_played ?? 0} GP</p>
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             )}
           </CardContent>
@@ -128,33 +143,38 @@ export default function StatsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rankings.map((team, idx) => (
-                      <tr key={team.team_id} className="border-t border-white/5 hover:bg-white/5">
-                        <td className="px-3 py-2 text-sm text-slate-400">{idx + 1}</td>
-                        <td className="px-3 py-2">
-                          <Link
-                            to={`/basketball/teams/${team.team_id}`}
-                            className="flex items-center gap-2 hover:text-blue-400"
-                          >
-                            <div
-                              className="w-6 h-6 rounded flex items-center justify-center text-white text-xs font-bold"
-                              style={{ backgroundColor: team.primary_color }}
+                    {rankings.map((team, idx) => {
+                      const offRating = Number(team.offensive_rating) || 0;
+                      const defRating = Number(team.defensive_rating) || 0;
+                      const netRating = Number(team.net_rating) || 0;
+                      return (
+                        <tr key={team.team_id} className="border-t border-white/5 hover:bg-white/5">
+                          <td className="px-3 py-2 text-sm text-slate-400">{idx + 1}</td>
+                          <td className="px-3 py-2">
+                            <Link
+                              to={`/basketball/teams/${team.team_id}`}
+                              className="flex items-center gap-2 hover:text-blue-400"
                             >
-                              {team.abbreviation.slice(0, 2)}
-                            </div>
-                            <span className="text-sm font-medium text-white truncate">{team.abbreviation}</span>
-                          </Link>
-                        </td>
-                        <td className="px-3 py-2 text-sm text-right text-white">{team.offensive_rating.toFixed(1)}</td>
-                        <td className="px-3 py-2 text-sm text-right text-white">{team.defensive_rating.toFixed(1)}</td>
-                        <td className={cn(
-                          'px-3 py-2 text-sm text-right font-medium',
-                          team.net_rating > 0 ? 'text-green-400' : team.net_rating < 0 ? 'text-red-400' : 'text-slate-300'
-                        )}>
-                          {team.net_rating > 0 ? '+' : ''}{team.net_rating.toFixed(1)}
-                        </td>
-                      </tr>
-                    ))}
+                              <div
+                                className="w-6 h-6 rounded flex items-center justify-center text-white text-xs font-bold"
+                                style={{ backgroundColor: team.primary_color }}
+                              >
+                                {team.abbreviation?.slice(0, 2) ?? '??'}
+                              </div>
+                              <span className="text-sm font-medium text-white truncate">{team.abbreviation}</span>
+                            </Link>
+                          </td>
+                          <td className="px-3 py-2 text-sm text-right text-white">{offRating.toFixed(1)}</td>
+                          <td className="px-3 py-2 text-sm text-right text-white">{defRating.toFixed(1)}</td>
+                          <td className={cn(
+                            'px-3 py-2 text-sm text-right font-medium',
+                            getNetRatingColor(netRating)
+                          )}>
+                            {netRating > 0 ? '+' : ''}{netRating.toFixed(1)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

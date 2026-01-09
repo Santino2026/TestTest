@@ -13,26 +13,26 @@ export function formatHeight(inches: number): string {
   return `${feet}'${remainingInches}"`;
 }
 
-// Get stat color class based on value (0-99)
+// Thresholds for stat color grading
+const STAT_THRESHOLDS = [90, 80, 70, 60, 50, 40] as const;
+const TEXT_COLORS = ['text-emerald-600', 'text-green-600', 'text-blue-600', 'text-slate-600', 'text-amber-600', 'text-orange-600', 'text-red-600'] as const;
+const BG_COLORS = ['bg-emerald-500', 'bg-green-500', 'bg-blue-500', 'bg-slate-500', 'bg-amber-500', 'bg-orange-500', 'bg-red-500'] as const;
+
+function getStatTierIndex(value: number): number {
+  for (let i = 0; i < STAT_THRESHOLDS.length; i++) {
+    if (value >= STAT_THRESHOLDS[i]) return i;
+  }
+  return STAT_THRESHOLDS.length;
+}
+
+// Get stat text color class based on value (0-99)
 export function getStatColor(value: number): string {
-  if (value >= 90) return 'text-emerald-600';
-  if (value >= 80) return 'text-green-600';
-  if (value >= 70) return 'text-blue-600';
-  if (value >= 60) return 'text-slate-600';
-  if (value >= 50) return 'text-amber-600';
-  if (value >= 40) return 'text-orange-600';
-  return 'text-red-600';
+  return TEXT_COLORS[getStatTierIndex(value)];
 }
 
 // Get stat background color for bars
 export function getStatBgColor(value: number): string {
-  if (value >= 90) return 'bg-emerald-500';
-  if (value >= 80) return 'bg-green-500';
-  if (value >= 70) return 'bg-blue-500';
-  if (value >= 60) return 'bg-slate-500';
-  if (value >= 50) return 'bg-amber-500';
-  if (value >= 40) return 'bg-orange-500';
-  return 'bg-red-500';
+  return BG_COLORS[getStatTierIndex(value)];
 }
 
 // Format position name

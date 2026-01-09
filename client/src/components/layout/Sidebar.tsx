@@ -68,6 +68,24 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     training_camp: 'Training Camp',
   };
 
+  function getPhaseDisplay(): string {
+    if (!franchise) {
+      return 'Preseason - Day 1';
+    }
+
+    if (franchise.phase === 'offseason' && franchise.offseason_phase) {
+      return offseasonPhaseLabels[franchise.offseason_phase] || 'Offseason';
+    }
+
+    if (franchise.phase === 'preseason') {
+      const gameNumber = (franchise.current_day ?? -7) + 8;
+      return `Preseason - Game ${gameNumber}/8`;
+    }
+
+    const phaseName = phaseLabels[franchise.phase] || 'Preseason';
+    return `${phaseName} - Day ${franchise.current_day || 1}`;
+  }
+
   const handleNavClick = () => {
     // Close sidebar on mobile when navigating
     onClose();
@@ -116,11 +134,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         <div className="bg-slate-800/50 rounded-lg px-3 py-2 border border-white/5">
           <p className="text-xs text-slate-500">Current Phase</p>
           <p className="text-sm font-semibold text-white">
-            {franchise?.phase === 'offseason' && franchise?.offseason_phase
-              ? offseasonPhaseLabels[franchise.offseason_phase] || 'Offseason'
-              : franchise?.phase === 'preseason'
-                ? `Preseason - Game ${(franchise?.current_day ?? -7) + 8}/8`
-                : `${phaseLabels[franchise?.phase || 'preseason'] || 'Preseason'} - Day ${franchise?.current_day || 1}`}
+            {getPhaseDisplay()}
           </p>
         </div>
       </div>
