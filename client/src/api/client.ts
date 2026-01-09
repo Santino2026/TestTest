@@ -375,6 +375,16 @@ export interface ScheduledGame {
   winner_id?: string;
 }
 
+export interface UserGameResult {
+  game_id: string;
+  won: boolean;
+  user_score: number;
+  opponent_score: number;
+  opponent_name: string;
+  is_overtime?: boolean;
+  overtime_periods?: number;
+}
+
 export interface AdvanceDayResult {
   day: number;
   date: string;
@@ -388,6 +398,7 @@ export interface AdvanceDayResult {
     away_score: number;
     is_user_game: boolean;
   }[];
+  user_game_result?: UserGameResult;
 }
 
 export interface PlayoffSeries {
@@ -783,6 +794,7 @@ export const api = {
       phase: string;
       games_played: number;
       results: any[];
+      user_game_result?: UserGameResult;
       preseason_complete: boolean;
     }>('/season/advance/preseason', { method: 'POST' }),
   advancePreseasonAll: () =>

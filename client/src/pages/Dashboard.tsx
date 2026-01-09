@@ -8,17 +8,7 @@ import { TeamLogo } from '@/components/team/TeamLogo';
 import { useTeams, useStandings, useSeason, usePlayers, useAdvancePreseasonDay, useAdvancePreseasonAll, useAdvanceDay, useSimulatePlayoffRound, useSimulatePlayoffAll, useAdvanceOffseasonPhase, useStartNewSeason, useStartPlayoffsFromAwards, useTradeDeadlineStatus } from '@/api/hooks';
 import { useFranchise } from '@/context/FranchiseContext';
 import { cn, getStatColor } from '@/lib/utils';
-import { api, ScheduledGame } from '@/api/client';
-
-interface UserGameResult {
-  game_id: string;
-  won: boolean;
-  user_score: number;
-  opponent_score: number;
-  opponent_name: string;
-  is_overtime?: boolean;
-  overtime_periods?: number;
-}
+import { api, ScheduledGame, UserGameResult } from '@/api/client';
 
 export default function Dashboard() {
   const { franchise, refreshFranchise } = useFranchise();
