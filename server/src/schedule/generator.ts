@@ -231,69 +231,76 @@ export function generatePreseasonSchedule(
 
   // Sort teams deterministically for consistent pairing
   const sortedTeams = [...teams].sort((a, b) => a.id.localeCompare(b.id));
+  const n = sortedTeams.length; // 30 teams
 
-  // Generate matchups deterministically - pair teams in round-robin style
-  // 30 teams, 8 games each = 120 total games = 15 games per day
+  // Generate matchups using circle method (round-robin tournament)
+  // Each day, all 30 teams play (15 games per day × 8 days = 120 games = 4 games per team... wait that's only 4)
+  // Actually: 30 teams × 8 games = 240 participations / 2 = 120 total games
+  // 120 games / 8 days = 15 games per day (all 30 teams play each day)
   const matchups: { home: string; away: string }[] = [];
 
-  // Create deterministic pairings: team[i] vs team[(i + offset) % n] for different offsets
-  for (let offset = 1; offset <= 8; offset++) {
-    for (let i = 0; i < sortedTeams.length / 2; i++) {
-      const teamA = sortedTeams[i];
-      const teamB = sortedTeams[(i + offset) % sortedTeams.length];
+  // Use circle method: fix team 0, rotate others
+  // For 8 rounds (preseason days), generate 15 matchups each
+  for (let round = 0; round < 8; round++) {
+    for (let i = 0; i < n / 2; i++) {
+      // Team indices for this matchup
+      let team1Idx: number;
+      let team2Idx: number;
 
-      // Only add if both teams need more games
-      const aGames = gameCountByTeam.get(teamA.id) || 0;
-      const bGames = gameCountByTeam.get(teamB.id) || 0;
-
-      if (aGames < gamesPerTeam && bGames < gamesPerTeam) {
-        // Alternate home/away based on offset
-        const isHome = offset % 2 === 1;
-        matchups.push({
-          home: isHome ? teamA.id : teamB.id,
-          away: isHome ? teamB.id : teamA.id
-        });
-        gameCountByTeam.set(teamA.id, aGames + 1);
-        gameCountByTeam.set(teamB.id, bGames + 1);
+      if (i === 0) {
+        team1Idx = 0; // Fixed team
+        team2Idx = 1 + ((round + n - 2) % (n - 1)); // Rotating opponent
+      } else {
+        // Rotate positions
+        team1Idx = 1 + ((round + i - 1) % (n - 1));
+        team2Idx = 1 + ((round + n - 1 - i) % (n - 1));
       }
+
+      const teamA = sortedTeams[team1Idx];
+      const teamB = sortedTeams[team2Idx];
+
+      // Alternate home/away based on round
+      const isHome = round % 2 === 0;
+      matchups.push({
+        home: isHome ? teamA.id : teamB.id,
+        away: isHome ? teamB.id : teamA.id
+      });
+
+      gameCountByTeam.set(teamA.id, (gameCountByTeam.get(teamA.id) || 0) + 1);
+      gameCountByTeam.set(teamB.id, (gameCountByTeam.get(teamB.id) || 0) + 1);
     }
   }
 
-  // Reset game counts for scheduling
+  // Reset game counts for scheduling phase
   teams.forEach(t => gameCountByTeam.set(t.id, 0));
 
-  // Schedule matchups on dates deterministically
-  for (const matchup of matchups) {
-    let scheduled = false;
+  // Assign matchups to dates - each round's 15 games go on one day
+  let matchupIndex = 0;
+  for (let dayIdx = 0; dayIdx < 8; dayIdx++) {
+    const date = dates[dayIdx];
+    const dateKey = date.toISOString().split('T')[0];
+    const teamsOnDate = teamGamesOnDate.get(dateKey)!;
 
-    for (const date of dates) {
-      const dateKey = date.toISOString().split('T')[0];
-      const teamsOnDate = teamGamesOnDate.get(dateKey)!;
+    // Schedule 15 games for this day
+    for (let gameIdx = 0; gameIdx < 15 && matchupIndex < matchups.length; gameIdx++) {
+      const matchup = matchups[matchupIndex++];
 
-      if (!teamsOnDate.has(matchup.home) && !teamsOnDate.has(matchup.away)) {
-        const homeGameNum = (gameCountByTeam.get(matchup.home) || 0) + 1;
-        const awayGameNum = (gameCountByTeam.get(matchup.away) || 0) + 1;
+      const homeGameNum = (gameCountByTeam.get(matchup.home) || 0) + 1;
+      const awayGameNum = (gameCountByTeam.get(matchup.away) || 0) + 1;
 
-        preseasonGames.push({
-          home_team_id: matchup.home,
-          away_team_id: matchup.away,
-          game_date: new Date(date),
-          game_number_home: homeGameNum,
-          game_number_away: awayGameNum,
-          is_preseason: true,
-        });
+      preseasonGames.push({
+        home_team_id: matchup.home,
+        away_team_id: matchup.away,
+        game_date: new Date(date),
+        game_number_home: homeGameNum,
+        game_number_away: awayGameNum,
+        is_preseason: true,
+      });
 
-        teamsOnDate.add(matchup.home);
-        teamsOnDate.add(matchup.away);
-        gameCountByTeam.set(matchup.home, homeGameNum);
-        gameCountByTeam.set(matchup.away, awayGameNum);
-        scheduled = true;
-        break;
-      }
-    }
-
-    if (!scheduled) {
-      throw new Error(`Failed to schedule preseason game: ${matchup.home} vs ${matchup.away}`);
+      teamsOnDate.add(matchup.home);
+      teamsOnDate.add(matchup.away);
+      gameCountByTeam.set(matchup.home, homeGameNum);
+      gameCountByTeam.set(matchup.away, awayGameNum);
     }
   }
 
