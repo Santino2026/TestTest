@@ -212,12 +212,9 @@ export function generatePreseasonSchedule(
   regularSeasonStart: Date = new Date('2024-10-22')
 ): ScheduledGame[] {
   const preseasonGames: ScheduledGame[] = [];
-  const gamesPerTeam = 8;
 
   // Track games per team
   const gameCountByTeam: Map<string, number> = new Map();
-  const teamGamesOnDate: Map<string, Set<string>> = new Map();
-
   teams.forEach(t => gameCountByTeam.set(t.id, 0));
 
   // Create 8 preseason days (days -7 to 0)
@@ -226,81 +223,53 @@ export function generatePreseasonSchedule(
     const date = new Date(regularSeasonStart);
     date.setDate(date.getDate() + i);
     dates.push(date);
-    teamGamesOnDate.set(date.toISOString().split('T')[0], new Set());
   }
 
-  // Sort teams deterministically for consistent pairing
+  // Sort teams deterministically
   const sortedTeams = [...teams].sort((a, b) => a.id.localeCompare(b.id));
   const n = sortedTeams.length; // 30 teams
 
-  // Generate matchups using circle method (round-robin tournament)
-  // Each day, all 30 teams play (15 games per day × 8 days = 120 games = 4 games per team... wait that's only 4)
-  // Actually: 30 teams × 8 games = 240 participations / 2 = 120 total games
-  // 120 games / 8 days = 15 games per day (all 30 teams play each day)
-  const matchups: { home: string; away: string }[] = [];
+  // Simple rotation schedule: each day pair adjacent teams with rotation
+  // Day 0: 0v1, 2v3, 4v5, ..., 28v29 (15 games, all 30 teams play)
+  // Day 1: 0v2, 1v3, 4v6, 5v7, ..., rotate pairings
+  // This ensures each team plays exactly 1 game per day for 8 days = 8 games total
 
-  // Use circle method: fix team 0, rotate others
-  // For 8 rounds (preseason days), generate 15 matchups each
-  for (let round = 0; round < 8; round++) {
+  for (let day = 0; day < 8; day++) {
+    const date = dates[day];
+
+    // Create rotation array: keep first team fixed, rotate the rest
+    const rotation: number[] = [0];
+    for (let i = 0; i < n - 1; i++) {
+      rotation.push(1 + ((i + day) % (n - 1)));
+    }
+
+    // Pair teams: first with last, second with second-to-last, etc.
     for (let i = 0; i < n / 2; i++) {
-      // Team indices for this matchup
-      let team1Idx: number;
-      let team2Idx: number;
-
-      if (i === 0) {
-        team1Idx = 0; // Fixed team
-        team2Idx = 1 + ((round + n - 2) % (n - 1)); // Rotating opponent
-      } else {
-        // Rotate positions
-        team1Idx = 1 + ((round + i - 1) % (n - 1));
-        team2Idx = 1 + ((round + n - 1 - i) % (n - 1));
-      }
+      const team1Idx = rotation[i];
+      const team2Idx = rotation[n - 1 - i];
 
       const teamA = sortedTeams[team1Idx];
       const teamB = sortedTeams[team2Idx];
 
-      // Alternate home/away based on round
-      const isHome = round % 2 === 0;
-      matchups.push({
-        home: isHome ? teamA.id : teamB.id,
-        away: isHome ? teamB.id : teamA.id
-      });
+      // Alternate home/away based on day
+      const isHome = day % 2 === 0;
+      const homeTeam = isHome ? teamA : teamB;
+      const awayTeam = isHome ? teamB : teamA;
 
-      gameCountByTeam.set(teamA.id, (gameCountByTeam.get(teamA.id) || 0) + 1);
-      gameCountByTeam.set(teamB.id, (gameCountByTeam.get(teamB.id) || 0) + 1);
-    }
-  }
-
-  // Reset game counts for scheduling phase
-  teams.forEach(t => gameCountByTeam.set(t.id, 0));
-
-  // Assign matchups to dates - each round's 15 games go on one day
-  let matchupIndex = 0;
-  for (let dayIdx = 0; dayIdx < 8; dayIdx++) {
-    const date = dates[dayIdx];
-    const dateKey = date.toISOString().split('T')[0];
-    const teamsOnDate = teamGamesOnDate.get(dateKey)!;
-
-    // Schedule 15 games for this day
-    for (let gameIdx = 0; gameIdx < 15 && matchupIndex < matchups.length; gameIdx++) {
-      const matchup = matchups[matchupIndex++];
-
-      const homeGameNum = (gameCountByTeam.get(matchup.home) || 0) + 1;
-      const awayGameNum = (gameCountByTeam.get(matchup.away) || 0) + 1;
+      const homeGameNum = (gameCountByTeam.get(homeTeam.id) || 0) + 1;
+      const awayGameNum = (gameCountByTeam.get(awayTeam.id) || 0) + 1;
 
       preseasonGames.push({
-        home_team_id: matchup.home,
-        away_team_id: matchup.away,
+        home_team_id: homeTeam.id,
+        away_team_id: awayTeam.id,
         game_date: new Date(date),
         game_number_home: homeGameNum,
         game_number_away: awayGameNum,
         is_preseason: true,
       });
 
-      teamsOnDate.add(matchup.home);
-      teamsOnDate.add(matchup.away);
-      gameCountByTeam.set(matchup.home, homeGameNum);
-      gameCountByTeam.set(matchup.away, awayGameNum);
+      gameCountByTeam.set(homeTeam.id, homeGameNum);
+      gameCountByTeam.set(awayTeam.id, awayGameNum);
     }
   }
 
