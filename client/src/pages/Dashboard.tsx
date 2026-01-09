@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Users, Trophy, Calendar, TrendingUp, Play, ChevronRight, FastForward, SkipForward, Loader2, Star, Award, AlertTriangle, Clock } from 'lucide-react';
+import { Users, Trophy, Calendar, TrendingUp, Play, ChevronRight, FastForward, SkipForward, Loader2, Star, Award, AlertTriangle, Clock, X } from 'lucide-react';
 import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import { TeamLogo } from '@/components/team/TeamLogo';
@@ -9,6 +9,16 @@ import { useTeams, useStandings, useSeason, usePlayers, useAdvancePreseasonDay, 
 import { useFranchise } from '@/context/FranchiseContext';
 import { cn, getStatColor } from '@/lib/utils';
 import { api, ScheduledGame } from '@/api/client';
+
+interface UserGameResult {
+  game_id: string;
+  won: boolean;
+  user_score: number;
+  opponent_score: number;
+  opponent_name: string;
+  is_overtime?: boolean;
+  overtime_periods?: number;
+}
 
 export default function Dashboard() {
   const { franchise, refreshFranchise } = useFranchise();
@@ -62,23 +72,51 @@ export default function Dashboard() {
   const startPlayoffsFromAwards = useStartPlayoffsFromAwards();
 
   const [simResult, setSimResult] = useState<string | null>(null);
+  const [userGameResult, setUserGameResult] = useState<UserGameResult | null>(null);
+
+  // Fetch recent games for the user's team
+  const { data: recentGames } = useQuery({
+    queryKey: ['recentGames', franchise?.team_id, franchise?.season_id],
+    queryFn: async () => {
+      const games = await api.getGames({
+        team_id: franchise?.team_id,
+        limit: 5,
+      });
+      // Transform to include win/loss info from user perspective
+      return games.map((game: any) => {
+        const userIsHome = game.home_team_id === franchise?.team_id;
+        const userWon = game.winner_id === franchise?.team_id;
+        return {
+          id: game.id,
+          won: userWon,
+          user_score: userIsHome ? game.home_score : game.away_score,
+          opponent_score: userIsHome ? game.away_score : game.home_score,
+          opponent: userIsHome ? game.away_team_name : game.home_team_name,
+          opponent_abbrev: userIsHome ? game.away_abbrev : game.home_abbrev,
+          is_preseason: game.is_preseason,
+        };
+      });
+    },
+    enabled: !!franchise?.team_id && !!franchise?.season_id,
+  });
 
   const handleAdvancePreseasonDay = async () => {
     try {
       const result = await advancePreseasonDay.mutateAsync();
       if (result.preseason_complete) {
         setSimResult('Preseason complete! Regular season begins.');
+        setUserGameResult(null);
+      } else if (result.user_game_result) {
+        setUserGameResult(result.user_game_result);
+        setSimResult(null);
       } else {
-        const userGame = result.results.find((r: any) => r.is_user_game);
-        if (userGame) {
-          setSimResult(`${userGame.home_team} ${userGame.home_score} - ${userGame.away_score} ${userGame.away_team}`);
-        } else {
-          setSimResult(`Day ${result.day}: ${result.games_played} games simulated`);
-        }
+        setSimResult(`Day ${result.day}: ${result.games_played} games simulated`);
+        setUserGameResult(null);
       }
       refreshFranchise();
     } catch {
       setSimResult('Failed to advance day');
+      setUserGameResult(null);
     }
   };
 
@@ -95,15 +133,17 @@ export default function Dashboard() {
   const handleAdvanceDay = async () => {
     try {
       const result = await advanceDay.mutateAsync();
-      const userGame = result.results.find((r: any) => r.is_user_game);
-      if (userGame) {
-        setSimResult(`${userGame.home_team} ${userGame.home_score} - ${userGame.away_score} ${userGame.away_team}`);
+      if (result.user_game_result) {
+        setUserGameResult(result.user_game_result);
+        setSimResult(null);
       } else {
         setSimResult(`Day ${result.day}: ${result.games_played} games simulated`);
+        setUserGameResult(null);
       }
       refreshFranchise();
     } catch {
       setSimResult('Failed to advance day');
+      setUserGameResult(null);
     }
   };
 
@@ -291,6 +331,44 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Recent Games */}
+      {recentGames && recentGames.length > 0 && (
+        <Card className="mb-4">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Recent Games</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-white/5">
+              {recentGames.map((game: any) => (
+                <Link
+                  key={game.id}
+                  to={`/basketball/games/${game.id}`}
+                  className="flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={cn(
+                      "text-xs font-bold px-2 py-1 rounded",
+                      game.won ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
+                    )}>
+                      {game.won ? 'W' : 'L'}
+                    </span>
+                    <div>
+                      <span className="text-sm text-slate-300">vs {game.opponent}</span>
+                      {game.is_preseason && (
+                        <span className="text-xs text-slate-500 ml-2">(Pre)</span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-sm font-medium text-white">
+                    {game.user_score} - {game.opponent_score}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Franchise Header Card */}
       <Card className="mb-4 md:mb-6">
         <CardContent>
@@ -311,11 +389,22 @@ export default function Dashboard() {
               <p className="text-sm text-slate-400 truncate">{franchise?.conference} Conference - {franchise?.division} Division</p>
               <div className="flex items-center gap-4 sm:gap-6 mt-2">
                 <div>
-                  <span className="text-2xl sm:text-3xl font-bold text-white">{franchise?.wins || 0}</span>
-                  <span className="text-lg sm:text-xl text-slate-500"> - </span>
-                  <span className="text-2xl sm:text-3xl font-bold text-white">{franchise?.losses || 0}</span>
+                  {franchise?.phase === 'preseason' ? (
+                    <>
+                      <span className="text-2xl sm:text-3xl font-bold text-white">{franchise?.preseason_wins || 0}</span>
+                      <span className="text-lg sm:text-xl text-slate-500"> - </span>
+                      <span className="text-2xl sm:text-3xl font-bold text-white">{franchise?.preseason_losses || 0}</span>
+                      <span className="text-sm text-slate-400 ml-2">(Preseason)</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-2xl sm:text-3xl font-bold text-white">{franchise?.wins || 0}</span>
+                      <span className="text-lg sm:text-xl text-slate-500"> - </span>
+                      <span className="text-2xl sm:text-3xl font-bold text-white">{franchise?.losses || 0}</span>
+                    </>
+                  )}
                 </div>
-                {userConferenceRank !== undefined && userConferenceRank >= 0 && (
+                {userConferenceRank !== undefined && userConferenceRank >= 0 && franchise?.phase !== 'preseason' && (
                   <div className="text-sm text-slate-400">
                     #{userConferenceRank + 1} in {franchise?.conference}
                   </div>
@@ -581,8 +670,57 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Simulation Result */}
-          {simResult && (
+          {/* Game Result Card */}
+          {userGameResult && (
+            <div className="mt-4 p-4 rounded-lg border border-white/10" style={{
+              background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%)',
+            }}>
+              {/* Win/Loss Header */}
+              <div className="flex items-center justify-between mb-3">
+                <span className={cn(
+                  "text-lg font-bold",
+                  userGameResult.won ? "text-green-400" : "text-red-400"
+                )}>
+                  {userGameResult.won ? "VICTORY" : "DEFEAT"}
+                </span>
+                <button onClick={() => setUserGameResult(null)} className="p-1 hover:bg-white/10 rounded transition-colors">
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+
+              {/* Score Display */}
+              <div className="flex items-center justify-center gap-4 mb-3">
+                <span className={cn(
+                  "text-3xl font-bold",
+                  userGameResult.won ? "text-green-400" : "text-white"
+                )}>{userGameResult.user_score}</span>
+                <span className="text-slate-500 text-xl">-</span>
+                <span className={cn(
+                  "text-3xl font-bold",
+                  !userGameResult.won ? "text-red-400" : "text-white"
+                )}>{userGameResult.opponent_score}</span>
+              </div>
+              <p className="text-center text-sm text-slate-400 mb-1">
+                vs {userGameResult.opponent_name}
+              </p>
+              {userGameResult.is_overtime && (
+                <p className="text-center text-xs text-amber-400">
+                  {userGameResult.overtime_periods === 1 ? 'OT' : `${userGameResult.overtime_periods}OT`}
+                </p>
+              )}
+
+              {/* Box Score Link */}
+              <Link
+                to={`/basketball/games/${userGameResult.game_id}`}
+                className="block text-center text-sm text-blue-400 hover:text-blue-300 mt-3"
+              >
+                View Box Score →
+              </Link>
+            </div>
+          )}
+
+          {/* Simple Text Result (for non-game simulations) */}
+          {simResult && !userGameResult && (
             <div className="mt-4 p-3 bg-slate-800/50 rounded-lg border border-white/10">
               <p className="text-sm text-slate-300">{simResult}</p>
               <button

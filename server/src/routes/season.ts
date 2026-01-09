@@ -48,6 +48,7 @@ async function simulateDayGames(franchise: any) {
   );
 
   const results = [];
+  let userGameResult = null;
 
   for (const scheduledGame of gamesResult.rows) {
     const isUserGame = scheduledGame.home_team_id === franchise.team_id ||
@@ -97,6 +98,25 @@ async function simulateDayGames(franchise: any) {
       [simResult.id, isUserGame, scheduledGame.id]
     );
 
+    // Track user's game result
+    if (isUserGame) {
+      const userIsHome = scheduledGame.home_team_id === franchise.team_id;
+      const userWon = simResult.winner_id === franchise.team_id;
+      const userScore = userIsHome ? simResult.home_score : simResult.away_score;
+      const opponentScore = userIsHome ? simResult.away_score : simResult.home_score;
+      const opponentName = userIsHome ? scheduledGame.away_team_name : scheduledGame.home_team_name;
+
+      userGameResult = {
+        game_id: simResult.id,
+        won: userWon,
+        user_score: userScore,
+        opponent_score: opponentScore,
+        opponent_name: opponentName,
+        is_overtime: simResult.is_overtime,
+        overtime_periods: simResult.overtime_periods
+      };
+    }
+
     results.push({
       game_id: simResult.id,
       home_team: scheduledGame.home_team_name,
@@ -107,7 +127,7 @@ async function simulateDayGames(franchise: any) {
     });
   }
 
-  return { gameDateStr, results };
+  return { gameDateStr, results, userGameResult };
 }
 
 // Helper to simulate preseason games (no standings updates)
@@ -133,6 +153,7 @@ async function simulatePreseasonDayGames(franchise: any) {
   );
 
   const results = [];
+  let userGameResult = null;
 
   for (const scheduledGame of gamesResult.rows) {
     const isUserGame = scheduledGame.home_team_id === franchise.team_id ||
@@ -182,6 +203,38 @@ async function simulatePreseasonDayGames(franchise: any) {
       [simResult.id, isUserGame, scheduledGame.id]
     );
 
+    // Track user's preseason record
+    if (isUserGame) {
+      const userIsHome = scheduledGame.home_team_id === franchise.team_id;
+      const userWon = simResult.winner_id === franchise.team_id;
+      const userScore = userIsHome ? simResult.home_score : simResult.away_score;
+      const opponentScore = userIsHome ? simResult.away_score : simResult.home_score;
+      const opponentName = userIsHome ? scheduledGame.away_team_name : scheduledGame.home_team_name;
+
+      // Update franchise preseason record
+      if (userWon) {
+        await pool.query(
+          `UPDATE franchises SET preseason_wins = COALESCE(preseason_wins, 0) + 1 WHERE id = $1`,
+          [franchise.id]
+        );
+      } else {
+        await pool.query(
+          `UPDATE franchises SET preseason_losses = COALESCE(preseason_losses, 0) + 1 WHERE id = $1`,
+          [franchise.id]
+        );
+      }
+
+      userGameResult = {
+        game_id: simResult.id,
+        won: userWon,
+        user_score: userScore,
+        opponent_score: opponentScore,
+        opponent_name: opponentName,
+        is_overtime: simResult.is_overtime,
+        overtime_periods: simResult.overtime_periods
+      };
+    }
+
     results.push({
       game_id: simResult.id,
       home_team: scheduledGame.home_team_name,
@@ -193,7 +246,7 @@ async function simulatePreseasonDayGames(franchise: any) {
     });
   }
 
-  return { gameDateStr, results };
+  return { gameDateStr, results, userGameResult };
 }
 
 // Get current season
@@ -321,7 +374,7 @@ router.post('/advance/preseason', authMiddleware(true), async (req: any, res) =>
       }
 
       // Simulate games (outside transaction for performance, but safe since games are idempotent)
-      const { gameDateStr, results } = await simulatePreseasonDayGames(franchise);
+      const { gameDateStr, results, userGameResult } = await simulatePreseasonDayGames(franchise);
 
       // Advance the day
       const newDay = franchise.current_day + 1;
@@ -349,6 +402,7 @@ router.post('/advance/preseason', authMiddleware(true), async (req: any, res) =>
         phase: newPhase,
         games_played: results.length,
         results,
+        user_game_result: userGameResult,
         preseason_complete: newPhase === 'regular_season'
       };
     });
@@ -449,7 +503,7 @@ router.post('/advance/day', authMiddleware(true), async (req: any, res) => {
       }
 
       // Simulate games (safe within advisory lock since concurrent requests are serialized)
-      const { gameDateStr, results } = await simulateDayGames(franchise);
+      const { gameDateStr, results, userGameResult } = await simulateDayGames(franchise);
 
       // Advance the day
       const newDay = franchise.current_day + 1;
@@ -479,6 +533,7 @@ router.post('/advance/day', authMiddleware(true), async (req: any, res) => {
         phase: newPhase,
         games_played: results.length,
         results,
+        user_game_result: userGameResult,
         all_star_weekend: newPhase === 'all_star'
       };
     });

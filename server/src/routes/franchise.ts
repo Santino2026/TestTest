@@ -91,7 +91,9 @@ router.get('/', authMiddleware(true), async (req: any, res) => {
     const result = await pool.query(
       `SELECT f.*, t.name as team_name, t.abbreviation, t.city,
               t.primary_color, t.secondary_color, t.conference, t.division,
-              s.wins, s.losses
+              s.wins, s.losses,
+              COALESCE(f.preseason_wins, 0) as preseason_wins,
+              COALESCE(f.preseason_losses, 0) as preseason_losses
        FROM franchises f
        JOIN teams t ON f.team_id = t.id
        LEFT JOIN standings s ON f.team_id = s.team_id AND f.season_id = s.season_id
@@ -112,7 +114,9 @@ router.get('/list', authMiddleware(true), async (req: any, res) => {
     const result = await pool.query(
       `SELECT f.*, t.name as team_name, t.abbreviation, t.city,
               t.primary_color, t.secondary_color, t.conference, t.division,
-              s.wins, s.losses
+              s.wins, s.losses,
+              COALESCE(f.preseason_wins, 0) as preseason_wins,
+              COALESCE(f.preseason_losses, 0) as preseason_losses
        FROM franchises f
        JOIN teams t ON f.team_id = t.id
        LEFT JOIN standings s ON f.team_id = s.team_id AND f.season_id = s.season_id
