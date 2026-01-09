@@ -7,6 +7,82 @@ import { withTransaction } from '../db/transactions';
 
 const router = Router();
 
+interface Team {
+  id: string;
+  name: string;
+  city: string;
+  conference: string;
+  division: string;
+}
+
+// Helper to create a new franchise with season, standings, and schedule
+async function createNewFranchise(
+  userId: string,
+  team: Team,
+  franchiseName: string
+): Promise<any> {
+  // Create new season for this franchise
+  const newSeason = await pool.query(
+    `INSERT INTO seasons (season_number, status) VALUES (1, 'preseason') RETURNING id`
+  );
+  const seasonId = newSeason.rows[0].id;
+
+  // Get all teams for schedule and standings
+  const teamsResult = await pool.query(
+    'SELECT id, conference, division FROM teams'
+  );
+  const teams = teamsResult.rows;
+
+  // Initialize standings for all 30 teams for this season
+  for (const t of teams) {
+    await pool.query(
+      `INSERT INTO standings (season_id, team_id, wins, losses, home_wins, home_losses,
+       away_wins, away_losses, conference_wins, conference_losses, division_wins, division_losses,
+       points_for, points_against, streak, last_10_wins)
+       VALUES ($1, $2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)`,
+      [seasonId, t.id]
+    );
+  }
+
+  // Generate 8 preseason games (days -7 to 0)
+  const preseasonSchedule = generatePreseasonSchedule(teams);
+  for (const game of preseasonSchedule) {
+    const isUserGame = game.home_team_id === team.id || game.away_team_id === team.id;
+    await pool.query(
+      `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
+      [seasonId, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame]
+    );
+  }
+
+  // Auto-generate 82-game regular season schedule
+  const schedule = generateSchedule(teams);
+  for (const game of schedule) {
+    const isUserGame = game.home_team_id === team.id || game.away_team_id === team.id;
+    await pool.query(
+      `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason)
+       VALUES ($1, $2, $3, $4, $5, $6, FALSE)`,
+      [seasonId, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame]
+    );
+  }
+
+  // Create the franchise - start in preseason phase (day -7)
+  const insertResult = await pool.query(
+    `INSERT INTO franchises (user_id, team_id, season_id, phase, current_day, name, is_active)
+     VALUES ($1, $2, $3, 'preseason', -7, $4, TRUE)
+     RETURNING *`,
+    [userId, team.id, seasonId, franchiseName]
+  );
+
+  // Season status stays 'preseason' until user advances
+  await pool.query(
+    `UPDATE seasons SET status = 'preseason' WHERE id = $1`,
+    [seasonId]
+  );
+
+  return insertResult.rows[0];
+}
+
 // Get current user's ACTIVE franchise (or null if none)
 router.get('/', authMiddleware(true), async (req: any, res) => {
   try {
@@ -82,68 +158,12 @@ router.post('/create', authMiddleware(true), async (req: any, res) => {
       [userId]
     );
 
-    // Create new season for this franchise
-    const newSeason = await pool.query(
-      `INSERT INTO seasons (season_number, status) VALUES (1, 'preseason') RETURNING id`
-    );
-    const seasonId = newSeason.rows[0].id;
-
-    // Get all teams for schedule and standings
-    const teamsResult = await pool.query(
-      'SELECT id, conference, division FROM teams'
-    );
-    const teams = teamsResult.rows;
-
-    // Initialize standings for all 30 teams for this season
-    for (const t of teams) {
-      await pool.query(
-        `INSERT INTO standings (season_id, team_id, wins, losses, home_wins, home_losses,
-         away_wins, away_losses, conference_wins, conference_losses, division_wins, division_losses,
-         points_for, points_against, streak, last_10_wins)
-         VALUES ($1, $2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)`,
-        [seasonId, t.id]
-      );
-    }
-
-    // Generate 8 preseason games (days -7 to 0)
-    const preseasonSchedule = generatePreseasonSchedule(teams);
-    for (const game of preseasonSchedule) {
-      const isUserGame = game.home_team_id === team_id || game.away_team_id === team_id;
-      await pool.query(
-        `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason)
-         VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
-        [seasonId, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame]
-      );
-    }
-
-    // Auto-generate 82-game regular season schedule
-    const schedule = generateSchedule(teams);
-    for (const game of schedule) {
-      const isUserGame = game.home_team_id === team_id || game.away_team_id === team_id;
-      await pool.query(
-        `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason)
-         VALUES ($1, $2, $3, $4, $5, $6, FALSE)`,
-        [seasonId, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame]
-      );
-    }
-
-    // Create the franchise - start in preseason phase (day -7)
+    // Create franchise using helper
     const franchiseName = name || `${team.city} ${team.name}`;
-    const insertResult = await pool.query(
-      `INSERT INTO franchises (user_id, team_id, season_id, phase, current_day, name, is_active)
-       VALUES ($1, $2, $3, 'preseason', -7, $4, TRUE)
-       RETURNING *`,
-      [userId, team_id, seasonId, franchiseName]
-    );
-
-    // Season status stays 'preseason' until user advances
-    await pool.query(
-      `UPDATE seasons SET status = 'preseason' WHERE id = $1`,
-      [seasonId]
-    );
+    const newFranchise = await createNewFranchise(userId, team, franchiseName);
 
     // Return full franchise details
-    const franchise = await getFranchiseWithDetails(insertResult.rows[0].id);
+    const franchise = await getFranchiseWithDetails(newFranchise.id);
     res.json(franchise);
   } catch (error) {
     console.error('Franchise create error:', error);
@@ -190,66 +210,11 @@ router.post('/select', authMiddleware(true), async (req: any, res) => {
     // Deactivate other franchises
     await pool.query('UPDATE franchises SET is_active = FALSE WHERE user_id = $1', [userId]);
 
-    // Create new season
-    const newSeason = await pool.query(
-      `INSERT INTO seasons (season_number, status) VALUES (1, 'preseason') RETURNING id`
-    );
-    const seasonId = newSeason.rows[0].id;
+    // Create franchise using helper
+    const franchiseName = `${team.city} ${team.name}`;
+    const newFranchise = await createNewFranchise(userId, team, franchiseName);
 
-    // Get all teams for schedule and standings
-    const teamsResult = await pool.query(
-      'SELECT id, conference, division FROM teams'
-    );
-    const teams = teamsResult.rows;
-
-    // Initialize standings for all 30 teams for this season
-    for (const t of teams) {
-      await pool.query(
-        `INSERT INTO standings (season_id, team_id, wins, losses, home_wins, home_losses,
-         away_wins, away_losses, conference_wins, conference_losses, division_wins, division_losses,
-         points_for, points_against, streak, last_10_wins)
-         VALUES ($1, $2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)`,
-        [seasonId, t.id]
-      );
-    }
-
-    // Generate 8 preseason games (days -7 to 0)
-    const preseasonSchedule = generatePreseasonSchedule(teams);
-    for (const game of preseasonSchedule) {
-      const isUserGame = game.home_team_id === team_id || game.away_team_id === team_id;
-      await pool.query(
-        `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason)
-         VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
-        [seasonId, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame]
-      );
-    }
-
-    // Auto-generate 82-game regular season schedule
-    const schedule = generateSchedule(teams);
-    for (const game of schedule) {
-      const isUserGame = game.home_team_id === team_id || game.away_team_id === team_id;
-      await pool.query(
-        `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason)
-         VALUES ($1, $2, $3, $4, $5, $6, FALSE)`,
-        [seasonId, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame]
-      );
-    }
-
-    // Create franchise - start in preseason phase (day -7)
-    const insertResult = await pool.query(
-      `INSERT INTO franchises (user_id, team_id, season_id, phase, current_day, name, is_active)
-       VALUES ($1, $2, $3, 'preseason', -7, $4, TRUE)
-       RETURNING *`,
-      [userId, team_id, seasonId, `${team.city} ${team.name}`]
-    );
-
-    // Season status stays 'preseason' until user advances
-    await pool.query(
-      `UPDATE seasons SET status = 'preseason' WHERE id = $1`,
-      [seasonId]
-    );
-
-    const franchise = await getFranchiseWithDetails(insertResult.rows[0].id);
+    const franchise = await getFranchiseWithDetails(newFranchise.id);
     res.json(franchise);
   } catch (error: any) {
     console.error('Franchise select error:', error);

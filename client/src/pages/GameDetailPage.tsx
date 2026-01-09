@@ -152,16 +152,16 @@ export default function GameDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 md:gap-4">
-              <StatCompare label="FG" home={`${homeStats.fgm}/${homeStats.fga}`} away={`${awayStats.fgm}/${awayStats.fga}`} />
-              <StatCompare label="FG%" home={`${(homeStats.fg_pct * 100).toFixed(1)}%`} away={`${(awayStats.fg_pct * 100).toFixed(1)}%`} />
-              <StatCompare label="3PT" home={`${homeStats.three_pm}/${homeStats.three_pa}`} away={`${awayStats.three_pm}/${awayStats.three_pa}`} />
-              <StatCompare label="3P%" home={`${(homeStats.three_pct * 100).toFixed(1)}%`} away={`${(awayStats.three_pct * 100).toFixed(1)}%`} />
-              <StatCompare label="FT" home={`${homeStats.ftm}/${homeStats.fta}`} away={`${awayStats.ftm}/${awayStats.fta}`} />
-              <StatCompare label="REB" home={homeStats.rebounds} away={awayStats.rebounds} />
-              <StatCompare label="AST" home={homeStats.assists} away={awayStats.assists} />
-              <StatCompare label="STL" home={homeStats.steals} away={awayStats.steals} />
-              <StatCompare label="BLK" home={homeStats.blocks} away={awayStats.blocks} />
-              <StatCompare label="TO" home={homeStats.turnovers} away={awayStats.turnovers} isLowerBetter />
+              <StatCompare label="FG" home={`${homeStats.fgm ?? 0}/${homeStats.fga ?? 0}`} away={`${awayStats.fgm ?? 0}/${awayStats.fga ?? 0}`} />
+              <StatCompare label="FG%" home={`${((Number(homeStats.fg_pct) || 0) * 100).toFixed(1)}%`} away={`${((Number(awayStats.fg_pct) || 0) * 100).toFixed(1)}%`} />
+              <StatCompare label="3PT" home={`${homeStats.three_pm ?? 0}/${homeStats.three_pa ?? 0}`} away={`${awayStats.three_pm ?? 0}/${awayStats.three_pa ?? 0}`} />
+              <StatCompare label="3P%" home={`${((Number(homeStats.three_pct) || 0) * 100).toFixed(1)}%`} away={`${((Number(awayStats.three_pct) || 0) * 100).toFixed(1)}%`} />
+              <StatCompare label="FT" home={`${homeStats.ftm ?? 0}/${homeStats.fta ?? 0}`} away={`${awayStats.ftm ?? 0}/${awayStats.fta ?? 0}`} />
+              <StatCompare label="REB" home={homeStats.rebounds ?? 0} away={awayStats.rebounds ?? 0} />
+              <StatCompare label="AST" home={homeStats.assists ?? 0} away={awayStats.assists ?? 0} />
+              <StatCompare label="STL" home={homeStats.steals ?? 0} away={awayStats.steals ?? 0} />
+              <StatCompare label="BLK" home={homeStats.blocks ?? 0} away={awayStats.blocks ?? 0} />
+              <StatCompare label="TO" home={homeStats.turnovers ?? 0} away={awayStats.turnovers ?? 0} isLowerBetter />
             </div>
           </CardContent>
         </Card>
@@ -261,7 +261,7 @@ function BoxScoreTable({ players }: { players: PlayerGameStats[] }) {
                 </div>
                 <span className="text-xs text-slate-500">{p.position}</span>
               </TableCell>
-              <TableCell className="text-center text-xs md:text-sm hidden sm:table-cell text-slate-300">{p.minutes?.toFixed(0)}</TableCell>
+              <TableCell className="text-center text-xs md:text-sm hidden sm:table-cell text-slate-300">{Math.round(Number(p.minutes) || 0)}</TableCell>
               <TableCell className="text-center font-bold text-xs md:text-sm text-white">{p.points}</TableCell>
               <TableCell className="text-center text-xs md:text-sm text-slate-300">{p.rebounds}</TableCell>
               <TableCell className="text-center text-xs md:text-sm text-slate-300">{p.assists}</TableCell>

@@ -310,3 +310,36 @@ Awards → Offseason → Draft Lottery → Draft → Free Agency → Trades
 /basketball/playoffs # Playoff bracket
 /api/health          # API health check
 ```
+
+# Coding Rules 
+
+Keep code clarity, consistency, and maintainability while preserving exact functionality. Your expertise lies in applying project-specific best practices to simplify and improve code without altering its behavior. You prioritize readable, explicit code over overly compact solutions. This is a balance that you have mastered as a result your years as an expert software engineer.
+
+2. **Apply Project Standards**:
+
+- Use ES modules with proper import sorting and extensions
+- Prefer `function` keyword over arrow functions
+- Use explicit return type annotations for top-level functions
+- Follow proper React component patterns with explicit Props types
+- Use proper error handling patterns (avoid try/catch when possible)
+- Maintain consistent naming conventions
+
+3. **Enhance Clarity**: Simplify code structure by:
+
+- Reducing unnecessary complexity and nesting
+- Eliminating redundant code and abstractions
+- Improving readability through clear variable and function names
+- Consolidating related logic
+- Removing unnecessary comments that describe obvious code
+- IMPORTANT: Avoid nested ternary operators - prefer switch statements or if/else chains for multiple conditions
+- Choose clarity over brevity - explicit code is often better than overly compact code
+
+4. **Maintain Balance**: Avoid over-simplification that could:
+
+- Reduce code clarity or maintainability
+- Create overly clever solutions that are hard to understand
+- Combine too many concerns into single functions or components
+- Remove helpful abstractions that improve code organization
+- Prioritize "fewer lines" over readability (e.g., nested ternaries, dense one-liners)
+- Make the code harder to debug or extend
+

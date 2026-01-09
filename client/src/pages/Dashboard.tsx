@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Users, Trophy, Calendar, TrendingUp, Play, ChevronRight, FastForward, SkipForward, Loader2, Star, Award, AlertTriangle, Clock } from 'lucide-react';
 import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
@@ -7,6 +8,7 @@ import { TeamLogo } from '@/components/team/TeamLogo';
 import { useTeams, useStandings, useSeason, usePlayers, useAdvancePreseasonDay, useAdvancePreseasonAll, useAdvanceDay, useSimulatePlayoffRound, useSimulatePlayoffAll, useAdvanceOffseasonPhase, useStartNewSeason, useStartPlayoffsFromAwards, useTradeDeadlineStatus } from '@/api/hooks';
 import { useFranchise } from '@/context/FranchiseContext';
 import { cn, getStatColor } from '@/lib/utils';
+import { api, ScheduledGame } from '@/api/client';
 
 export default function Dashboard() {
   const { franchise, refreshFranchise } = useFranchise();
@@ -17,6 +19,37 @@ export default function Dashboard() {
   const { data: season } = useSeason();
   const { data: playersData } = usePlayers({ limit: 5 });
   const { data: tradeDeadline } = useTradeDeadlineStatus();
+
+  const isPreseason = franchise?.phase === 'preseason';
+
+  // Fetch schedule to check if today is game day
+  const { data: schedule } = useQuery({
+    queryKey: ['schedule', 'full', franchise?.team_id, franchise?.season_id, isPreseason],
+    queryFn: () => api.getSchedule({
+      team_id: franchise?.team_id,
+      season_id: franchise?.season_id,
+      include_preseason: isPreseason ? 'true' : undefined,
+    }),
+    enabled: !!franchise?.team_id && !!franchise?.season_id,
+  });
+
+  // Find the next scheduled game and check if it's today
+  const nextGame = useMemo(() => {
+    if (!schedule) return null;
+    return schedule.find((g: ScheduledGame) => g.status === 'scheduled');
+  }, [schedule]);
+
+  const isGameDay = useMemo(() => {
+    if (!nextGame || !franchise) return false;
+    // Calculate today's game date based on franchise current_day
+    const seasonStart = new Date('2024-10-22');
+    const currentDay = franchise.current_day ?? 0;
+    const todayDate = new Date(seasonStart);
+    todayDate.setDate(todayDate.getDate() + currentDay);
+    const todayStr = todayDate.toISOString().split('T')[0];
+    // Compare with next game's date
+    return nextGame.game_date === todayStr;
+  }, [nextGame, franchise]);
 
   // Season advancement hooks
   const advancePreseasonDay = useAdvancePreseasonDay();
@@ -207,6 +240,57 @@ export default function Dashboard() {
         </>
       )}
 
+      {/* Today's Date Container */}
+      {(franchise?.phase === 'preseason' || franchise?.phase === 'regular_season') && (
+        <div className="mb-4 p-4 rounded-lg border border-white/10" style={{
+          background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%)',
+        }}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                "w-12 h-12 rounded-lg flex items-center justify-center",
+                isGameDay ? "bg-green-500/20" : "bg-slate-700/50"
+              )}>
+                <Calendar className={cn("w-6 h-6", isGameDay ? "text-green-400" : "text-slate-400")} />
+              </div>
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-wider">
+                  {franchise?.phase === 'preseason' ? 'Preseason' : 'Regular Season'}
+                </p>
+                <p className="text-xl font-bold text-white">
+                  {franchise?.phase === 'preseason'
+                    ? `Day ${(franchise?.current_day ?? -7) + 8} of 8`
+                    : `Day ${franchise?.current_day ?? 0}`}
+                </p>
+              </div>
+            </div>
+            {isGameDay && nextGame && (
+              <div className="text-right">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-500/20 text-green-400 text-sm font-semibold">
+                  <Play className="w-3.5 h-3.5" />
+                  GAME DAY
+                </span>
+                <p className="text-xs text-slate-400 mt-1">
+                  vs {nextGame.home_team_id === franchise?.team_id ? nextGame.away_abbrev : nextGame.home_abbrev}
+                </p>
+              </div>
+            )}
+            {!isGameDay && (
+              <div className="text-right">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-700/50 text-slate-400 text-sm font-medium">
+                  No Game Today
+                </span>
+                {nextGame && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Next: Game {nextGame.game_number}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Franchise Header Card */}
       <Card className="mb-4 md:mb-6">
         <CardContent>
@@ -247,10 +331,10 @@ export default function Dashboard() {
                   <button
                     onClick={handleAdvancePreseasonDay}
                     disabled={isSimulating}
-                    className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 active:bg-green-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isSimulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                    Play Preseason Game
+                    Sim Game
                   </button>
                   <button
                     onClick={handleSimAllPreseason}
@@ -269,10 +353,15 @@ export default function Dashboard() {
                   <button
                     onClick={handleAdvanceDay}
                     disabled={isSimulating}
-                    className="flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+                    className={cn(
+                      "flex items-center justify-center gap-2 px-4 py-3 text-white text-sm font-medium rounded-lg transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed",
+                      isGameDay
+                        ? "bg-green-600 hover:bg-green-700 active:bg-green-800"
+                        : "bg-blue-600 hover:bg-blue-700 active:bg-blue-800"
+                    )}
                   >
                     {isSimulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                    Play Next Game
+                    {isGameDay ? 'Sim Game' : 'Sim Next Day'}
                   </button>
                   <Link
                     to="/basketball/schedule"

@@ -351,8 +351,15 @@ router.post('/freeagency', async (req, res) => {
         });
 
         if (evaluation.interested && evaluation.maxOffer >= fa.asking_salary) {
-          // Calculate contract years
-          const years = fa.age < 25 ? 4 : fa.age < 30 ? 3 : 2;
+          // Calculate contract years based on age
+          let years: number;
+          if (fa.age < 25) {
+            years = 4;
+          } else if (fa.age < 30) {
+            years = 3;
+          } else {
+            years = 2;
+          }
 
           // Sign the player atomically
           const signed = await signFreeAgentForCPU(fa.id, team.id, evaluation.maxOffer, years);

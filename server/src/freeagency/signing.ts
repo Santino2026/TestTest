@@ -51,6 +51,18 @@ export interface TeamContext {
   star_count: number;  // Players over 80 OVR
 }
 
+function calculateAgeBonus(age: number): number {
+  if (age > 32) return 20;
+  if (age > 30) return 10;
+  return 0;
+}
+
+function calculateStarBonus(overall: number): number {
+  if (overall > 85) return 20;
+  if (overall > 80) return 10;
+  return 0;
+}
+
 // Generate free agent preferences based on hidden attributes
 export function generateFAPreferences(player: {
   greed: number;
@@ -63,14 +75,14 @@ export function generateFAPreferences(player: {
   const money = Math.min(100, Math.max(20, player.greed + Math.random() * 20 - 10));
 
   // Age affects winning priority (older players chase rings)
-  const ageBonus = player.age > 32 ? 20 : player.age > 30 ? 10 : 0;
+  const ageBonus = calculateAgeBonus(player.age);
   const winning = Math.min(100, Math.max(20, 50 + ageBonus + Math.random() * 20 - 10));
 
   // Ego affects role priority
   const role = Math.min(100, Math.max(20, player.ego * 0.7 + 30 + Math.random() * 20 - 10));
 
   // Stars care more about market size
-  const starBonus = player.overall > 85 ? 20 : player.overall > 80 ? 10 : 0;
+  const starBonus = calculateStarBonus(player.overall);
   const market = Math.min(100, Math.max(10, 30 + starBonus + Math.random() * 20 - 10));
 
   return {

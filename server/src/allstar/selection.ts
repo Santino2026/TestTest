@@ -202,6 +202,8 @@ export async function selectAllStars(
     else break;
   }
 
+  // Sort starters by all_star_score so captain (idx 0) is the best starter
+  starters.sort((a, b) => b.all_star_score - a.all_star_score);
   selected.push(...starters);
 
   // Select reserves (10 more): best available not already selected

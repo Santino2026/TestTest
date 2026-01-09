@@ -25,6 +25,17 @@ const EVENT_LABELS: Record<string, { label: string; icon: any; description: stri
   game: { label: 'All-Star Game', icon: Trophy, description: 'East vs West' },
 };
 
+const WINNING_TEAM_LABELS: Record<string, string> = {
+  east: 'East',
+  west: 'West',
+  rookies: 'Rookies',
+  sophomores: 'Sophomores',
+};
+
+function formatWinningTeam(team: string): string {
+  return WINNING_TEAM_LABELS[team] || team;
+}
+
 export function AllStarContent() {
   const { franchise, refreshFranchise } = useFranchise();
   const [selectedTab, setSelectedTab] = useState<'events' | 'rosters'>('events');
@@ -99,11 +110,7 @@ export function AllStarContent() {
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-slate-400">Winner:</span>
                   <span className="text-sm font-medium text-white capitalize">
-                    {result.winning_team === 'east' ? 'East' :
-                     result.winning_team === 'west' ? 'West' :
-                     result.winning_team === 'rookies' ? 'Rookies' :
-                     result.winning_team === 'sophomores' ? 'Sophomores' :
-                     result.winning_team}
+                    {formatWinningTeam(result.winning_team)}
                   </span>
                 </div>
               )}

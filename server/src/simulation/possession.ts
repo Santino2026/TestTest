@@ -23,6 +23,12 @@ import {
 } from './shots';
 import { updateHotColdState } from './hotcold';
 
+function getFatigueModifier(fatigue: number): number {
+  if (fatigue > 70) return 0.95;
+  if (fatigue > 50) return 0.98;
+  return 1.0;
+}
+
 // Simulate free throw attempts
 function simulateFreeThrows(
   shooter: SimPlayer,
@@ -36,7 +42,7 @@ function simulateFreeThrows(
   const baseFTPct = shooter.attributes.free_throw / 100;
 
   // Apply fatigue modifier (slight reduction when tired)
-  const fatigueModifier = shooter.fatigue > 70 ? 0.95 : (shooter.fatigue > 50 ? 0.98 : 1.0);
+  const fatigueModifier = getFatigueModifier(shooter.fatigue);
 
   for (let i = 0; i < numAttempts; i++) {
     const ftChance = baseFTPct * fatigueModifier;
