@@ -143,15 +143,40 @@ function generateAllMatchups(teams: Team[]): Matchup[] {
   // Helper to get pair key (sorted for consistency)
   const getPairKey = (a: string, b: string) => [a, b].sort().join('-');
 
+  // Track home games from 3-game matchups per team
+  // Each team needs exactly 2 "home-heavy" 3-game matchups (2H+1A) and 2 "away-heavy" (1H+2A)
+  const threeGameHomeHeavy = new Map<string, number>(); // count of matchups where team is home-heavy
+  teams.forEach(t => threeGameHomeHeavy.set(t.id, 0));
+
   // Helper to add games for a pair
-  const addGames = (teamA: Team, teamB: Team, totalGames: number) => {
+  const addGames = (teamA: Team, teamB: Team, totalGames: number, isThreeGameMatchup = false) => {
     const pairKey = getPairKey(teamA.id, teamB.id);
     if (processedPairs.has(pairKey)) return;
     processedPairs.add(pairKey);
 
-    // Split home/away evenly (odd games alternate who gets extra)
-    const homeForA = Math.ceil(totalGames / 2);
-    const homeForB = totalGames - homeForA;
+    let homeForA: number;
+    let homeForB: number;
+
+    if (isThreeGameMatchup) {
+      // For 3-game matchups, balance who gets the extra home game
+      const aHomeHeavy = threeGameHomeHeavy.get(teamA.id) || 0;
+      const bHomeHeavy = threeGameHomeHeavy.get(teamB.id) || 0;
+
+      // Give extra home game to the team that needs more home-heavy matchups
+      if (aHomeHeavy < 2 && (bHomeHeavy >= 2 || aHomeHeavy <= bHomeHeavy)) {
+        homeForA = 2; // A is home-heavy
+        homeForB = 1;
+        threeGameHomeHeavy.set(teamA.id, aHomeHeavy + 1);
+      } else {
+        homeForA = 1;
+        homeForB = 2; // B is home-heavy
+        threeGameHomeHeavy.set(teamB.id, bHomeHeavy + 1);
+      }
+    } else {
+      // For even-game matchups (2 or 4), split evenly
+      homeForA = totalGames / 2;
+      homeForB = totalGames / 2;
+    }
 
     for (let i = 0; i < homeForA; i++) {
       matchups.push({ home: teamA.id, away: teamB.id });
@@ -207,7 +232,7 @@ function generateAllMatchups(teams: Team[]): Matchup[] {
         // Conference non-division: 3 or 4 games
         // Use consistent assignment based on sorted order
         const games = getConfNonDivGames(teamA, teamB);
-        addGames(teamA, teamB, games);
+        addGames(teamA, teamB, games, games === 3);
       } else {
         // Inter-conference: 2 games (1 home each)
         addGames(teamA, teamB, 2);
