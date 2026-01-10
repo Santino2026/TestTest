@@ -11,38 +11,38 @@ async function regenerateSchedule(seasonId: number, franchiseTeamId: string) {
   );
   const teams = teamsResult.rows;
 
+  console.log(`Found ${teams.length} teams`);
+
   // Generate regular season schedule
   const schedule = generateSchedule(teams);
 
-  // Validate
-  if (!validateSchedule(schedule, teams)) {
-    console.error('Schedule validation failed!');
-    process.exit(1);
-  }
-
   console.log(`Generated ${schedule.length} regular season games`);
 
-  // Check game counts
+  // Check game counts and home counts
   const gameCounts = new Map<string, number>();
+  const homeCounts = new Map<string, number>();
   for (const game of schedule) {
     gameCounts.set(game.home_team_id, (gameCounts.get(game.home_team_id) || 0) + 1);
     gameCounts.set(game.away_team_id, (gameCounts.get(game.away_team_id) || 0) + 1);
+    homeCounts.set(game.home_team_id, (homeCounts.get(game.home_team_id) || 0) + 1);
   }
 
-  let allValid = true;
-  for (const [teamId, count] of gameCounts) {
-    if (count !== 82) {
-      console.error(`Team ${teamId} has ${count} games (expected 82)`);
-      allValid = false;
+  let hasIssues = false;
+  for (const team of teams) {
+    const total = gameCounts.get(team.id) || 0;
+    const home = homeCounts.get(team.id) || 0;
+    if (total !== 82 || home !== 41) {
+      console.log(`  ${team.id} (${team.division}): ${total} total, ${home} home`);
+      hasIssues = true;
     }
   }
 
-  if (!allValid) {
-    console.error('Schedule has incorrect game counts!');
+  if (hasIssues) {
+    console.error('Schedule has incorrect game/home counts!');
     process.exit(1);
   }
 
-  console.log('All teams have exactly 82 games');
+  console.log('All teams have exactly 82 games and 41 home games');
 
   // Insert regular season schedule
   for (const game of schedule) {
