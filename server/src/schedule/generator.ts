@@ -280,10 +280,9 @@ function generateAllMatchups(teams: Team[]): Matchup[] {
     homeHeavyCount.set(homeHeavyTeam, (homeHeavyCount.get(homeHeavyTeam) || 0) + 1);
   }
 
-  // Post-processing: fix any remaining imbalances
-  // Find teams with too many (>2) and too few (<2) home-heavy assignments
+  // Post-processing: fix any remaining imbalances using multiple strategies
   let iterations = 0;
-  const maxIterations = 100;
+  const maxIterations = 200;
 
   while (iterations < maxIterations) {
     iterations++;
@@ -296,9 +295,9 @@ function generateAllMatchups(teams: Team[]): Matchup[] {
       if (count < 2) underTeams.push(teamId);
     }
 
-    if (overTeams.length === 0) break; // Balanced!
+    if (overTeams.length === 0 && underTeams.length === 0) break; // Balanced!
 
-    // Try to find a swap: a matchup between an over-team and under-team
+    // Strategy 1: Direct swap between over-team and under-team
     let swapped = false;
     for (const overTeam of overTeams) {
       for (const underTeam of underTeams) {
@@ -306,7 +305,6 @@ function generateAllMatchups(teams: Team[]): Matchup[] {
         if (threeGameHomeHeavyMap.has(pairKey)) {
           const currentHomeHeavy = threeGameHomeHeavyMap.get(pairKey);
           if (currentHomeHeavy === overTeam) {
-            // Swap: give home-heavy to underTeam instead
             threeGameHomeHeavyMap.set(pairKey, underTeam);
             homeHeavyCount.set(overTeam, (homeHeavyCount.get(overTeam) || 0) - 1);
             homeHeavyCount.set(underTeam, (homeHeavyCount.get(underTeam) || 0) + 1);
@@ -318,42 +316,58 @@ function generateAllMatchups(teams: Team[]): Matchup[] {
       if (swapped) break;
     }
 
+    // Strategy 2: Find a neutral team (count=2) that can trade with both
     if (!swapped) {
-      // No direct swap possible, try indirect swaps (2-hop)
       for (const overTeam of overTeams) {
         for (const underTeam of underTeams) {
-          // Find a common opponent that could facilitate a swap
-          const overMatchups: string[] = [];
-          const underMatchups: string[] = [];
+          // Find any team with count=2 that has matchups with both
+          for (const [neutralId, count] of homeHeavyCount) {
+            if (count !== 2) continue;
 
-          for (const [pairKey, homeHeavy] of threeGameHomeHeavyMap) {
-            const [t1, t2] = pairKey.split('|');
-            if ((t1 === overTeam || t2 === overTeam) && homeHeavy === overTeam) {
-              overMatchups.push(t1 === overTeam ? t2 : t1);
-            }
-            if ((t1 === underTeam || t2 === underTeam) && homeHeavy !== underTeam) {
-              underMatchups.push(t1 === underTeam ? t2 : t1);
-            }
-          }
+            const overKey = getPairKey(overTeam, neutralId);
+            const underKey = getPairKey(underTeam, neutralId);
 
-          // Find common opponent
-          for (const opp of overMatchups) {
-            if (underMatchups.includes(opp)) {
-              // Found a common opponent - swap both
-              const overKey = getPairKey(overTeam, opp);
-              const underKey = getPairKey(underTeam, opp);
+            if (threeGameHomeHeavyMap.has(overKey) && threeGameHomeHeavyMap.has(underKey)) {
+              const overHomeHeavy = threeGameHomeHeavyMap.get(overKey);
+              const underHomeHeavy = threeGameHomeHeavyMap.get(underKey);
 
-              if (threeGameHomeHeavyMap.has(overKey) && threeGameHomeHeavyMap.has(underKey)) {
-                threeGameHomeHeavyMap.set(overKey, opp);
+              // Check if we can swap: over gives to neutral, neutral gives to under
+              if (overHomeHeavy === overTeam && underHomeHeavy === neutralId) {
+                threeGameHomeHeavyMap.set(overKey, neutralId);
                 threeGameHomeHeavyMap.set(underKey, underTeam);
                 homeHeavyCount.set(overTeam, (homeHeavyCount.get(overTeam) || 0) - 1);
                 homeHeavyCount.set(underTeam, (homeHeavyCount.get(underTeam) || 0) + 1);
+                // neutralId: gains 1, loses 1 = net 0
                 swapped = true;
                 break;
               }
             }
           }
           if (swapped) break;
+        }
+        if (swapped) break;
+      }
+    }
+
+    // Strategy 3: Chain swap through multiple teams
+    if (!swapped) {
+      for (const overTeam of overTeams) {
+        // Find any matchup where overTeam is home-heavy
+        for (const [pairKey, homeHeavy] of threeGameHomeHeavyMap) {
+          if (homeHeavy !== overTeam) continue;
+
+          const [t1, t2] = pairKey.split('|');
+          const otherTeam = t1 === overTeam ? t2 : t1;
+          const otherCount = homeHeavyCount.get(otherTeam) || 0;
+
+          // If the other team is under (or would still be valid after), do the swap
+          if (otherCount < 2) {
+            threeGameHomeHeavyMap.set(pairKey, otherTeam);
+            homeHeavyCount.set(overTeam, (homeHeavyCount.get(overTeam) || 0) - 1);
+            homeHeavyCount.set(otherTeam, otherCount + 1);
+            swapped = true;
+            break;
+          }
         }
         if (swapped) break;
       }
