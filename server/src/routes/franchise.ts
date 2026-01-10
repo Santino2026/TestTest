@@ -46,23 +46,34 @@ async function createNewFranchise(
 
   // Generate 8 preseason games (days -7 to 0)
   const preseasonSchedule = generatePreseasonSchedule(teams);
-  for (const game of preseasonSchedule) {
-    const isUserGame = game.home_team_id === team.id || game.away_team_id === team.id;
-    await pool.query(
-      `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
-      [seasonId, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame]
-    );
-  }
 
   // Auto-generate 82-game regular season schedule
   const schedule = generateSchedule(teams);
-  for (const game of schedule) {
-    const isUserGame = game.home_team_id === team.id || game.away_team_id === team.id;
+
+  // Batch insert all games for performance (preseason + regular season)
+  const allGames = [
+    ...preseasonSchedule.map(g => ({ ...g, is_preseason: true })),
+    ...schedule.map(g => ({ ...g, is_preseason: false }))
+  ];
+
+  // Insert in batches of 100 for performance
+  const batchSize = 100;
+  for (let i = 0; i < allGames.length; i += batchSize) {
+    const batch = allGames.slice(i, i + batchSize);
+    const values: any[] = [];
+    const placeholders: string[] = [];
+
+    batch.forEach((game, idx) => {
+      const isUserGame = game.home_team_id === team.id || game.away_team_id === team.id;
+      const offset = idx * 7;
+      placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`);
+      values.push(seasonId, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame, game.is_preseason);
+    });
+
     await pool.query(
       `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason)
-       VALUES ($1, $2, $3, $4, $5, $6, FALSE)`,
-      [seasonId, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame]
+       VALUES ${placeholders.join(', ')}`,
+      values
     );
   }
 
@@ -147,16 +158,18 @@ router.post('/create', authMiddleware(true), async (req: any, res) => {
     }
     const team = teamResult.rows[0];
 
-    // Check if user already has a franchise with this team
+    // Check if user already has any franchise (unique constraint on user_id)
     const existingResult = await pool.query(
-      'SELECT id FROM franchises WHERE user_id = $1 AND team_id = $2',
-      [userId, team_id]
+      'SELECT id, team_id FROM franchises WHERE user_id = $1',
+      [userId]
     );
     if (existingResult.rows.length > 0) {
-      return res.status(400).json({ error: 'You already have a franchise with this team' });
+      // User already has a franchise - return it instead of error
+      const franchise = await getFranchiseWithDetails(existingResult.rows[0].id);
+      return res.json({ existing: true, franchise });
     }
 
-    // Deactivate all other franchises for this user
+    // No existing franchise - create new one
     await pool.query(
       'UPDATE franchises SET is_active = FALSE WHERE user_id = $1',
       [userId]
@@ -185,23 +198,16 @@ router.post('/select', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: 'team_id is required' });
     }
 
-    // Check if user already has a franchise with this team
+    // Check if user already has any franchise
     const existingResult = await pool.query(
-      'SELECT id FROM franchises WHERE user_id = $1 AND team_id = $2',
-      [userId, team_id]
+      'SELECT id, team_id FROM franchises WHERE user_id = $1',
+      [userId]
     );
 
     if (existingResult.rows.length > 0) {
-      // Switch to existing franchise - atomic operation
-      const franchise = await withTransaction(async (client) => {
-        await client.query('UPDATE franchises SET is_active = FALSE WHERE user_id = $1', [userId]);
-        await client.query(
-          'UPDATE franchises SET is_active = TRUE, last_played_at = NOW() WHERE id = $1',
-          [existingResult.rows[0].id]
-        );
-        return await getFranchiseWithDetails(existingResult.rows[0].id, client);
-      });
-      return res.json(franchise);
+      // User already has a franchise - return it
+      const franchise = await getFranchiseWithDetails(existingResult.rows[0].id);
+      return res.json({ existing: true, franchise });
     }
 
     // Create new franchise
@@ -210,9 +216,6 @@ router.post('/select', authMiddleware(true), async (req: any, res) => {
       return res.status(404).json({ error: 'Team not found' });
     }
     const team = teamResult.rows[0];
-
-    // Deactivate other franchises
-    await pool.query('UPDATE franchises SET is_active = FALSE WHERE user_id = $1', [userId]);
 
     // Create franchise using helper
     const franchiseName = `${team.city} ${team.name}`;
