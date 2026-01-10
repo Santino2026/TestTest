@@ -229,58 +229,76 @@ function generateAllMatchups(teams: Team[]): Matchup[] {
   }
 
   // Assign home-heavy status to balance each team at exactly 2
-  // Use multiple passes with dynamic sorting based on current counts
-  const homeHeavyCount = new Map<string, number>();
-  teams.forEach(t => homeHeavyCount.set(t.id, 0));
+  // Try multiple random orderings to find a valid assignment
+  let bestAttempt: Map<string, string> | null = null;
+  let bestImbalance = Infinity;
 
-  // Process in multiple passes, dynamically re-sorting based on current counts
-  const remainingMatchups = [...threeGameMatchups];
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const homeHeavyCount = new Map<string, number>();
+    teams.forEach(t => homeHeavyCount.set(t.id, 0));
+    const attemptMap = new Map<string, string>();
 
-  while (remainingMatchups.length > 0) {
-    // Sort remaining matchups: prioritize those where one team MUST get the assignment
-    // (i.e., the other team already has 2), then by the team with fewer assignments
-    remainingMatchups.sort((a, b) => {
-      const aCountA = homeHeavyCount.get(a.teamA.id) || 0;
-      const aCountB = homeHeavyCount.get(a.teamB.id) || 0;
-      const bCountA = homeHeavyCount.get(b.teamA.id) || 0;
-      const bCountB = homeHeavyCount.get(b.teamB.id) || 0;
-
-      // Prioritize matchups where exactly one team has 2 (forced assignment)
-      const aHasForced = (aCountA >= 2 ? 1 : 0) + (aCountB >= 2 ? 1 : 0);
-      const bHasForced = (bCountA >= 2 ? 1 : 0) + (bCountB >= 2 ? 1 : 0);
-      if (aHasForced !== bHasForced) return bHasForced - aHasForced; // Process forced first
-
-      // Then prioritize matchups where the minimum count is lower
-      const aMinCount = Math.min(aCountA, aCountB);
-      const bMinCount = Math.min(bCountA, bCountB);
-      return aMinCount - bMinCount;
-    });
-
-    // Process the first matchup
-    const matchup = remainingMatchups.shift()!;
-    const aCount = homeHeavyCount.get(matchup.teamA.id) || 0;
-    const bCount = homeHeavyCount.get(matchup.teamB.id) || 0;
-
-    let homeHeavyTeam: string;
-    if (aCount >= 2) {
-      homeHeavyTeam = matchup.teamB.id;
-    } else if (bCount >= 2) {
-      homeHeavyTeam = matchup.teamA.id;
-    } else if (aCount < bCount) {
-      homeHeavyTeam = matchup.teamA.id;
-    } else if (bCount < aCount) {
-      homeHeavyTeam = matchup.teamB.id;
-    } else {
-      // Tied - use deterministic tie-breaker: LARGER ID wins
-      // This balances out early matchups where smaller ID teams tend to get processed first
-      homeHeavyTeam = matchup.teamA.id > matchup.teamB.id ? matchup.teamA.id : matchup.teamB.id;
+    // Shuffle matchups differently each attempt
+    const shuffledMatchups = [...threeGameMatchups];
+    for (let i = shuffledMatchups.length - 1; i > 0; i--) {
+      const j = Math.floor((attempt * 7919 + i * 6529) % (i + 1)); // Deterministic shuffle based on attempt
+      [shuffledMatchups[i], shuffledMatchups[j]] = [shuffledMatchups[j], shuffledMatchups[i]];
     }
 
-    threeGameHomeHeavyMap.set(matchup.pairKey, homeHeavyTeam);
-    homeHeavyCount.set(homeHeavyTeam, (homeHeavyCount.get(homeHeavyTeam) || 0) + 1);
+    // Process matchups with greedy assignment
+    for (const matchup of shuffledMatchups) {
+      const aCount = homeHeavyCount.get(matchup.teamA.id) || 0;
+      const bCount = homeHeavyCount.get(matchup.teamB.id) || 0;
+
+      let homeHeavyTeam: string;
+      if (aCount >= 2) {
+        homeHeavyTeam = matchup.teamB.id;
+      } else if (bCount >= 2) {
+        homeHeavyTeam = matchup.teamA.id;
+      } else if (aCount < bCount) {
+        homeHeavyTeam = matchup.teamA.id;
+      } else if (bCount < aCount) {
+        homeHeavyTeam = matchup.teamB.id;
+      } else {
+        // Alternate tie-breaker based on attempt
+        homeHeavyTeam = attempt % 2 === 0 ? matchup.teamA.id : matchup.teamB.id;
+      }
+
+      attemptMap.set(matchup.pairKey, homeHeavyTeam);
+      homeHeavyCount.set(homeHeavyTeam, (homeHeavyCount.get(homeHeavyTeam) || 0) + 1);
+    }
+
+    // Calculate imbalance
+    let imbalance = 0;
+    for (const [teamId, count] of homeHeavyCount) {
+      imbalance += Math.abs(count - 2);
+    }
+
+    if (imbalance === 0) {
+      // Perfect! Use this assignment
+      bestAttempt = attemptMap;
+      break;
+    }
+
+    if (imbalance < bestImbalance) {
+      bestImbalance = imbalance;
+      bestAttempt = attemptMap;
+    }
   }
 
-  // Post-processing: fix any remaining imbalances using multiple strategies
+  // Use the best attempt found
+  for (const [pairKey, teamId] of bestAttempt!) {
+    threeGameHomeHeavyMap.set(pairKey, teamId);
+  }
+
+  // Rebuild homeHeavyCount from the chosen assignment
+  const homeHeavyCount = new Map<string, number>();
+  teams.forEach(t => homeHeavyCount.set(t.id, 0));
+  for (const [pairKey, teamId] of threeGameHomeHeavyMap) {
+    homeHeavyCount.set(teamId, (homeHeavyCount.get(teamId) || 0) + 1);
+  }
+
+  // Post-processing: fix any remaining imbalances using swap strategies
   let iterations = 0;
   const maxIterations = 200;
 
