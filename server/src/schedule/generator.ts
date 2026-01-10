@@ -140,13 +140,11 @@ function generateAllMatchups(teams: Team[]): Matchup[] {
   // Process unique pairs only once (avoid duplicates)
   const processedPairs = new Set<string>();
 
-  // Helper to get pair key (sorted for consistency)
-  const getPairKey = (a: string, b: string) => [a, b].sort().join('-');
+  // Helper to get pair key (sorted for consistency, using | as separator to avoid conflicts with UUIDs)
+  const getPairKey = (a: string, b: string) => [a, b].sort().join('|');
 
-  // Track home games from 3-game matchups per team
-  // Each team needs exactly 2 "home-heavy" 3-game matchups (2H+1A) and 2 "away-heavy" (1H+2A)
-  const threeGameHomeHeavy = new Map<string, number>(); // count of matchups where team is home-heavy
-  teams.forEach(t => threeGameHomeHeavy.set(t.id, 0));
+  // Pre-computed home-heavy assignments for 3-game matchups (filled in after confNonDivGameCount)
+  const threeGameHomeHeavyMap = new Map<string, string>(); // pairKey -> teamId who is home-heavy
 
   // Helper to add games for a pair
   const addGames = (teamA: Team, teamB: Team, totalGames: number, isThreeGameMatchup = false) => {
@@ -158,19 +156,16 @@ function generateAllMatchups(teams: Team[]): Matchup[] {
     let homeForB: number;
 
     if (isThreeGameMatchup) {
-      // For 3-game matchups, balance who gets the extra home game
-      const aHomeHeavy = threeGameHomeHeavy.get(teamA.id) || 0;
-      const bHomeHeavy = threeGameHomeHeavy.get(teamB.id) || 0;
+      // For 3-game matchups, use the pre-computed home-heavy assignment
+      const pairKey = getPairKey(teamA.id, teamB.id);
+      const aIsHomeHeavy = threeGameHomeHeavyMap.get(pairKey) === teamA.id;
 
-      // Give extra home game to the team that needs more home-heavy matchups
-      if (aHomeHeavy < 2 && (bHomeHeavy >= 2 || aHomeHeavy <= bHomeHeavy)) {
-        homeForA = 2; // A is home-heavy
+      if (aIsHomeHeavy) {
+        homeForA = 2;
         homeForB = 1;
-        threeGameHomeHeavy.set(teamA.id, aHomeHeavy + 1);
       } else {
         homeForA = 1;
-        homeForB = 2; // B is home-heavy
-        threeGameHomeHeavy.set(teamB.id, bHomeHeavy + 1);
+        homeForB = 2;
       }
     } else {
       // For even-game matchups (2 or 4), split evenly
@@ -186,37 +181,186 @@ function generateAllMatchups(teams: Team[]): Matchup[] {
     }
   };
 
-  // Track conference non-division game assignments per team
-  const confNonDivAssignments = new Map<string, { fourGame: number; threeGame: number }>();
+  // Pre-compute conference non-division game assignments using a balanced matrix
+  // For each pair of divisions, we need 15 four-game and 10 three-game matchups (5x5 = 25 total)
+  // Each team needs 3 four-game and 2 three-game opponents from each other division
 
-  // For conference non-division, we need consistent 4-game vs 3-game assignments
-  // Use a symmetric approach that ensures each team gets exactly 6 four-game and 4 three-game opponents
+  // Build a mapping from pair key to game count
+  const confNonDivGameCount = new Map<string, number>();
+
+  // For each conference, process inter-division pairs
+  for (const [conference, confTeams] of teamsByConference) {
+    const divisions = Array.from(new Set(confTeams.map(t => t.division))).sort();
+
+    // Process each pair of divisions
+    for (let d1 = 0; d1 < divisions.length; d1++) {
+      for (let d2 = d1 + 1; d2 < divisions.length; d2++) {
+        const div1Teams = confTeams.filter(t => t.division === divisions[d1]).sort((a, b) => a.id.localeCompare(b.id));
+        const div2Teams = confTeams.filter(t => t.division === divisions[d2]).sort((a, b) => a.id.localeCompare(b.id));
+
+        // 5x5 balanced matrix: each row/col has exactly 3 fours and 2 threes
+        // Pattern: position (i+j) mod 5 < 3 gets 4 games, else 3 games
+        for (let i = 0; i < div1Teams.length; i++) {
+          for (let j = 0; j < div2Teams.length; j++) {
+            const pairKey = getPairKey(div1Teams[i].id, div2Teams[j].id);
+            const games = ((i + j) % 5) < 3 ? 4 : 3;
+            confNonDivGameCount.set(pairKey, games);
+          }
+        }
+      }
+    }
+  }
+
   const getConfNonDivGames = (teamA: Team, teamB: Team): number => {
-    // Each team plays 10 conf non-div opponents: 6 get 4 games, 4 get 3 games = 36 total
-
-    // Initialize tracking for both teams
-    if (!confNonDivAssignments.has(teamA.id)) {
-      confNonDivAssignments.set(teamA.id, { fourGame: 0, threeGame: 0 });
-    }
-    if (!confNonDivAssignments.has(teamB.id)) {
-      confNonDivAssignments.set(teamB.id, { fourGame: 0, threeGame: 0 });
-    }
-
-    const aStats = confNonDivAssignments.get(teamA.id)!;
-    const bStats = confNonDivAssignments.get(teamB.id)!;
-
-    // Assign 4 games if both teams still need more 4-game opponents
-    // Otherwise assign 3 games
-    if (aStats.fourGame < 6 && bStats.fourGame < 6) {
-      aStats.fourGame++;
-      bStats.fourGame++;
-      return 4;
-    } else {
-      aStats.threeGame++;
-      bStats.threeGame++;
-      return 3;
-    }
+    const pairKey = getPairKey(teamA.id, teamB.id);
+    return confNonDivGameCount.get(pairKey) || 3;
   };
+
+  // Pre-compute home-heavy assignments for all 3-game matchups
+  // Each team needs exactly 2 home-heavy matchups (2H+1A) out of their 4 three-game matchups
+  const threeGameMatchups: Array<{ pairKey: string; teamA: Team; teamB: Team }> = [];
+  for (const [pairKey, games] of confNonDivGameCount) {
+    if (games === 3) {
+      const [t1Id, t2Id] = pairKey.split('|');
+      const t1 = teams.find(t => t.id === t1Id)!;
+      const t2 = teams.find(t => t.id === t2Id)!;
+      threeGameMatchups.push({ pairKey, teamA: t1, teamB: t2 });
+    }
+  }
+
+  // Assign home-heavy status to balance each team at exactly 2
+  // Use multiple passes with dynamic sorting based on current counts
+  const homeHeavyCount = new Map<string, number>();
+  teams.forEach(t => homeHeavyCount.set(t.id, 0));
+
+  // Process in multiple passes, dynamically re-sorting based on current counts
+  const remainingMatchups = [...threeGameMatchups];
+
+  while (remainingMatchups.length > 0) {
+    // Sort remaining matchups: prioritize those where one team MUST get the assignment
+    // (i.e., the other team already has 2), then by the team with fewer assignments
+    remainingMatchups.sort((a, b) => {
+      const aCountA = homeHeavyCount.get(a.teamA.id) || 0;
+      const aCountB = homeHeavyCount.get(a.teamB.id) || 0;
+      const bCountA = homeHeavyCount.get(b.teamA.id) || 0;
+      const bCountB = homeHeavyCount.get(b.teamB.id) || 0;
+
+      // Prioritize matchups where exactly one team has 2 (forced assignment)
+      const aHasForced = (aCountA >= 2 ? 1 : 0) + (aCountB >= 2 ? 1 : 0);
+      const bHasForced = (bCountA >= 2 ? 1 : 0) + (bCountB >= 2 ? 1 : 0);
+      if (aHasForced !== bHasForced) return bHasForced - aHasForced; // Process forced first
+
+      // Then prioritize matchups where the minimum count is lower
+      const aMinCount = Math.min(aCountA, aCountB);
+      const bMinCount = Math.min(bCountA, bCountB);
+      return aMinCount - bMinCount;
+    });
+
+    // Process the first matchup
+    const matchup = remainingMatchups.shift()!;
+    const aCount = homeHeavyCount.get(matchup.teamA.id) || 0;
+    const bCount = homeHeavyCount.get(matchup.teamB.id) || 0;
+
+    let homeHeavyTeam: string;
+    if (aCount >= 2) {
+      homeHeavyTeam = matchup.teamB.id;
+    } else if (bCount >= 2) {
+      homeHeavyTeam = matchup.teamA.id;
+    } else if (aCount < bCount) {
+      homeHeavyTeam = matchup.teamA.id;
+    } else if (bCount < aCount) {
+      homeHeavyTeam = matchup.teamB.id;
+    } else {
+      // Tied - use deterministic tie-breaker: LARGER ID wins
+      // This balances out early matchups where smaller ID teams tend to get processed first
+      homeHeavyTeam = matchup.teamA.id > matchup.teamB.id ? matchup.teamA.id : matchup.teamB.id;
+    }
+
+    threeGameHomeHeavyMap.set(matchup.pairKey, homeHeavyTeam);
+    homeHeavyCount.set(homeHeavyTeam, (homeHeavyCount.get(homeHeavyTeam) || 0) + 1);
+  }
+
+  // Post-processing: fix any remaining imbalances
+  // Find teams with too many (>2) and too few (<2) home-heavy assignments
+  let iterations = 0;
+  const maxIterations = 100;
+
+  while (iterations < maxIterations) {
+    iterations++;
+
+    const overTeams: string[] = [];
+    const underTeams: string[] = [];
+
+    for (const [teamId, count] of homeHeavyCount) {
+      if (count > 2) overTeams.push(teamId);
+      if (count < 2) underTeams.push(teamId);
+    }
+
+    if (overTeams.length === 0) break; // Balanced!
+
+    // Try to find a swap: a matchup between an over-team and under-team
+    let swapped = false;
+    for (const overTeam of overTeams) {
+      for (const underTeam of underTeams) {
+        const pairKey = getPairKey(overTeam, underTeam);
+        if (threeGameHomeHeavyMap.has(pairKey)) {
+          const currentHomeHeavy = threeGameHomeHeavyMap.get(pairKey);
+          if (currentHomeHeavy === overTeam) {
+            // Swap: give home-heavy to underTeam instead
+            threeGameHomeHeavyMap.set(pairKey, underTeam);
+            homeHeavyCount.set(overTeam, (homeHeavyCount.get(overTeam) || 0) - 1);
+            homeHeavyCount.set(underTeam, (homeHeavyCount.get(underTeam) || 0) + 1);
+            swapped = true;
+            break;
+          }
+        }
+      }
+      if (swapped) break;
+    }
+
+    if (!swapped) {
+      // No direct swap possible, try indirect swaps (2-hop)
+      for (const overTeam of overTeams) {
+        for (const underTeam of underTeams) {
+          // Find a common opponent that could facilitate a swap
+          const overMatchups: string[] = [];
+          const underMatchups: string[] = [];
+
+          for (const [pairKey, homeHeavy] of threeGameHomeHeavyMap) {
+            const [t1, t2] = pairKey.split('|');
+            if ((t1 === overTeam || t2 === overTeam) && homeHeavy === overTeam) {
+              overMatchups.push(t1 === overTeam ? t2 : t1);
+            }
+            if ((t1 === underTeam || t2 === underTeam) && homeHeavy !== underTeam) {
+              underMatchups.push(t1 === underTeam ? t2 : t1);
+            }
+          }
+
+          // Find common opponent
+          for (const opp of overMatchups) {
+            if (underMatchups.includes(opp)) {
+              // Found a common opponent - swap both
+              const overKey = getPairKey(overTeam, opp);
+              const underKey = getPairKey(underTeam, opp);
+
+              if (threeGameHomeHeavyMap.has(overKey) && threeGameHomeHeavyMap.has(underKey)) {
+                threeGameHomeHeavyMap.set(overKey, opp);
+                threeGameHomeHeavyMap.set(underKey, underTeam);
+                homeHeavyCount.set(overTeam, (homeHeavyCount.get(overTeam) || 0) - 1);
+                homeHeavyCount.set(underTeam, (homeHeavyCount.get(underTeam) || 0) + 1);
+                swapped = true;
+                break;
+              }
+            }
+          }
+          if (swapped) break;
+        }
+        if (swapped) break;
+      }
+    }
+
+    if (!swapped) break; // Can't make any more swaps
+  }
 
   for (const teamA of teams) {
     for (const teamB of teams) {
