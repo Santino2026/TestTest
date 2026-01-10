@@ -39,15 +39,17 @@ async function resetFranchise() {
     [franchise.season_id]
   );
 
-  console.log('Deleting games...');
-  await pool.query('DELETE FROM games WHERE season_id = $1', [franchise.season_id]);
-
-  // Reset schedule to scheduled
+  // Reset schedule FIRST (before deleting games due to FK constraint)
   console.log('Resetting schedule...');
   await pool.query(
     "UPDATE schedule SET status = 'scheduled', game_id = NULL WHERE season_id = $1",
     [franchise.season_id]
   );
+
+  console.log('Deleting games...');
+  await pool.query('DELETE FROM games WHERE season_id = $1', [franchise.season_id]);
+
+  // Schedule already reset above
 
   // Reset standings
   console.log('Resetting standings...');
