@@ -51,6 +51,19 @@ async function simulateDayGames(franchise: any) {
   let userGameResult = null;
 
   for (const scheduledGame of gamesResult.rows) {
+    // Atomically claim the game to prevent double-simulation from concurrent requests
+    const claimResult = await pool.query(
+      `UPDATE schedule SET status = 'simulating'
+       WHERE id = $1 AND status = 'scheduled'
+       RETURNING *`,
+      [scheduledGame.id]
+    );
+
+    // Skip if already claimed by another request
+    if (claimResult.rows.length === 0) {
+      continue;
+    }
+
     const isUserGame = scheduledGame.home_team_id === franchise.team_id ||
                        scheduledGame.away_team_id === franchise.team_id;
 
@@ -91,7 +104,7 @@ async function simulateDayGames(franchise: any) {
       true // Update standings for regular season
     );
 
-    // Update schedule entry
+    // Mark game as completed
     await pool.query(
       `UPDATE schedule SET status = 'completed', game_id = $1, is_user_game = $2
        WHERE id = $3`,
@@ -156,6 +169,19 @@ async function simulatePreseasonDayGames(franchise: any) {
   let userGameResult = null;
 
   for (const scheduledGame of gamesResult.rows) {
+    // Atomically claim the game to prevent double-simulation from concurrent requests
+    const claimResult = await pool.query(
+      `UPDATE schedule SET status = 'simulating'
+       WHERE id = $1 AND status = 'scheduled'
+       RETURNING *`,
+      [scheduledGame.id]
+    );
+
+    // Skip if already claimed by another request
+    if (claimResult.rows.length === 0) {
+      continue;
+    }
+
     const isUserGame = scheduledGame.home_team_id === franchise.team_id ||
                        scheduledGame.away_team_id === franchise.team_id;
 
