@@ -362,28 +362,36 @@ router.post('/start', authMiddleware(true), async (req: any, res) => {
 // Advance one day in preseason
 router.post('/advance/preseason', authMiddleware(true), async (req: any, res) => {
   try {
-    const result = await withTransaction(async (client) => {
-      // Lock franchise to prevent concurrent advancement
-      const franchise = await lockUserActiveFranchise(client, req.user.userId);
-      if (!franchise) {
-        throw { status: 404, message: 'No franchise found' };
-      }
+    // Step 1: Get franchise info (no lock needed for read)
+    const franchiseResult = await pool.query(
+      `SELECT f.*, t.name as team_name
+       FROM franchises f
+       JOIN teams t ON f.team_id = t.id
+       WHERE f.user_id = $1 AND f.is_active = TRUE`,
+      [req.user.userId]
+    );
 
-      if (franchise.phase !== 'preseason') {
-        throw { status: 400, message: 'Not in preseason' };
-      }
+    if (franchiseResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No franchise found' });
+    }
 
-      // Simulate games (outside transaction for performance, but safe since games are idempotent)
-      const { gameDateStr, results, userGameResult } = await simulatePreseasonDayGames(franchise);
+    const franchise = franchiseResult.rows[0];
 
-      // Advance the day
-      const newDay = franchise.current_day + 1;
-      let newPhase = franchise.phase;
+    if (franchise.phase !== 'preseason') {
+      return res.status(400).json({ error: 'Not in preseason' });
+    }
 
+    // Step 2: Simulate games OUTSIDE transaction (this is the slow part)
+    const { gameDateStr, results, userGameResult } = await simulatePreseasonDayGames(franchise);
+
+    // Step 3: Quick transaction just to update franchise state
+    const newDay = franchise.current_day + 1;
+    let newPhase = franchise.phase;
+
+    await withTransaction(async (client) => {
       // Check if preseason is complete (after day 0)
       if (newDay > 0) {
         newPhase = 'regular_season';
-        // Update season status
         await client.query(
           `UPDATE seasons SET status = 'regular' WHERE id = $1`,
           [franchise.season_id]
@@ -395,19 +403,17 @@ router.post('/advance/preseason', authMiddleware(true), async (req: any, res) =>
          WHERE id = $3`,
         [newPhase === 'regular_season' ? 1 : newDay, newPhase, franchise.id]
       );
-
-      return {
-        day: newDay,
-        date: gameDateStr,
-        phase: newPhase,
-        games_played: results.length,
-        results,
-        user_game_result: userGameResult,
-        preseason_complete: newPhase === 'regular_season'
-      };
     });
 
-    res.json(result);
+    res.json({
+      day: newDay,
+      date: gameDateStr,
+      phase: newPhase,
+      games_played: results.length,
+      results,
+      user_game_result: userGameResult,
+      preseason_complete: newPhase === 'regular_season'
+    });
   } catch (error: any) {
     if (error.status) {
       return res.status(error.status).json({ error: error.message });
@@ -420,27 +426,32 @@ router.post('/advance/preseason', authMiddleware(true), async (req: any, res) =>
 // Simulate entire preseason
 router.post('/advance/preseason/all', authMiddleware(true), async (req: any, res) => {
   try {
-    // First, lock and validate in a transaction
-    const initialFranchise = await withTransaction(async (client) => {
-      const franchise = await lockUserActiveFranchise(client, req.user.userId);
-      if (!franchise) {
-        throw { status: 404, message: 'No franchise found' };
-      }
+    // Step 1: Get franchise info (no lock needed for read)
+    const franchiseResult = await pool.query(
+      `SELECT f.*, t.name as team_name
+       FROM franchises f
+       JOIN teams t ON f.team_id = t.id
+       WHERE f.user_id = $1 AND f.is_active = TRUE`,
+      [req.user.userId]
+    );
 
-      if (franchise.phase !== 'preseason') {
-        throw { status: 400, message: 'Not in preseason' };
-      }
+    if (franchiseResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No franchise found' });
+    }
 
-      return franchise;
-    });
+    const franchise = franchiseResult.rows[0];
 
+    if (franchise.phase !== 'preseason') {
+      return res.status(400).json({ error: 'Not in preseason' });
+    }
+
+    // Step 2: Simulate all preseason games OUTSIDE transaction
     const allResults: any[] = [];
     let daysSimulated = 0;
-    let currentDay = initialFranchise.current_day;
+    let currentDay = franchise.current_day;
 
-    // Simulate until preseason is complete (game simulation outside transaction for performance)
     while (currentDay <= 0) {
-      const { results } = await simulatePreseasonDayGames({ ...initialFranchise, current_day: currentDay });
+      const { results } = await simulatePreseasonDayGames({ ...franchise, current_day: currentDay });
       allResults.push(...results);
 
       currentDay++;
@@ -449,35 +460,26 @@ router.post('/advance/preseason/all', authMiddleware(true), async (req: any, res
       if (currentDay > 0) break;
     }
 
-    // Final update in transaction with lock
-    const result = await withTransaction(async (client) => {
-      // Re-lock to ensure no concurrent changes
-      await lockUserActiveFranchise(client, req.user.userId);
+    // Step 3: Simple update, no transaction needed
+    await pool.query(
+      `UPDATE seasons SET status = 'regular' WHERE id = $1`,
+      [franchise.season_id]
+    );
 
-      // Update season status
-      await client.query(
-        `UPDATE seasons SET status = 'regular' WHERE id = $1`,
-        [initialFranchise.season_id]
-      );
+    await pool.query(
+      `UPDATE franchises SET current_day = 1, phase = 'regular_season', last_played_at = NOW()
+       WHERE id = $1`,
+      [franchise.id]
+    );
 
-      // Update franchise to regular season
-      await client.query(
-        `UPDATE franchises SET current_day = 1, phase = 'regular_season', last_played_at = NOW()
-         WHERE id = $1`,
-        [initialFranchise.id]
-      );
-
-      return {
-        message: 'Preseason complete!',
-        days_simulated: daysSimulated,
-        phase: 'regular_season',
-        current_day: 1,
-        games_played: allResults.length,
-        user_games: allResults.filter(r => r.is_user_game)
-      };
+    res.json({
+      message: 'Preseason complete!',
+      days_simulated: daysSimulated,
+      phase: 'regular_season',
+      current_day: 1,
+      games_played: allResults.length,
+      user_games: allResults.filter(r => r.is_user_game)
     });
-
-    res.json(result);
   } catch (error: any) {
     if (error.status) {
       return res.status(error.status).json({ error: error.message });
@@ -490,55 +492,63 @@ router.post('/advance/preseason/all', authMiddleware(true), async (req: any, res
 // Advance one day in the season
 router.post('/advance/day', authMiddleware(true), async (req: any, res) => {
   try {
-    // Use advisory lock to serialize all advancement requests for this user
-    const result = await withAdvisoryLock(`advance-season-${req.user.userId}`, async (client) => {
-      // Lock franchise to prevent concurrent advancement
-      const franchise = await lockUserActiveFranchise(client, req.user.userId);
-      if (!franchise) {
-        throw { status: 404, message: 'No franchise found' };
-      }
+    // Step 1: Get franchise info (no lock needed for read)
+    const franchiseResult = await pool.query(
+      `SELECT f.*, t.name as team_name
+       FROM franchises f
+       JOIN teams t ON f.team_id = t.id
+       WHERE f.user_id = $1 AND f.is_active = TRUE`,
+      [req.user.userId]
+    );
 
-      if (franchise.phase !== 'regular_season') {
-        throw { status: 400, message: 'Not in regular season' };
-      }
+    if (franchiseResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No franchise found' });
+    }
 
-      // Simulate games (safe within advisory lock since concurrent requests are serialized)
-      const { gameDateStr, results, userGameResult } = await simulateDayGames(franchise);
+    const franchise = franchiseResult.rows[0];
 
-      // Advance the day
-      const newDay = franchise.current_day + 1;
-      let newPhase = franchise.phase;
+    if (franchise.phase !== 'regular_season') {
+      return res.status(400).json({ error: 'Not in regular season' });
+    }
 
-      // Get All-Star day from season settings
-      const allStarDay = await getSeasonAllStarDay(franchise.season_id, client);
+    // Step 2: Simulate games OUTSIDE transaction (this is the slow part)
+    const { gameDateStr, results, userGameResult } = await simulateDayGames(franchise);
 
-      // Check if it's All-Star Weekend (and not already completed)
-      if (newDay >= allStarDay && !franchise.all_star_complete && newDay < allStarDay + 4) {
-        newPhase = 'all_star';
-      }
-      // Check if season is complete (after ~174 days) - go to awards first
-      else if (newDay > 174) {
-        newPhase = 'awards';
-      }
+    // Step 3: Quick transaction just to update franchise state
+    const newDay = franchise.current_day + 1;
+    let newPhase = franchise.phase;
 
-      await client.query(
-        `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW()
-         WHERE id = $3`,
-        [newDay, newPhase, franchise.id]
-      );
+    // Get All-Star day
+    const allStarResult = await pool.query(
+      'SELECT all_star_game_day FROM seasons WHERE id = $1',
+      [franchise.season_id]
+    );
+    const allStarDay = allStarResult.rows[0]?.all_star_game_day || 85;
 
-      return {
-        day: newDay,
-        date: gameDateStr,
-        phase: newPhase,
-        games_played: results.length,
-        results,
-        user_game_result: userGameResult,
-        all_star_weekend: newPhase === 'all_star'
-      };
+    // Check if it's All-Star Weekend (and not already completed)
+    if (newDay >= allStarDay && !franchise.all_star_complete && newDay < allStarDay + 4) {
+      newPhase = 'all_star';
+    }
+    // Check if season is complete (after ~174 days) - go to awards first
+    else if (newDay > 174) {
+      newPhase = 'awards';
+    }
+
+    await pool.query(
+      `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW()
+       WHERE id = $3`,
+      [newDay, newPhase, franchise.id]
+    );
+
+    res.json({
+      day: newDay,
+      date: gameDateStr,
+      phase: newPhase,
+      games_played: results.length,
+      results,
+      user_game_result: userGameResult,
+      all_star_weekend: newPhase === 'all_star'
     });
-
-    res.json(result);
   } catch (error: any) {
     if (error.status) {
       return res.status(error.status).json({ error: error.message });
@@ -551,68 +561,77 @@ router.post('/advance/day', authMiddleware(true), async (req: any, res) => {
 // Advance one week (7 days)
 router.post('/advance/week', authMiddleware(true), async (req: any, res) => {
   try {
-    // Use advisory lock to serialize all advancement requests for this user
-    const result = await withAdvisoryLock(`advance-season-${req.user.userId}`, async (client) => {
-      // Lock franchise to prevent concurrent advancement
-      let franchise = await lockUserActiveFranchise(client, req.user.userId);
-      if (!franchise) {
-        throw { status: 404, message: 'No franchise found' };
+    // Step 1: Get franchise info (no lock needed for read)
+    const franchiseResult = await pool.query(
+      `SELECT f.*, t.name as team_name
+       FROM franchises f
+       JOIN teams t ON f.team_id = t.id
+       WHERE f.user_id = $1 AND f.is_active = TRUE`,
+      [req.user.userId]
+    );
+
+    if (franchiseResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No franchise found' });
+    }
+
+    const franchise = franchiseResult.rows[0];
+
+    if (franchise.phase !== 'regular_season') {
+      return res.status(400).json({ error: 'Not in regular season' });
+    }
+
+    // Get All-Star day
+    const allStarResult = await pool.query(
+      'SELECT all_star_game_day FROM seasons WHERE id = $1',
+      [franchise.season_id]
+    );
+    const allStarDay = allStarResult.rows[0]?.all_star_game_day || 85;
+
+    // Step 2: Simulate games OUTSIDE transaction
+    const allResults: any[] = [];
+    let daysSimulated = 0;
+    let finalPhase = franchise.phase;
+    let currentDay = franchise.current_day;
+
+    for (let i = 0; i < 7; i++) {
+      if (finalPhase !== 'regular_season') break;
+
+      // Simulate games for current day
+      const { results } = await simulateDayGames({ ...franchise, current_day: currentDay });
+      allResults.push(...results);
+
+      const newDay = currentDay + 1;
+      let newPhase: string = 'regular_season';
+
+      // Check for All-Star Weekend
+      if (newDay >= allStarDay && !franchise.all_star_complete && newDay < allStarDay + 4) {
+        newPhase = 'all_star';
+      }
+      // Check if season is complete - go to awards first
+      else if (newDay > 174) {
+        newPhase = 'awards';
       }
 
-      if (franchise.phase !== 'regular_season') {
-        throw { status: 400, message: 'Not in regular season' };
-      }
+      currentDay = newDay;
+      daysSimulated++;
+      finalPhase = newPhase;
+    }
 
-      // Get All-Star day from season settings
-      const allStarDay = await getSeasonAllStarDay(franchise.season_id, client);
+    // Step 3: Quick update to save final state
+    await pool.query(
+      `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW()
+       WHERE id = $3`,
+      [currentDay, finalPhase, franchise.id]
+    );
 
-      const allResults: any[] = [];
-      let daysSimulated = 0;
-      let finalPhase = franchise.phase;
-      let currentDay = franchise.current_day;
-
-      for (let i = 0; i < 7; i++) {
-        if (finalPhase !== 'regular_season') break;
-
-        // Simulate games for current day
-        const { results } = await simulateDayGames({ ...franchise, current_day: currentDay });
-        allResults.push(...results);
-
-        const newDay = currentDay + 1;
-        let newPhase: string = 'regular_season';
-
-        // Check for All-Star Weekend
-        if (newDay >= allStarDay && !franchise.all_star_complete && newDay < allStarDay + 4) {
-          newPhase = 'all_star';
-        }
-        // Check if season is complete - go to awards first
-        else if (newDay > 174) {
-          newPhase = 'awards';
-        }
-
-        currentDay = newDay;
-        daysSimulated++;
-        finalPhase = newPhase;
-      }
-
-      // Update franchise with final state
-      await client.query(
-        `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW()
-         WHERE id = $3`,
-        [currentDay, finalPhase, franchise.id]
-      );
-
-      return {
-        days_simulated: daysSimulated,
-        current_day: currentDay,
-        phase: finalPhase,
-        games_played: allResults.length,
-        user_games: allResults.filter(r => r.is_user_game),
-        all_star_weekend: finalPhase === 'all_star'
-      };
+    res.json({
+      days_simulated: daysSimulated,
+      current_day: currentDay,
+      phase: finalPhase,
+      games_played: allResults.length,
+      user_games: allResults.filter(r => r.is_user_game),
+      all_star_weekend: finalPhase === 'all_star'
     });
-
-    res.json(result);
   } catch (error: any) {
     if (error.status) {
       return res.status(error.status).json({ error: error.message });
@@ -625,25 +644,31 @@ router.post('/advance/week', authMiddleware(true), async (req: any, res) => {
 // Simulate to end of regular season (playoffs)
 router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => {
   try {
-    // First, lock and validate in a transaction
-    const initialData = await withTransaction(async (client) => {
-      const franchise = await lockUserActiveFranchise(client, req.user.userId);
-      if (!franchise) {
-        throw { status: 404, message: 'No franchise found' };
-      }
+    // Step 1: Get franchise info (no lock needed for read)
+    const franchiseResult = await pool.query(
+      `SELECT f.*, t.name as team_name
+       FROM franchises f
+       JOIN teams t ON f.team_id = t.id
+       WHERE f.user_id = $1 AND f.is_active = TRUE`,
+      [req.user.userId]
+    );
 
-      if (franchise.phase !== 'regular_season') {
-        throw { status: 400, message: 'Not in regular season' };
-      }
+    if (franchiseResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No franchise found' });
+    }
 
-      // Get All-Star day from season settings
-      const allStarDay = await getSeasonAllStarDay(franchise.season_id, client);
+    const franchise = franchiseResult.rows[0];
 
-      return { franchise, allStarDay };
-    });
+    if (franchise.phase !== 'regular_season') {
+      return res.status(400).json({ error: 'Not in regular season' });
+    }
 
-    let franchise = initialData.franchise;
-    const allStarDay = initialData.allStarDay;
+    // Get All-Star day
+    const allStarResult = await pool.query(
+      'SELECT all_star_game_day FROM seasons WHERE id = $1',
+      [franchise.season_id]
+    );
+    const allStarDay = allStarResult.rows[0]?.all_star_game_day || 85;
 
     const userResults: any[] = [];
     let daysSimulated = 0;
@@ -693,30 +718,24 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
       if (newDay > 174) break;
     }
 
-    // Final update in transaction with lock
-    const finalResult = await withTransaction(async (client) => {
-      // Re-lock to ensure no concurrent changes
-      await lockUserActiveFranchise(client, req.user.userId);
+    // Final update - simple query, no transaction needed
+    await pool.query(
+      `UPDATE franchises SET current_day = $1, phase = 'awards', all_star_complete = $2, last_played_at = NOW()
+       WHERE id = $3`,
+      [currentDay, allStarComplete, franchise.id]
+    );
 
-      // Update franchise to awards phase
-      await client.query(
-        `UPDATE franchises SET current_day = $1, phase = 'awards', all_star_complete = $2, last_played_at = NOW()
-         WHERE id = $3`,
-        [currentDay, allStarComplete, franchise.id]
-      );
+    // Get final standings
+    const standingsResult = await pool.query(
+      `SELECT s.*, t.name, t.abbreviation, t.conference
+       FROM standings s
+       JOIN teams t ON s.team_id = t.id
+       WHERE s.season_id = $1
+       ORDER BY s.wins DESC`,
+      [franchise.season_id]
+    );
 
-      // Get final standings
-      const standingsResult = await client.query(
-        `SELECT s.*, t.name, t.abbreviation, t.conference
-         FROM standings s
-         JOIN teams t ON s.team_id = t.id
-         WHERE s.season_id = $1
-         ORDER BY s.wins DESC`,
-        [franchise.season_id]
-      );
-
-      return standingsResult.rows;
-    });
+    const finalResult = standingsResult.rows;
 
     res.json({
       message: 'Regular season complete! View awards before playoffs.',
