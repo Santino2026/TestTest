@@ -546,10 +546,10 @@ router.post('/advance/day', authMiddleware(true), async (req: any, res) => {
 
     // Get All-Star day
     const allStarResult = await pool.query(
-      'SELECT all_star_game_day FROM seasons WHERE id = $1',
+      'SELECT all_star_day FROM seasons WHERE id = $1',
       [franchise.season_id]
     );
-    const allStarDay = allStarResult.rows[0]?.all_star_game_day || 85;
+    const allStarDay = allStarResult.rows[0]?.all_star_day || 85;
 
     // Check if it's All-Star Weekend (and not already completed)
     if (newDay >= allStarDay && !franchise.all_star_complete && newDay < allStarDay + 4) {
@@ -608,10 +608,10 @@ router.post('/advance/week', authMiddleware(true), async (req: any, res) => {
 
     // Get All-Star day
     const allStarResult = await pool.query(
-      'SELECT all_star_game_day FROM seasons WHERE id = $1',
+      'SELECT all_star_day FROM seasons WHERE id = $1',
       [franchise.season_id]
     );
-    const allStarDay = allStarResult.rows[0]?.all_star_game_day || 85;
+    const allStarDay = allStarResult.rows[0]?.all_star_day || 85;
 
     // Step 2: Simulate games OUTSIDE transaction
     const allResults: any[] = [];
@@ -691,10 +691,10 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
 
     // Get All-Star day
     const allStarResult = await pool.query(
-      'SELECT all_star_game_day FROM seasons WHERE id = $1',
+      'SELECT all_star_day FROM seasons WHERE id = $1',
       [franchise.season_id]
     );
-    const allStarDay = allStarResult.rows[0]?.all_star_game_day || 85;
+    const allStarDay = allStarResult.rows[0]?.all_star_day || 85;
 
     const userResults: any[] = [];
     let daysSimulated = 0;
