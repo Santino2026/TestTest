@@ -374,6 +374,21 @@ export function simulatePossession(context: PossessionContext): PossessionResult
   const maxPasses = 6;
 
   while (shotClock > 0) {
+    // Guard against invalid ball handler
+    if (!ballHandler || !ballHandler.id || !ballHandler.attributes) {
+      ballHandler = selectBallHandler(context.players_on_court);
+      if (!ballHandler) {
+        // Can't continue without a ball handler
+        return {
+          plays,
+          points_scored: 0,
+          time_elapsed: SHOT_CLOCK - shotClock,
+          possession_ended: true,
+          ending: 'turnover'
+        };
+      }
+    }
+
     // 1. Calculate action probabilities
     const actionProbs = calculateActionProbabilities(ballHandler, context, shotClock);
 
@@ -516,8 +531,26 @@ export function simulatePossession(context: PossessionContext): PossessionResult
       }
 
       case 'pass': {
-        // Select random teammate
-        const teammates = context.players_on_court.filter(p => p.id !== ballHandler.id);
+        // Select random teammate - guard against undefined ballHandler
+        if (!ballHandler || !ballHandler.id) {
+          // Fallback: select a new ball handler
+          ballHandler = selectBallHandler(context.players_on_court);
+          if (!ballHandler) {
+            return {
+              plays,
+              points_scored: 0,
+              time_elapsed: SHOT_CLOCK - shotClock,
+              possession_ended: true,
+              ending: 'turnover'
+            };
+          }
+        }
+        const teammates = context.players_on_court.filter(p => p && p.id && p.id !== ballHandler.id);
+        if (teammates.length === 0) {
+          // No valid teammates, force a shot
+          shotClock -= 2;
+          continue;
+        }
         const receiver = teammates[Math.floor(Math.random() * teammates.length)];
 
         const passResult = executePass(ballHandler, receiver, context.defenders);

@@ -237,6 +237,10 @@ export function selectShotType(
 
 // Calculate shot distance based on position and situation
 export function calculateShotDistance(shooter: SimPlayer, action: string): number {
+  // Guard against undefined shooter
+  if (!shooter || !shooter.attributes) {
+    return 15; // Default mid-range distance
+  }
   const attrs = shooter.attributes;
 
   // Guards tend to shoot more perimeter shots
