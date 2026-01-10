@@ -1340,25 +1340,33 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
       );
     }
 
-    // Generate 8 preseason games
+    // Generate preseason and regular season schedules
     const preseasonSchedule = generatePreseasonSchedule(teams);
-    for (const game of preseasonSchedule) {
-      const isUserGame = game.home_team_id === franchise.team_id || game.away_team_id === franchise.team_id;
-      await pool.query(
-        `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason)
-         VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
-        [newSeason.id, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame]
-      );
-    }
-
-    // Auto-generate 82-game regular season schedule
     const schedule = generateSchedule(teams);
-    for (const game of schedule) {
-      const isUserGame = game.home_team_id === franchise.team_id || game.away_team_id === franchise.team_id;
+
+    // Batch insert all games for performance
+    const allGames = [
+      ...preseasonSchedule.map(g => ({ ...g, is_preseason: true })),
+      ...schedule.map(g => ({ ...g, is_preseason: false }))
+    ];
+
+    const batchSize = 100;
+    for (let i = 0; i < allGames.length; i += batchSize) {
+      const batch = allGames.slice(i, i + batchSize);
+      const values: any[] = [];
+      const placeholders: string[] = [];
+
+      batch.forEach((game, idx) => {
+        const isUserGame = game.home_team_id === franchise.team_id || game.away_team_id === franchise.team_id;
+        const offset = idx * 7;
+        placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`);
+        values.push(newSeason.id, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame, game.is_preseason);
+      });
+
       await pool.query(
         `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason)
-         VALUES ($1, $2, $3, $4, $5, $6, FALSE)`,
-        [newSeason.id, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame]
+         VALUES ${placeholders.join(', ')}`,
+        values
       );
     }
 
