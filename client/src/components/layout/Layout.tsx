@@ -7,9 +7,9 @@ export default function Layout(): JSX.Element {
       {/* Top Navigation */}
       <TopNav />
 
-      {/* Main Content Area */}
+      {/* Main Content Area - Full width, edge-to-edge */}
       <main className="flex-1 overflow-auto pt-14">
-        <div className="max-w-7xl mx-auto p-4 md:p-6">
+        <div className="h-full px-4 md:px-6 py-4 md:py-6">
           <Outlet />
         </div>
       </main>
