@@ -161,17 +161,36 @@ function generateAllMatchups(teams: Team[]): Matchup[] {
     }
   };
 
-  // For conference non-division, we need consistent 4-game vs 3-game assignments
-  // Create a deterministic mapping based on sorted team IDs
-  const getConfNonDivGames = (teamA: Team, teamB: Team): number => {
-    // Get all conf non-div opponents for teamA (sorted by ID for consistency)
-    const confNonDiv = teams
-      .filter(t => t.conference === teamA.conference && t.division !== teamA.division)
-      .sort((a, b) => a.id.localeCompare(b.id));
+  // Track conference non-division game assignments per team
+  const confNonDivAssignments = new Map<string, { fourGame: number; threeGame: number }>();
 
-    // First 6 get 4 games, last 4 get 3 games
-    const idx = confNonDiv.findIndex(t => t.id === teamB.id);
-    return idx < 6 ? 4 : 3;
+  // For conference non-division, we need consistent 4-game vs 3-game assignments
+  // Use a symmetric approach that ensures each team gets exactly 6 four-game and 4 three-game opponents
+  const getConfNonDivGames = (teamA: Team, teamB: Team): number => {
+    // Each team plays 10 conf non-div opponents: 6 get 4 games, 4 get 3 games = 36 total
+
+    // Initialize tracking for both teams
+    if (!confNonDivAssignments.has(teamA.id)) {
+      confNonDivAssignments.set(teamA.id, { fourGame: 0, threeGame: 0 });
+    }
+    if (!confNonDivAssignments.has(teamB.id)) {
+      confNonDivAssignments.set(teamB.id, { fourGame: 0, threeGame: 0 });
+    }
+
+    const aStats = confNonDivAssignments.get(teamA.id)!;
+    const bStats = confNonDivAssignments.get(teamB.id)!;
+
+    // Assign 4 games if both teams still need more 4-game opponents
+    // Otherwise assign 3 games
+    if (aStats.fourGame < 6 && bStats.fourGame < 6) {
+      aStats.fourGame++;
+      bStats.fourGame++;
+      return 4;
+    } else {
+      aStats.threeGame++;
+      bStats.threeGame++;
+      return 3;
+    }
   };
 
   for (const teamA of teams) {
