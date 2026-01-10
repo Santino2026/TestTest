@@ -10,7 +10,6 @@ import {
   AlertTriangle,
   Calendar,
   TrendingUp,
-  ClipboardList,
 } from 'lucide-react';
 
 const PHASE_LABELS: Record<string, string> = {
@@ -241,8 +240,10 @@ function NextGamePanel({
   const opponentData = getOpponentData(opponentId);
   const opponentConf = opponentData?.conference || franchise.conference;
 
-  const userRank = getConferenceRank(franchise.team_id, franchise.conference);
-  const opponentRank = getConferenceRank(opponentId, opponentConf);
+  // Don't show ranks during preseason
+  const isPreseason = franchise.phase === 'preseason';
+  const userRank = isPreseason ? null : getConferenceRank(franchise.team_id, franchise.conference);
+  const opponentRank = isPreseason ? null : getConferenceRank(opponentId, opponentConf);
 
   const gameDate = new Date(nextGame.game_date);
   const isToday = new Date().toDateString() === gameDate.toDateString();
@@ -314,12 +315,6 @@ function NextGamePanel({
           </p>
         </div>
 
-        {/* View Matchup Button */}
-        <div className="flex justify-center mt-5">
-          <MetallicButton href={`/basketball/teams/${opponentId}`}>
-            VIEW MATCHUP
-          </MetallicButton>
-        </div>
       </div>
     </Panel>
   );
@@ -529,85 +524,6 @@ function NotificationCard({
   return content;
 }
 
-// Metallic Button
-function MetallicButton({
-  children,
-  onClick,
-  href,
-  disabled,
-  variant = 'default',
-}: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  href?: string;
-  disabled?: boolean;
-  variant?: 'default' | 'primary' | 'secondary';
-}) {
-  const baseStyles = `
-    relative inline-flex items-center justify-center gap-2
-    px-8 py-3 rounded-md
-    text-sm font-bold tracking-wider uppercase
-    transition-all duration-200
-    disabled:opacity-50 disabled:cursor-not-allowed
-  `;
-
-  const variantStyles = {
-    default: {
-      background: 'linear-gradient(180deg, #475569 0%, #334155 50%, #1e293b 100%)',
-      boxShadow: `
-        inset 0 1px 0 rgba(255,255,255,0.1),
-        inset 0 -1px 0 rgba(0,0,0,0.2),
-        0 2px 8px rgba(0,0,0,0.3)
-      `,
-      color: '#e2e8f0',
-    },
-    primary: {
-      background: 'linear-gradient(180deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%)',
-      boxShadow: `
-        inset 0 1px 0 rgba(255,255,255,0.2),
-        inset 0 -1px 0 rgba(0,0,0,0.2),
-        0 2px 8px rgba(37, 99, 235, 0.4),
-        0 0 20px rgba(37, 99, 235, 0.2)
-      `,
-      color: '#ffffff',
-    },
-    secondary: {
-      background: 'linear-gradient(180deg, #374151 0%, #1f2937 50%, #111827 100%)',
-      boxShadow: `
-        inset 0 1px 0 rgba(255,255,255,0.05),
-        inset 0 -1px 0 rgba(0,0,0,0.2),
-        0 2px 8px rgba(0,0,0,0.3)
-      `,
-      color: '#9ca3af',
-    },
-  };
-
-  const styles = variantStyles[variant];
-
-  if (href) {
-    return (
-      <Link
-        to={href}
-        className={baseStyles}
-        style={styles}
-      >
-        {children}
-      </Link>
-    );
-  }
-
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={baseStyles}
-      style={styles}
-    >
-      {children}
-    </button>
-  );
-}
-
 // Action Buttons Bar
 function ActionButtonsBar({
   onSimDay,
@@ -617,31 +533,12 @@ function ActionButtonsBar({
   isSimulating: boolean;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-3">
-      {/* Set Lineup / My Roster */}
-      <Link
-        to="/basketball/roster"
-        className="relative flex items-center justify-center gap-2 py-4 rounded-lg text-sm font-bold tracking-wider uppercase transition-all duration-200 hover:scale-[1.02]"
-        style={{
-          background: 'linear-gradient(180deg, #374151 0%, #1f2937 50%, #111827 100%)',
-          boxShadow: `
-            inset 0 1px 0 rgba(255,255,255,0.05),
-            inset 0 -1px 0 rgba(0,0,0,0.3),
-            0 4px 12px rgba(0,0,0,0.4)
-          `,
-          color: '#9ca3af',
-        }}
-      >
-        <ClipboardList className="w-5 h-5" />
-        <span className="hidden sm:inline">SET LINEUP</span>
-        <span className="sm:hidden">LINEUP</span>
-      </Link>
-
+    <div>
       {/* Sim Day - Primary Action */}
       <button
         onClick={onSimDay}
         disabled={isSimulating}
-        className="relative flex items-center justify-center gap-2 py-4 rounded-lg text-sm font-bold tracking-wider uppercase transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full relative flex items-center justify-center gap-2 py-4 rounded-lg text-sm font-bold tracking-wider uppercase transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
         style={{
           background: 'linear-gradient(180deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%)',
           boxShadow: `
