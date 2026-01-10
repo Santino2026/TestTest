@@ -68,3 +68,12 @@ export function calculateGB(leaderWins: number, leaderLosses: number, wins: numb
   if (gb === 0) return '-';
   return gb.toFixed(1);
 }
+
+// Format season day for display (handles preseason negative days)
+export function formatSeasonDay(currentDay: number, phase: string): string {
+  if (phase === 'preseason') {
+    const gameNumber = (currentDay ?? -7) + 8;
+    return `Preseason Game ${gameNumber}/8`;
+  }
+  return `Day ${currentDay}`;
+}

@@ -191,7 +191,9 @@ export default function FranchisesPage() {
                 <div className="flex items-center gap-2 mb-4 text-sm">
                   <Calendar className="w-4 h-4 text-slate-400" />
                   <span className="text-slate-300">
-                    {phaseLabels[f.phase] || f.phase} - Day {f.current_day}
+                    {f.phase === 'preseason'
+                      ? `Preseason - Game ${(f.current_day ?? -7) + 8}/8`
+                      : `${phaseLabels[f.phase] || f.phase} - Day ${f.current_day}`}
                   </span>
                 </div>
 
