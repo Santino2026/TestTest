@@ -26,7 +26,8 @@ async function getTeamContext(teamId: string, seasonId: string): Promise<CPUTeam
             (SELECT COALESCE(AVG(overall), 70) FROM players WHERE team_id = t.id) as avg_overall,
             (SELECT COUNT(*) FROM players WHERE team_id = t.id AND overall >= 80) as star_count,
             (SELECT COUNT(*) FROM players WHERE team_id = t.id AND age < 25 AND potential >= 75) as young_talent,
-            (SELECT COALESCE(SUM(salary), 0) FROM players WHERE team_id = t.id) as payroll
+            (SELECT COALESCE(SUM(salary), 0) FROM players WHERE team_id = t.id) as payroll,
+            (SELECT COALESCE(salary_cap, 140000000) FROM salary_cap_settings WHERE season_id = $2 LIMIT 1) as salary_cap
      FROM teams t
      LEFT JOIN standings s ON t.id = s.team_id AND s.season_id = $2
      WHERE t.id = $1`,
@@ -39,7 +40,8 @@ async function getTeamContext(teamId: string, seasonId: string): Promise<CPUTeam
   const wins = team.wins || 0;
   const losses = team.losses || 0;
   const payroll = parseInt(team.payroll) || 0;
-  const capSpace = 140000000 - payroll;
+  const salaryCap = parseInt(team.salary_cap) || 140000000;
+  const capSpace = salaryCap - payroll;
 
   // Get roster for positional analysis
   const rosterResult = await pool.query(

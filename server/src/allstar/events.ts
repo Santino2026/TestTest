@@ -452,13 +452,8 @@ export async function simulateAllStarGame(seasonId: string): Promise<EventResult
     [seasonId]
   );
 
-  // Debug logging
-  console.log(`All-Star query returned ${result.rows.length} players for season ${seasonId}`);
-
   const eastTeam = result.rows.filter((r: any) => r.conference === 'east' || r.conference === 'Eastern');
   const westTeam = result.rows.filter((r: any) => r.conference === 'west' || r.conference === 'Western');
-
-  console.log(`East team: ${eastTeam.length}, West team: ${westTeam.length}`);
 
   // Verify we have All-Stars selected
   if (eastTeam.length === 0 || westTeam.length === 0) {

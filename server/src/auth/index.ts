@@ -2,7 +2,11 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db/pool';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'sportsleagueoffice-secret-2024';
+const envJwtSecret = process.env.JWT_SECRET;
+if (!envJwtSecret) {
+  throw new Error('JWT_SECRET environment variable is required');
+}
+const JWT_SECRET: string = envJwtSecret;
 const JWT_EXPIRES_IN = '1h';
 const REFRESH_TOKEN_EXPIRES_DAYS = 30;
 
