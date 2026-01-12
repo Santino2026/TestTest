@@ -83,7 +83,7 @@ export async function getFranchiseWithDetails(
 export async function getCurrentSeasonId(client?: PoolClient): Promise<string | null> {
   const db = client || pool;
   const result = await db.query(
-    `SELECT id FROM seasons WHERE status != 'completed' ORDER BY season_number DESC LIMIT 1`
+    `SELECT id FROM seasons WHERE status != 'completed' ORDER BY id DESC LIMIT 1`
   );
   return result.rows[0]?.id || null;
 }
