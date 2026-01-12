@@ -8,18 +8,15 @@ Premium single-player basketball franchise simulation. $10 one-time purchase via
 
 ## Rules
 
--Be honest.
--Be efficient.
--Never overengineer/create unnecessary code.
--Never duplicate code.
--Never create race conditions
--Don’t hardcode secrets. All secrets go into .env. With .gitignore ignoring .env.
--Don’t assume you know the code.
--Never create god objects or allow a file to become a god object. If a file starts to become a god object, then notify for a refactor
--Don’t create fallbacks. Just show the error.
--Stick to the design theme, templates, and components. If we need new design then create components that fit the theme and build off one another. Don’t hardcode.
--Keep main directory organized logically.
--Put all documentation created organized properly into a /docs folder.
+- Be honest with me.
+- Check `__claude.md__` in folders for directory-specific rules.
+- Don't assume you know the code—investigate first.
+- SSH in when needed, you have the information.
+- All secrets go in `.env` (ignored by `.gitignore`).
+- Check available `.env` for credentials.
+- Put documentation in `/docs`.
+- Keep main directory organized logically.
+- Stick to the design theme, templates, and components. Create reusable components that fit the theme—don't hardcode.
 
 
 ---
@@ -311,35 +308,40 @@ Awards → Offseason → Draft Lottery → Draft → Free Agency → Trades
 /api/health          # API health check
 ```
 
-# Coding Rules 
+## Coding Rules
 
 Keep code clarity, consistency, and maintainability while preserving exact functionality. Your expertise lies in applying project-specific best practices to simplify and improve code without altering its behavior. You prioritize readable, explicit code over overly compact solutions. This is a balance that you have mastered as a result your years as an expert software engineer.
 
-2. **Apply Project Standards**:
+1. **General Principles**:
+   - Be efficient.
+   - Never overengineer/create unnecessary code.
+   - Never duplicate code.
+   - Never create race conditions.
+   - Never create fallbacks.
+   - Never create god objects or allow a file to become a god object. If a file starts to become a god object, then notify for a refactor.
 
-- Use ES modules with proper import sorting and extensions
-- Prefer `function` keyword over arrow functions
-- Use explicit return type annotations for top-level functions
-- Follow proper React component patterns with explicit Props types
-- Use proper error handling patterns (avoid try/catch when possible)
-- Maintain consistent naming conventions
+2. **Apply Project Standards**:
+   - Use ES modules with proper import sorting and extensions
+   - Prefer `function` keyword over arrow functions
+   - Use explicit return type annotations for top-level functions
+   - Follow proper React component patterns with explicit Props types
+   - Use proper error handling patterns (avoid try/catch when possible)
+   - Maintain consistent naming conventions
 
 3. **Enhance Clarity**: Simplify code structure by:
-
-- Reducing unnecessary complexity and nesting
-- Eliminating redundant code and abstractions
-- Improving readability through clear variable and function names
-- Consolidating related logic
-- Removing unnecessary comments that describe obvious code
-- IMPORTANT: Avoid nested ternary operators - prefer switch statements or if/else chains for multiple conditions
-- Choose clarity over brevity - explicit code is often better than overly compact code
+   - Reducing unnecessary complexity and nesting
+   - Eliminating redundant code and abstractions
+   - Improving readability through clear variable and function names
+   - Consolidating related logic
+   - Removing unnecessary comments that describe obvious code
+   - IMPORTANT: Avoid nested ternary operators - prefer switch statements or if/else chains for multiple conditions
+   - Choose clarity over brevity - explicit code is often better than overly compact code
 
 4. **Maintain Balance**: Avoid over-simplification that could:
-
-- Reduce code clarity or maintainability
-- Create overly clever solutions that are hard to understand
-- Combine too many concerns into single functions or components
-- Remove helpful abstractions that improve code organization
-- Prioritize "fewer lines" over readability (e.g., nested ternaries, dense one-liners)
-- Make the code harder to debug or extend
+   - Reduce code clarity or maintainability
+   - Create overly clever solutions that are hard to understand
+   - Combine too many concerns into single functions or components
+   - Remove helpful abstractions that improve code organization
+   - Prioritize "fewer lines" over readability (e.g., nested ternaries, dense one-liners)
+   - Make the code harder to debug or extend
 

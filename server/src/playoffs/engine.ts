@@ -27,6 +27,60 @@ interface PlayoffSeries {
   status: 'pending' | 'in_progress' | 'completed';
 }
 
+interface PlayInResults {
+  eastern7: string;
+  eastern8: string;
+  western7: string;
+  western8: string;
+}
+
+// Home court follows 2-2-1-1-1 pattern: higher seed hosts games 1, 2, 5, 7
+const HIGHER_SEED_HOME_GAMES = [0, 1, 4, 6];
+
+// Determine which team has home court for a given game number
+export function getHomeTeamIds(
+  gamesPlayed: number,
+  higherSeedId: string,
+  lowerSeedId: string
+): { homeTeamId: string; awayTeamId: string } {
+  const homeIsHigherSeed = HIGHER_SEED_HOME_GAMES.includes(gamesPlayed);
+  return {
+    homeTeamId: homeIsHigherSeed ? higherSeedId : lowerSeedId,
+    awayTeamId: homeIsHigherSeed ? lowerSeedId : higherSeedId
+  };
+}
+
+// Get wins needed to complete a series (play-in is single game, others best of 7)
+export function getWinsNeeded(round: number): number {
+  return round === 0 ? 1 : 4;
+}
+
+// Extract play-in winners to generate first round
+export function extractPlayInWinners(playInSeries: any[]): PlayInResults | null {
+  if (playInSeries.length !== 6) {
+    return null;
+  }
+
+  const allComplete = playInSeries.every((s: any) => s.status === 'completed');
+  if (!allComplete) {
+    return null;
+  }
+
+  const findWinner = (conf: string, seriesNum: number): string | undefined =>
+    playInSeries.find((s: any) => s.conference === conf && s.series_number === seriesNum)?.winner_id;
+
+  const eastern7 = findWinner('Eastern', 1);
+  const eastern8 = findWinner('Eastern', 3);
+  const western7 = findWinner('Western', 1);
+  const western8 = findWinner('Western', 3);
+
+  if (!eastern7 || !eastern8 || !western7 || !western8) {
+    return null;
+  }
+
+  return { eastern7, eastern8, western7, western8 };
+}
+
 // Get standings sorted by conference
 export async function getPlayoffStandings(seasonId: string): Promise<{
   eastern: TeamStanding[];
@@ -165,70 +219,63 @@ export async function checkPlayInGames12Complete(
 // Generate first round matchups (after play-in complete)
 export async function generateFirstRound(
   seasonId: string,
-  playInResults: { eastern7: string; eastern8: string; western7: string; western8: string }
+  playInResults: PlayInResults
 ): Promise<PlayoffSeries[]> {
-  const { eastern, western } = await getPlayoffStandings(seasonId);
+  const standings = await getPlayoffStandings(seasonId);
   const series: PlayoffSeries[] = [];
 
-  // Eastern Conference First Round
-  const easternSeeds = [
-    eastern[0].team_id, eastern[1].team_id, eastern[2].team_id,
-    eastern[3].team_id, eastern[4].team_id, eastern[5].team_id,
-    playInResults.eastern7, playInResults.eastern8
+  // First round matchups: 1v8, 2v7, 3v6, 4v5
+  const FIRST_ROUND_MATCHUPS = [[0, 7], [1, 6], [2, 5], [3, 4]];
+
+  const conferences: Array<{
+    name: 'Eastern' | 'Western';
+    teams: TeamStanding[];
+    seed7: string;
+    seed8: string;
+  }> = [
+    { name: 'Eastern', teams: standings.eastern, seed7: playInResults.eastern7, seed8: playInResults.eastern8 },
+    { name: 'Western', teams: standings.western, seed7: playInResults.western7, seed8: playInResults.western8 }
   ];
 
-  // 1 vs 8, 2 vs 7, 3 vs 6, 4 vs 5
-  const easternMatchups = [
-    [0, 7], [1, 6], [2, 5], [3, 4]
-  ];
+  for (const conf of conferences) {
+    // Seeds 1-6 from standings, 7-8 from play-in results
+    const seeds = [
+      conf.teams[0].team_id, conf.teams[1].team_id, conf.teams[2].team_id,
+      conf.teams[3].team_id, conf.teams[4].team_id, conf.teams[5].team_id,
+      conf.seed7, conf.seed8
+    ];
 
-  easternMatchups.forEach(([higher, lower], idx) => {
-    series.push({
-      season_id: seasonId,
-      round: 1,
-      conference: 'Eastern',
-      series_number: idx + 1,
-      higher_seed_id: easternSeeds[higher],
-      lower_seed_id: easternSeeds[lower],
-      higher_seed_wins: 0,
-      lower_seed_wins: 0,
-      winner_id: null,
-      status: 'pending'
+    FIRST_ROUND_MATCHUPS.forEach(([higher, lower], idx) => {
+      series.push({
+        season_id: seasonId,
+        round: 1,
+        conference: conf.name,
+        series_number: idx + 1,
+        higher_seed_id: seeds[higher],
+        lower_seed_id: seeds[lower],
+        higher_seed_wins: 0,
+        lower_seed_wins: 0,
+        winner_id: null,
+        status: 'pending'
+      });
     });
-  });
-
-  // Western Conference First Round
-  const westernSeeds = [
-    western[0].team_id, western[1].team_id, western[2].team_id,
-    western[3].team_id, western[4].team_id, western[5].team_id,
-    playInResults.western7, playInResults.western8
-  ];
-
-  const westernMatchups = [
-    [0, 7], [1, 6], [2, 5], [3, 4]
-  ];
-
-  westernMatchups.forEach(([higher, lower], idx) => {
-    series.push({
-      season_id: seasonId,
-      round: 1,
-      conference: 'Western',
-      series_number: idx + 1,
-      higher_seed_id: westernSeeds[higher],
-      lower_seed_id: westernSeeds[lower],
-      higher_seed_wins: 0,
-      lower_seed_wins: 0,
-      winner_id: null,
-      status: 'pending'
-    });
-  });
+  }
 
   return series;
 }
 
+// Get matchup indices for a given round
+// Semis (round 2): 1v4, 2v3 - highest remaining seed vs lowest
+// Conf Finals (round 3): Only 2 teams remain
+function getConferenceMatchups(round: number): number[][] {
+  if (round === 2) {
+    return [[0, 3], [1, 2]];
+  }
+  return [[0, 1]];
+}
+
 // Generate next round matchups based on previous round winners
 export async function generateNextRound(seasonId: string, round: number): Promise<PlayoffSeries[]> {
-  // Get previous round winners
   const prevRoundResult = await pool.query(
     `SELECT * FROM playoff_series
      WHERE season_id = $1 AND round = $2 AND winner_id IS NOT NULL
@@ -239,8 +286,8 @@ export async function generateNextRound(seasonId: string, round: number): Promis
   const prevSeries = prevRoundResult.rows;
   const series: PlayoffSeries[] = [];
 
+  // Finals - conference champions face off
   if (round === 4) {
-    // Finals - conference winners
     const easternWinner = prevSeries.find((s: any) => s.conference === 'Eastern')?.winner_id;
     const westernWinner = prevSeries.find((s: any) => s.conference === 'Western')?.winner_id;
 
@@ -250,7 +297,7 @@ export async function generateNextRound(seasonId: string, round: number): Promis
         round: 4,
         conference: null,
         series_number: 1,
-        higher_seed_id: easternWinner, // Could determine by record
+        higher_seed_id: easternWinner,
         lower_seed_id: westernWinner,
         higher_seed_wins: 0,
         lower_seed_wins: 0,
@@ -258,33 +305,31 @@ export async function generateNextRound(seasonId: string, round: number): Promis
         status: 'pending'
       });
     }
-  } else {
-    // Semi-finals and Conference Finals
-    for (const conf of ['Eastern', 'Western']) {
-      const confSeries = prevSeries.filter((s: any) => s.conference === conf);
+    return series;
+  }
 
-      // Match winners: series 1 winner vs series 4 winner, series 2 winner vs series 3 winner
-      const matchups = round === 2
-        ? [[0, 3], [1, 2]] // Semis: 1v4, 2v3
-        : [[0, 1]]; // Conf Finals: only 2 teams left
+  // Conference Semifinals and Finals
+  const matchups = getConferenceMatchups(round);
 
-      matchups.forEach(([idx1, idx2], seriesNum) => {
-        if (confSeries[idx1]?.winner_id && confSeries[idx2]?.winner_id) {
-          series.push({
-            season_id: seasonId,
-            round: round,
-            conference: conf,
-            series_number: seriesNum + 1,
-            higher_seed_id: confSeries[idx1].winner_id,
-            lower_seed_id: confSeries[idx2].winner_id,
-            higher_seed_wins: 0,
-            lower_seed_wins: 0,
-            winner_id: null,
-            status: 'pending'
-          });
-        }
-      });
-    }
+  for (const conf of ['Eastern', 'Western']) {
+    const confSeries = prevSeries.filter((s: any) => s.conference === conf);
+
+    matchups.forEach(([idx1, idx2], seriesNum) => {
+      if (confSeries[idx1]?.winner_id && confSeries[idx2]?.winner_id) {
+        series.push({
+          season_id: seasonId,
+          round: round,
+          conference: conf,
+          series_number: seriesNum + 1,
+          higher_seed_id: confSeries[idx1].winner_id,
+          lower_seed_id: confSeries[idx2].winner_id,
+          higher_seed_wins: 0,
+          lower_seed_wins: 0,
+          winner_id: null,
+          status: 'pending'
+        });
+      }
+    });
   }
 
   return series;
@@ -345,14 +390,15 @@ export async function updateSeriesResult(
     lowerWins++;
   }
 
-  // Check if series is complete (best of 7 = first to 4)
+  // Check if series is complete
+  const winsNeeded = getWinsNeeded(series.round);
   let seriesWinner: string | null = null;
   let newStatus = 'in_progress';
 
-  if (higherWins === 4) {
+  if (higherWins >= winsNeeded) {
     seriesWinner = series.higher_seed_id;
     newStatus = 'completed';
-  } else if (lowerWins === 4) {
+  } else if (lowerWins >= winsNeeded) {
     seriesWinner = series.lower_seed_id;
     newStatus = 'completed';
   }
@@ -425,4 +471,76 @@ export function getRoundName(round: number): string {
     case 4: return 'NBA Finals';
     default: return `Round ${round}`;
   }
+}
+
+// Check if all series in a round are complete
+export async function isRoundComplete(seasonId: string, round: number): Promise<boolean> {
+  const result = await pool.query(
+    `SELECT COUNT(*) as incomplete FROM playoff_series
+     WHERE season_id = $1 AND round = $2 AND status != 'completed'`,
+    [seasonId, round]
+  );
+  return parseInt(result.rows[0].incomplete) === 0;
+}
+
+// Get all play-in series for a season
+export async function getPlayInSeries(seasonId: string): Promise<any[]> {
+  const result = await pool.query(
+    `SELECT * FROM playoff_series
+     WHERE season_id = $1 AND round = 0
+     ORDER BY conference, series_number`,
+    [seasonId]
+  );
+  return result.rows;
+}
+
+// Handle play-in game 3 generation for both conferences
+// Returns true if any game 3 was generated
+export async function generatePlayInGame3IfReady(seasonId: string): Promise<boolean> {
+  let generated = false;
+
+  for (const conf of ['Eastern', 'Western']) {
+    const check = await checkPlayInGames12Complete(seasonId, conf);
+    if (check.complete && check.loser7v8 && check.winner9v10) {
+      const game3 = await generatePlayInGame3(seasonId, conf, check.loser7v8, check.winner9v10);
+      await saveSeries([game3]);
+      generated = true;
+    }
+  }
+
+  return generated;
+}
+
+// Generate next round after current round completes
+// Handles play-in -> first round and all subsequent transitions
+export async function generateNextRoundIfReady(seasonId: string, completedRound: number): Promise<PlayoffSeries[]> {
+  // Don't generate beyond finals
+  if (completedRound >= 4) {
+    return [];
+  }
+
+  // Handle play-in round specially
+  if (completedRound === 0) {
+    // First check if we need to generate game 3
+    await generatePlayInGame3IfReady(seasonId);
+
+    // Then check if all play-in games are complete
+    const playInSeries = await getPlayInSeries(seasonId);
+    const playInResults = extractPlayInWinners(playInSeries);
+
+    if (playInResults) {
+      const firstRound = await generateFirstRound(seasonId, playInResults);
+      await saveSeries(firstRound);
+      return firstRound;
+    }
+
+    return [];
+  }
+
+  // For other rounds, generate next round
+  const nextSeries = await generateNextRound(seasonId, completedRound + 1);
+  if (nextSeries.length > 0) {
+    await saveSeries(nextSeries);
+  }
+  return nextSeries;
 }

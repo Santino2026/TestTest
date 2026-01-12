@@ -5,6 +5,8 @@ import gamesRouter from './games';
 import franchiseRouter from './franchise';
 import scheduleRouter from './schedule';
 import seasonRouter from './season';
+import preseasonRouter from './preseason';
+import offseasonRouter from './offseason';
 import playoffsRouter from './playoffs';
 import standingsRouter from './standings';
 import traitsRouter from './traits';
@@ -27,6 +29,8 @@ router.use('/games', gamesRouter);
 router.use('/franchise', franchiseRouter);
 router.use('/schedule', scheduleRouter);
 router.use('/season', seasonRouter);
+router.use('/season/advance/preseason', preseasonRouter);
+router.use('/season', offseasonRouter); // Mounts offseason routes under /season (e.g., /season/offseason/*, /season/finalize-playoffs, etc.)
 router.use('/playoffs', playoffsRouter);
 router.use('/standings', standingsRouter);
 router.use('/traits', traitsRouter);

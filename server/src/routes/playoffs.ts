@@ -8,15 +8,15 @@ import { withAdvisoryLock, withTransaction, lockPlayoffSeries } from '../db/tran
 import { savePlayoffGame } from '../services/gamePersistence';
 import {
   generatePlayIn,
-  generatePlayInGame3,
-  checkPlayInGames12Complete,
-  generateFirstRound,
-  generateNextRound,
   saveSeries,
   updateSeriesResult,
   getPlayoffState,
   getPlayoffStandings,
-  getRoundName
+  getRoundName,
+  getHomeTeamIds,
+  getWinsNeeded,
+  isRoundComplete,
+  generateNextRoundIfReady
 } from '../playoffs';
 
 const router = Router();
@@ -134,7 +134,6 @@ router.post('/simulate', authMiddleware(true), async (req: any, res) => {
 
     // Use advisory lock to prevent concurrent simulations of the same series
     const gameResult = await withAdvisoryLock(`playoff-series-${series_id}`, async (client) => {
-      // Lock and get series info
       const series = await lockPlayoffSeries(client, series_id);
 
       if (!series) {
@@ -145,94 +144,32 @@ router.post('/simulate', authMiddleware(true), async (req: any, res) => {
         throw { status: 400, message: 'Series already completed' };
       }
 
-      // Determine home team (alternates 2-2-1-1-1)
+      // Determine home team using 2-2-1-1-1 pattern
       const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
-      const homeIsHigherSeed = [0, 1, 4, 6].includes(gamesPlayed);
-      const homeTeamId = homeIsHigherSeed ? series.higher_seed_id : series.lower_seed_id;
-      const awayTeamId = homeIsHigherSeed ? series.lower_seed_id : series.higher_seed_id;
+      const { homeTeamId, awayTeamId } = getHomeTeamIds(
+        gamesPlayed,
+        series.higher_seed_id,
+        series.lower_seed_id
+      );
 
       // Load teams and simulate
       const homeTeam = await loadTeamForSimulation(homeTeamId);
       const awayTeam = await loadTeamForSimulation(awayTeamId);
       const result = simulateGame(homeTeam, awayTeam);
 
-      // Save game using helper
       await savePlayoffGame(result, series.season_id);
 
-      // Update series
       const { seriesComplete, seriesWinner } = await updateSeriesResult(
         series_id,
         result.winner_id,
         result.id
       );
 
-      // Check if we need to generate next round
+      // Generate next round if this series completion finished the round
       if (seriesComplete) {
-        // Check if all series in current round are complete
-        const roundResult = await pool.query(
-          `SELECT * FROM playoff_series
-           WHERE season_id = $1 AND round = $2 AND status != 'completed'`,
-          [series.season_id, series.round]
-        );
-
-        if (roundResult.rows.length === 0) {
-          // All series in round complete, generate next round
-          let nextSeries: any[] = [];
-
-          if (series.round === 0) {
-            // Play-in: Check if we need to generate game 3 or first round
-            for (const conf of ['Eastern', 'Western']) {
-              const check = await checkPlayInGames12Complete(series.season_id, conf);
-              if (check.complete && check.loser7v8 && check.winner9v10) {
-                const game3 = await generatePlayInGame3(
-                  series.season_id,
-                  conf,
-                  check.loser7v8,
-                  check.winner9v10
-                );
-                await saveSeries([game3]);
-              }
-            }
-
-            // Check if ALL play-in games (including game 3) are complete
-            const allPlayInResult = await pool.query(
-              `SELECT * FROM playoff_series
-               WHERE season_id = $1 AND round = 0
-               ORDER BY conference, series_number`,
-              [series.season_id]
-            );
-
-            const playInSeries = allPlayInResult.rows;
-            const allComplete = playInSeries.every((s: any) => s.status === 'completed');
-
-            if (allComplete && playInSeries.length === 6) {
-              const eastern7Winner = playInSeries.find((s: any) =>
-                s.conference === 'Eastern' && s.series_number === 1
-              )?.winner_id;
-              const eastern8Winner = playInSeries.find((s: any) =>
-                s.conference === 'Eastern' && s.series_number === 3
-              )?.winner_id;
-              const western7Winner = playInSeries.find((s: any) =>
-                s.conference === 'Western' && s.series_number === 1
-              )?.winner_id;
-              const western8Winner = playInSeries.find((s: any) =>
-                s.conference === 'Western' && s.series_number === 3
-              )?.winner_id;
-
-              nextSeries = await generateFirstRound(series.season_id, {
-                eastern7: eastern7Winner,
-                eastern8: eastern8Winner,
-                western7: western7Winner,
-                western8: western8Winner
-              });
-            }
-          } else if (series.round < 4) {
-            nextSeries = await generateNextRound(series.season_id, series.round + 1);
-          }
-
-          if (nextSeries.length > 0) {
-            await saveSeries(nextSeries);
-          }
+        const roundComplete = await isRoundComplete(series.season_id, series.round);
+        if (roundComplete) {
+          await generateNextRoundIfReady(series.season_id, series.round);
         }
       }
 
@@ -267,7 +204,6 @@ router.post('/simulate/series', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: 'series_id is required' });
     }
 
-    // Get series info
     const seriesResult = await pool.query(
       `SELECT ps.*,
               ht.name as higher_name, ht.abbreviation as higher_abbrev,
@@ -290,23 +226,22 @@ router.post('/simulate/series', authMiddleware(true), async (req: any, res) => {
     }
 
     const gamesSimulated = [];
-    const winsNeeded = series.round === 0 ? 1 : 4; // Play-in is single game, others best of 7
+    const winsNeeded = getWinsNeeded(series.round);
 
     // Simulate until series is complete
     while (series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
       const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
-      const homeIsHigherSeed = [0, 1, 4, 6].includes(gamesPlayed);
-      const homeTeamId = homeIsHigherSeed ? series.higher_seed_id : series.lower_seed_id;
-      const awayTeamId = homeIsHigherSeed ? series.lower_seed_id : series.higher_seed_id;
+      const { homeTeamId, awayTeamId } = getHomeTeamIds(
+        gamesPlayed,
+        series.higher_seed_id,
+        series.lower_seed_id
+      );
 
       const homeTeam = await loadTeamForSimulation(homeTeamId);
       const awayTeam = await loadTeamForSimulation(awayTeamId);
       const result = simulateGame(homeTeam, awayTeam);
 
-      // Save game using helper
       await savePlayoffGame(result, series.season_id);
-
-      // Update series
       await updateSeriesResult(series_id, result.winner_id, result.id);
 
       gamesSimulated.push({
@@ -325,52 +260,13 @@ router.post('/simulate/series', authMiddleware(true), async (req: any, res) => {
       series = refreshResult.rows[0];
     }
 
-    // Generate next round if needed
-    const roundComplete = await pool.query(
-      `SELECT * FROM playoff_series
-       WHERE season_id = $1 AND round = $2 AND status != 'completed'`,
-      [series.season_id, series.round]
-    );
-
-    if (roundComplete.rows.length === 0) {
-      let nextSeries: any[] = [];
-
-      if (series.round === 0) {
-        // Play-in: Check if we need to generate game 3 or first round
-        for (const conf of ['Eastern', 'Western']) {
-          const check = await checkPlayInGames12Complete(series.season_id, conf);
-          if (check.complete && check.loser7v8 && check.winner9v10) {
-            const game3 = await generatePlayInGame3(series.season_id, conf, check.loser7v8, check.winner9v10);
-            await saveSeries([game3]);
-          }
-        }
-
-        // Check if ALL play-in games are complete
-        const playInResult = await pool.query(
-          `SELECT * FROM playoff_series WHERE season_id = $1 AND round = 0 ORDER BY conference, series_number`,
-          [series.season_id]
-        );
-        const playInSeries = playInResult.rows;
-        const allComplete = playInSeries.every((s: any) => s.status === 'completed');
-
-        if (allComplete && playInSeries.length === 6) {
-          nextSeries = await generateFirstRound(series.season_id, {
-            eastern7: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 1)?.winner_id,
-            eastern8: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 3)?.winner_id,
-            western7: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 1)?.winner_id,
-            western8: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 3)?.winner_id
-          });
-        }
-      } else if (series.round < 4) {
-        nextSeries = await generateNextRound(series.season_id, series.round + 1);
-      }
-
-      if (nextSeries.length > 0) {
-        await saveSeries(nextSeries);
-      }
+    // Generate next round if this completed the round
+    const roundComplete = await isRoundComplete(series.season_id, series.round);
+    if (roundComplete) {
+      await generateNextRoundIfReady(series.season_id, series.round);
     }
 
-    // Refresh series one more time
+    // Get final series state
     const finalResult = await pool.query(
       `SELECT ps.*, wt.name as winner_name
        FROM playoff_series ps
@@ -403,7 +299,6 @@ router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
 
     const seasonId = franchise.season_id;
 
-    // Get current round
     const currentRoundResult = await pool.query(
       `SELECT MAX(round) as current_round FROM playoff_series WHERE season_id = $1`,
       [seasonId]
@@ -414,14 +309,13 @@ router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: 'No playoff series found' });
     }
 
-    // Get all incomplete series in current round
     const incompleteSeries = await pool.query(
       `SELECT id FROM playoff_series WHERE season_id = $1 AND round = $2 AND status != 'completed'`,
       [seasonId, currentRound]
     );
 
     const results = [];
-    const winsNeeded = currentRound === 0 ? 1 : 4;
+    const winsNeeded = getWinsNeeded(currentRound);
 
     for (const seriesRow of incompleteSeries.rows) {
       const seriesResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
@@ -429,17 +323,17 @@ router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
 
       while (series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
         const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
-        const homeIsHigherSeed = [0, 1, 4, 6].includes(gamesPlayed);
-        const homeTeamId = homeIsHigherSeed ? series.higher_seed_id : series.lower_seed_id;
-        const awayTeamId = homeIsHigherSeed ? series.lower_seed_id : series.higher_seed_id;
+        const { homeTeamId, awayTeamId } = getHomeTeamIds(
+          gamesPlayed,
+          series.higher_seed_id,
+          series.lower_seed_id
+        );
 
         const homeTeam = await loadTeamForSimulation(homeTeamId);
         const awayTeam = await loadTeamForSimulation(awayTeamId);
         const result = simulateGame(homeTeam, awayTeam);
 
-        // Save game using helper
         await savePlayoffGame(result, seasonId);
-
         await updateSeriesResult(seriesRow.id, result.winner_id, result.id);
 
         const refreshResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
@@ -458,41 +352,7 @@ router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
     }
 
     // Generate next round
-    if (currentRound < 4) {
-      let nextSeries: any[] = [];
-      if (currentRound === 0) {
-        // Play-in: Check if we need to generate game 3 first
-        for (const conf of ['Eastern', 'Western']) {
-          const check = await checkPlayInGames12Complete(seasonId, conf);
-          if (check.complete && check.loser7v8 && check.winner9v10) {
-            const game3 = await generatePlayInGame3(seasonId, conf, check.loser7v8, check.winner9v10);
-            await saveSeries([game3]);
-          }
-        }
-
-        // Check if ALL play-in games are complete
-        const playInResult = await pool.query(
-          `SELECT * FROM playoff_series WHERE season_id = $1 AND round = 0 ORDER BY conference, series_number`,
-          [seasonId]
-        );
-        const playInSeries = playInResult.rows;
-        const allComplete = playInSeries.every((s: any) => s.status === 'completed');
-
-        if (allComplete && playInSeries.length === 6) {
-          nextSeries = await generateFirstRound(seasonId, {
-            eastern7: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 1)?.winner_id,
-            eastern8: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 3)?.winner_id,
-            western7: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 1)?.winner_id,
-            western8: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 3)?.winner_id
-          });
-        }
-      } else {
-        nextSeries = await generateNextRound(seasonId, currentRound + 1);
-      }
-      if (nextSeries.length > 0) {
-        await saveSeries(nextSeries);
-      }
-    }
+    await generateNextRoundIfReady(seasonId, currentRound);
 
     res.json({
       round: currentRound,
@@ -516,12 +376,10 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
     }
 
     const seasonId = franchise.season_id;
-
     const roundResults = [];
     let playoffsComplete = false;
 
     while (!playoffsComplete) {
-      // Get current round
       const currentRoundResult = await pool.query(
         `SELECT MAX(round) as current_round FROM playoff_series WHERE season_id = $1`,
         [seasonId]
@@ -532,17 +390,13 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
 
       // Check if Finals are complete
       if (currentRound === 4) {
-        const finalsResult = await pool.query(
-          `SELECT status FROM playoff_series WHERE season_id = $1 AND round = 4`,
-          [seasonId]
-        );
-        if (finalsResult.rows[0]?.status === 'completed') {
+        const finalsComplete = await isRoundComplete(seasonId, 4);
+        if (finalsComplete) {
           playoffsComplete = true;
           break;
         }
       }
 
-      // Get all incomplete series in current round
       const incompleteSeries = await pool.query(
         `SELECT id FROM playoff_series WHERE season_id = $1 AND round = $2 AND status != 'completed'`,
         [seasonId, currentRound]
@@ -553,7 +407,7 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
         break;
       }
 
-      const winsNeeded = currentRound === 0 ? 1 : 4;
+      const winsNeeded = getWinsNeeded(currentRound);
       const seriesResults = [];
 
       for (const seriesRow of incompleteSeries.rows) {
@@ -562,17 +416,17 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
 
         while (series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
           const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
-          const homeIsHigherSeed = [0, 1, 4, 6].includes(gamesPlayed);
-          const homeTeamId = homeIsHigherSeed ? series.higher_seed_id : series.lower_seed_id;
-          const awayTeamId = homeIsHigherSeed ? series.lower_seed_id : series.higher_seed_id;
+          const { homeTeamId, awayTeamId } = getHomeTeamIds(
+            gamesPlayed,
+            series.higher_seed_id,
+            series.lower_seed_id
+          );
 
           const homeTeam = await loadTeamForSimulation(homeTeamId);
           const awayTeam = await loadTeamForSimulation(awayTeamId);
           const result = simulateGame(homeTeam, awayTeam);
 
-          // Save game using helper
           await savePlayoffGame(result, seasonId);
-
           await updateSeriesResult(seriesRow.id, result.winner_id, result.id);
 
           const refreshResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
@@ -595,41 +449,9 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
         series: seriesResults
       });
 
-      // Generate next round
+      // Generate next round or mark playoffs complete
       if (currentRound < 4) {
-        let nextSeries: any[] = [];
-        if (currentRound === 0) {
-          // Play-in: Check if we need to generate game 3 first
-          for (const conf of ['Eastern', 'Western']) {
-            const check = await checkPlayInGames12Complete(seasonId, conf);
-            if (check.complete && check.loser7v8 && check.winner9v10) {
-              const game3 = await generatePlayInGame3(seasonId, conf, check.loser7v8, check.winner9v10);
-              await saveSeries([game3]);
-            }
-          }
-
-          // Check if ALL play-in games are complete
-          const playInResult = await pool.query(
-            `SELECT * FROM playoff_series WHERE season_id = $1 AND round = 0 ORDER BY conference, series_number`,
-            [seasonId]
-          );
-          const playInSeries = playInResult.rows;
-          const allComplete = playInSeries.every((s: any) => s.status === 'completed');
-
-          if (allComplete && playInSeries.length === 6) {
-            nextSeries = await generateFirstRound(seasonId, {
-              eastern7: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 1)?.winner_id,
-              eastern8: playInSeries.find((s: any) => s.conference === 'Eastern' && s.series_number === 3)?.winner_id,
-              western7: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 1)?.winner_id,
-              western8: playInSeries.find((s: any) => s.conference === 'Western' && s.series_number === 3)?.winner_id
-            });
-          }
-        } else {
-          nextSeries = await generateNextRound(seasonId, currentRound + 1);
-        }
-        if (nextSeries.length > 0) {
-          await saveSeries(nextSeries);
-        }
+        await generateNextRoundIfReady(seasonId, currentRound);
       } else {
         playoffsComplete = true;
       }
@@ -644,13 +466,14 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
       [seasonId]
     );
 
+    const champion = championResult.rows[0];
     res.json({
       message: 'Playoffs complete!',
       rounds_simulated: roundResults.length,
       rounds: roundResults,
-      champion: championResult.rows[0] ? {
-        name: `${championResult.rows[0].city} ${championResult.rows[0].champion_name}`,
-        abbreviation: championResult.rows[0].abbreviation
+      champion: champion ? {
+        name: `${champion.city} ${champion.champion_name}`,
+        abbreviation: champion.abbreviation
       } : null
     });
   } catch (error) {

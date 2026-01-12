@@ -142,8 +142,12 @@ export function calculatePickProbability(
 }
 
 function getChangeIndicator(change: number): string {
-  if (change > 0) return `↑${change}`;
-  if (change < 0) return `↓${Math.abs(change)}`;
+  if (change > 0) {
+    return `↑${change}`;
+  }
+  if (change < 0) {
+    return `↓${Math.abs(change)}`;
+  }
   return '→';
 }
 
