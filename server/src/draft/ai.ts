@@ -156,15 +156,22 @@ export async function selectAIPick(teamId: string, seasonId: string): Promise<Pr
     return null;
   }
 
-  // Add some randomness - 80% pick top choice, 15% pick second, 5% pick third
+  // Add some randomness to AI picks
+  // 80% pick top choice, 15% pick second, 5% pick third
   const rand = Math.random();
-  if (rand < 0.8 || evaluations.length === 1) {
-    return evaluations[0];
-  } else if (rand < 0.95 || evaluations.length === 2) {
-    return evaluations[1];
-  } else {
-    return evaluations[Math.min(2, evaluations.length - 1)];
+  const pickIndex = getRandomizedPickIndex(rand, evaluations.length);
+
+  return evaluations[pickIndex];
+}
+
+function getRandomizedPickIndex(rand: number, availableCount: number): number {
+  if (rand < 0.8 || availableCount === 1) {
+    return 0;
   }
+  if (rand < 0.95 || availableCount === 2) {
+    return 1;
+  }
+  return Math.min(2, availableCount - 1);
 }
 
 // Get current draft state

@@ -148,8 +148,14 @@ export function scoreOffer(
   }
 
   // Market score (0-100): Market size preference
-  const market_score = team.market_size === 'large' ? 100 :
-                       team.market_size === 'medium' ? 65 : 35;
+  let market_score: number;
+  if (team.market_size === 'large') {
+    market_score = 100;
+  } else if (team.market_size === 'medium') {
+    market_score = 65;
+  } else {
+    market_score = 35;
+  }
 
   // Calculate weighted total
   const total_score =

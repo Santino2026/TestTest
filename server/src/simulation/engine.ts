@@ -365,28 +365,23 @@ function simulateQuarter(
 
     // Update scores and plus/minus
     if (result.points_scored > 0) {
+      const scoringTeam = isHome ? homeTeam : awayTeam;
+      const defendingTeam = isHome ? awayTeam : homeTeam;
+
       if (isHome) {
         currentHomeScore += result.points_scored;
         quarterHomePoints += result.points_scored;
-        // Home team on court gets positive plus/minus
-        for (const player of homeTeam.on_court) {
-          player.stats.plus_minus += result.points_scored;
-        }
-        // Away team on court gets negative plus/minus
-        for (const player of awayTeam.on_court) {
-          player.stats.plus_minus -= result.points_scored;
-        }
       } else {
         currentAwayScore += result.points_scored;
         quarterAwayPoints += result.points_scored;
-        // Away team on court gets positive plus/minus
-        for (const player of awayTeam.on_court) {
-          player.stats.plus_minus += result.points_scored;
-        }
-        // Home team on court gets negative plus/minus
-        for (const player of homeTeam.on_court) {
-          player.stats.plus_minus -= result.points_scored;
-        }
+      }
+
+      // Scoring team gets positive plus/minus, defending team gets negative
+      for (const player of scoringTeam.on_court) {
+        player.stats.plus_minus += result.points_scored;
+      }
+      for (const player of defendingTeam.on_court) {
+        player.stats.plus_minus -= result.points_scored;
       }
     }
 

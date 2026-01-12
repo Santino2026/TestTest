@@ -23,7 +23,8 @@ import {
 } from './shots';
 import { updateHotColdState } from './hotcold';
 
-function getFatigueModifier(fatigue: number): number {
+// Fatigue modifier for free throws (simpler than shot fatigue in shots.ts)
+function getFreeThrowFatigueModifier(fatigue: number): number {
   if (fatigue > 70) return 0.95;
   if (fatigue > 50) return 0.98;
   return 1.0;
@@ -42,7 +43,7 @@ function simulateFreeThrows(
   const baseFTPct = shooter.attributes.free_throw / 100;
 
   // Apply fatigue modifier (slight reduction when tired)
-  const fatigueModifier = getFatigueModifier(shooter.fatigue);
+  const fatigueModifier = getFreeThrowFatigueModifier(shooter.fatigue);
 
   for (let i = 0; i < numAttempts; i++) {
     const ftChance = baseFTPct * fatigueModifier;
@@ -365,6 +366,29 @@ function getShotDescription(shotType: ShotType): string {
   }
 }
 
+// Create a rebound play object from rebound result
+function createReboundPlay(
+  reboundResult: { rebounder: SimPlayer; offensive: boolean },
+  context: PossessionContext,
+  gameClock: number,
+  shotClock: number
+): Play {
+  const playType = reboundResult.offensive ? 'offensive_rebound' : 'defensive_rebound';
+  return {
+    id: uuidv4(),
+    type: playType,
+    quarter: context.quarter,
+    game_clock: gameClock,
+    shot_clock: reboundResult.offensive ? 14 : SHOT_CLOCK,
+    primary_player_id: reboundResult.rebounder.id,
+    team_id: reboundResult.offensive ? context.team.id : context.opponent.id,
+    points: 0,
+    home_score: 0,
+    away_score: 0,
+    description: generateDescription(playType, reboundResult.rebounder)
+  };
+}
+
 // Main possession simulation
 export function simulatePossession(context: PossessionContext): PossessionResult {
   const plays: Play[] = [];
@@ -494,22 +518,12 @@ export function simulatePossession(context: PossessionContext): PossessionResult
           distance
         );
 
-        const reboundPlay: Play = {
-          id: uuidv4(),
-          type: reboundResult.offensive ? 'offensive_rebound' : 'defensive_rebound',
-          quarter: context.quarter,
-          game_clock: context.game_clock - (SHOT_CLOCK - shotClock) - 2,
-          shot_clock: reboundResult.offensive ? 14 : SHOT_CLOCK,
-          primary_player_id: reboundResult.rebounder.id,
-          team_id: reboundResult.offensive ? context.team.id : context.opponent.id,
-          points: 0,
-          home_score: 0,
-          away_score: 0,
-          description: generateDescription(
-            reboundResult.offensive ? 'offensive_rebound' : 'defensive_rebound',
-            reboundResult.rebounder
-          )
-        };
+        const reboundPlay = createReboundPlay(
+          reboundResult,
+          context,
+          context.game_clock - (SHOT_CLOCK - shotClock) - 2,
+          shotClock
+        );
         plays.push(reboundPlay);
 
         if (reboundResult.offensive) {
@@ -654,10 +668,11 @@ export function simulatePossession(context: PossessionContext): PossessionResult
           };
         }
 
-        // Drive leads to close shot
-        const shotType: ShotType = ballHandler.attributes.vertical > 70 && Math.random() < 0.4
-          ? 'dunk'
-          : 'layup';
+        // Drive leads to close shot - dunk if athletic enough
+        let shotType: ShotType = 'layup';
+        if (ballHandler.attributes.vertical > 70 && Math.random() < 0.4) {
+          shotType = 'dunk';
+        }
 
         const contestLevel = determineContestLevel(ballHandler, defender, shotType, context.is_fast_break);
 
@@ -724,22 +739,12 @@ export function simulatePossession(context: PossessionContext): PossessionResult
           3
         );
 
-        const reboundPlay: Play = {
-          id: uuidv4(),
-          type: reboundResult.offensive ? 'offensive_rebound' : 'defensive_rebound',
-          quarter: context.quarter,
-          game_clock: context.game_clock - (SHOT_CLOCK - shotClock) - 4,
-          shot_clock: reboundResult.offensive ? 14 : SHOT_CLOCK,
-          primary_player_id: reboundResult.rebounder.id,
-          team_id: reboundResult.offensive ? context.team.id : context.opponent.id,
-          points: 0,
-          home_score: 0,
-          away_score: 0,
-          description: generateDescription(
-            reboundResult.offensive ? 'offensive_rebound' : 'defensive_rebound',
-            reboundResult.rebounder
-          )
-        };
+        const reboundPlay = createReboundPlay(
+          reboundResult,
+          context,
+          context.game_clock - (SHOT_CLOCK - shotClock) - 4,
+          shotClock
+        );
         plays.push(reboundPlay);
 
         if (reboundResult.offensive) {

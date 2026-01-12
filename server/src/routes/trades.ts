@@ -16,6 +16,30 @@ import { getLatestSeasonId, getUserActiveFranchise, getSeasonTradeDeadlineDay } 
 
 const router = Router();
 
+function buildTeamTradeContext(team: {
+  id: string;
+  name: string;
+  wins: number | null;
+  losses: number | null;
+  roster_size: string;
+  payroll: string;
+}): TeamTradeContext {
+  const wins = team.wins || 0;
+  const payroll = parseInt(team.payroll) || 0;
+  return {
+    team_id: team.id,
+    team_name: team.name,
+    wins,
+    losses: team.losses || 0,
+    payroll,
+    cap_space: SALARY_CAP.cap - payroll,
+    roster_size: parseInt(team.roster_size) || 0,
+    is_contender: wins > 41,
+    is_rebuilding: wins < 30,
+    positional_needs: []
+  };
+}
+
 // Helper to check trade deadline
 async function checkTradeDeadline(userId: string): Promise<{ allowed: boolean; message?: string; deadline_day?: number; current_day?: number; days_until?: number }> {
   // Get user's franchise using shared utility
@@ -155,19 +179,7 @@ router.post('/propose', authMiddleware(true), async (req: any, res) => {
 
     const teamsMap = new Map<string, TeamTradeContext>();
     for (const team of teamsResult.rows) {
-      const payroll = parseInt(team.payroll) || 0;
-      teamsMap.set(team.id, {
-        team_id: team.id,
-        team_name: team.name,
-        wins: team.wins || 0,
-        losses: team.losses || 0,
-        payroll,
-        cap_space: SALARY_CAP.cap - payroll,
-        roster_size: parseInt(team.roster_size) || 0,
-        is_contender: (team.wins || 0) > 41,
-        is_rebuilding: (team.wins || 0) < 30,
-        positional_needs: []
-      });
+      teamsMap.set(team.id, buildTeamTradeContext(team));
     }
 
     // Get player info for validation
@@ -297,20 +309,7 @@ router.get('/:tradeId/evaluate/:teamId', async (req, res) => {
       return res.status(404).json({ error: 'Team not found' });
     }
 
-    const team = teamResult.rows[0];
-    const payroll = parseInt(team.payroll) || 0;
-    const teamContext: TeamTradeContext = {
-      team_id: team.id,
-      team_name: team.name,
-      wins: team.wins || 0,
-      losses: team.losses || 0,
-      payroll,
-      cap_space: SALARY_CAP.cap - payroll,
-      roster_size: parseInt(team.roster_size) || 0,
-      is_contender: (team.wins || 0) > 41,
-      is_rebuilding: (team.wins || 0) < 30,
-      positional_needs: []
-    };
+    const teamContext = buildTeamTradeContext(teamResult.rows[0]);
 
     // Build proposal object
     const tradeProposal: TradeProposal = {

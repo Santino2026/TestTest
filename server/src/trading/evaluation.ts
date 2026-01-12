@@ -5,21 +5,15 @@ export interface TradeAsset {
   asset_type: 'player' | 'draft_pick' | 'cash';
   from_team_id: string;
   to_team_id: string;
-
-  // For players
   player_id?: string;
   player_overall?: number;
   player_potential?: number;
   player_age?: number;
   player_salary?: number;
-
-  // For draft picks
   pick_year?: number;
   pick_round?: number;
   pick_original_team_id?: string;
   is_pick_swap?: boolean;
-
-  // For cash
   cash_amount?: number;
 }
 
@@ -341,12 +335,6 @@ export function evaluateTradeForTeam(
     }
   }
 
-  // Positional need bonus
-  const incomingPositions = incoming
-    .filter(a => a.asset_type === 'player')
-    .map(a => a.player_id); // Would need position info here
-
-  // Make decision
   let recommendation: 'accept' | 'reject' | 'counter';
 
   if (value > 10) {

@@ -183,63 +183,48 @@ export function createContractFromOffer(
   };
 }
 
+// Determine signing method based on payroll
+function getSigningMethod(totalPayroll: number, hasCapSpace: boolean): string {
+  if (hasCapSpace) {
+    return 'cap_space';
+  }
+  if (totalPayroll <= SALARY_CAP.luxury_tax) {
+    return 'exception';
+  }
+  if (totalPayroll <= SALARY_CAP.first_apron) {
+    return 'luxury_tax';
+  }
+  if (totalPayroll <= SALARY_CAP.second_apron) {
+    return 'first_apron';
+  }
+  return 'second_apron';
+}
+
 // Check if team can afford a contract
 export function canAffordContract(
   currentPayroll: number,
-  newSalary: number,
-  capSpace?: number
+  newSalary: number
 ): { canSign: boolean; method: string; taxImplication: number } {
   const totalPayroll = currentPayroll + newSalary;
+  const hasCapSpace = currentPayroll < SALARY_CAP.cap && newSalary <= (SALARY_CAP.cap - currentPayroll);
+  const method = getSigningMethod(totalPayroll, hasCapSpace);
+  const taxImplication = calculateLuxuryTax(totalPayroll);
 
-  // Under the cap - full cap space available
-  if (currentPayroll < SALARY_CAP.cap) {
-    const availableSpace = SALARY_CAP.cap - currentPayroll;
-    if (newSalary <= availableSpace) {
-      return {
-        canSign: true,
-        method: 'cap_space',
-        taxImplication: 0
-      };
-    }
-  }
-
-  // Over the cap but under tax - can use exceptions
-  if (totalPayroll <= SALARY_CAP.luxury_tax) {
-    return {
-      canSign: true,
-      method: 'exception',
-      taxImplication: 0
-    };
-  }
-
-  // In luxury tax territory
-  if (totalPayroll <= SALARY_CAP.first_apron) {
-    const taxAmount = (totalPayroll - SALARY_CAP.luxury_tax) * 1.5;
-    return {
-      canSign: true,
-      method: 'luxury_tax',
-      taxImplication: taxAmount
-    };
-  }
-
-  // Above first apron - heavily restricted
-  if (totalPayroll <= SALARY_CAP.second_apron) {
-    const taxAmount = (totalPayroll - SALARY_CAP.luxury_tax) * 2.5;
-    return {
-      canSign: true,
-      method: 'first_apron',
-      taxImplication: taxAmount
-    };
-  }
-
-  // Above second apron - extremely restricted
-  const taxAmount = (totalPayroll - SALARY_CAP.luxury_tax) * 4.0;
   return {
     canSign: true,
-    method: 'second_apron',
-    taxImplication: taxAmount
+    method,
+    taxImplication
   };
 }
+
+// Progressive luxury tax tiers: [bracket size, multiplier]
+const LUXURY_TAX_TIERS: Array<[number, number]> = [
+  [5_000_000, 1.5],   // First $5M: 1.5x
+  [5_000_000, 1.75],  // Next $5M: 1.75x
+  [5_000_000, 2.5],   // Next $5M: 2.5x
+  [5_000_000, 3.25],  // Next $5M: 3.25x
+  [Infinity, 4.0]     // Beyond: 4.0x (repeater tax is higher)
+];
 
 // Calculate luxury tax owed
 export function calculateLuxuryTax(payroll: number): number {
@@ -247,34 +232,15 @@ export function calculateLuxuryTax(payroll: number): number {
     return 0;
   }
 
-  const overTax = payroll - SALARY_CAP.luxury_tax;
-
-  // Progressive tax rates
+  let remaining = payroll - SALARY_CAP.luxury_tax;
   let tax = 0;
-  let remaining = overTax;
 
-  // First $5M: 1.5x
-  const tier1 = Math.min(remaining, 5_000_000);
-  tax += tier1 * 1.5;
-  remaining -= tier1;
-
-  // Next $5M: 1.75x
-  const tier2 = Math.min(remaining, 5_000_000);
-  tax += tier2 * 1.75;
-  remaining -= tier2;
-
-  // Next $5M: 2.5x
-  const tier3 = Math.min(remaining, 5_000_000);
-  tax += tier3 * 2.5;
-  remaining -= tier3;
-
-  // Next $5M: 3.25x
-  const tier4 = Math.min(remaining, 5_000_000);
-  tax += tier4 * 3.25;
-  remaining -= tier4;
-
-  // Beyond: 4.0x (repeater tax is higher)
-  tax += remaining * 4.0;
+  for (const [bracket, multiplier] of LUXURY_TAX_TIERS) {
+    const taxableAmount = Math.min(remaining, bracket);
+    tax += taxableAmount * multiplier;
+    remaining -= taxableAmount;
+    if (remaining <= 0) break;
+  }
 
   return Math.round(tax);
 }

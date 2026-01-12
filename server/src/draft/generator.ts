@@ -97,23 +97,21 @@ function random(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function pickRandom<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+function pickRandom<T>(array: T[]): T {
+  return array[Math.floor(Math.random() * array.length)];
 }
 
 // Generate prospect's overall based on their tier
 function generateProspectOverall(tier: ProspectTier): number {
   switch (tier) {
     case 'lottery':
-      return random(72, 82); // Future stars
+      return random(72, 82);
     case 'first_round':
-      return random(62, 74); // Solid starters to role players
+      return random(62, 74);
     case 'second_round':
-      return random(52, 66); // Projects and role players
+      return random(52, 66);
     case 'undrafted':
-      return random(42, 58); // Long shots
-    default:
-      return random(50, 65);
+      return random(42, 58);
   }
 }
 
@@ -193,7 +191,7 @@ function generateProspect(tier: ProspectTier, mockPosition: number): DraftProspe
 }
 
 // Generate a full draft class (60 picks + undrafted)
-export function generateDraftClass(seasonId: string): DraftProspect[] {
+export function generateDraftClass(): DraftProspect[] {
   const prospects: DraftProspect[] = [];
 
   // Lottery picks (1-14): Future stars
