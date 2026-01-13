@@ -376,7 +376,8 @@ export async function updateSeriesResult(
   // Record the game in playoff_games
   await pool.query(
     `INSERT INTO playoff_games (series_id, game_id, game_number)
-     VALUES ($1, $2, $3)`,
+     VALUES ($1, $2, $3)
+     ON CONFLICT (series_id, game_number) DO NOTHING`,
     [seriesId, gameId, currentGame]
   );
 
