@@ -344,7 +344,7 @@ export async function saveSeries(series: PlayoffSeries[], client?: PoolClient): 
        (season_id, round, conference, series_number, higher_seed_id, lower_seed_id,
         higher_seed_wins, lower_seed_wins, winner_id, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING id`,
+       ON CONFLICT (season_id, round, conference, series_number) DO NOTHING`,
       [s.season_id, s.round, s.conference, s.series_number, s.higher_seed_id,
        s.lower_seed_id, s.higher_seed_wins, s.lower_seed_wins, s.winner_id, s.status]
     );
