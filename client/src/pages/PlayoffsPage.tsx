@@ -46,32 +46,6 @@ export default function PlayoffsPage() {
     },
   });
 
-  const simulateGame = useMutation({
-    mutationFn: (seriesId: string) => api.simulatePlayoffGame(seriesId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['playoffs'] });
-      queryClient.invalidateQueries({ queryKey: ['games'] });
-      refreshFranchise();
-    },
-    onError: (error: Error) => {
-      console.error('Simulate playoff game failed:', error);
-      alert(`Failed to simulate game: ${error.message}`);
-    },
-  });
-
-  const simulateSeries = useMutation({
-    mutationFn: (seriesId: string) => api.simulatePlayoffSeries(seriesId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['playoffs'] });
-      queryClient.invalidateQueries({ queryKey: ['games'] });
-      refreshFranchise();
-    },
-    onError: (error: Error) => {
-      console.error('Simulate playoff series failed:', error);
-      alert(`Failed to simulate series: ${error.message}`);
-    },
-  });
-
   const simulateRound = useMutation({
     mutationFn: api.simulatePlayoffRound,
     onSuccess: () => {
@@ -119,22 +93,6 @@ export default function PlayoffsPage() {
     }
   };
 
-  const handleSimulateGame = async (seriesId: string) => {
-    try {
-      await simulateGame.mutateAsync(seriesId);
-    } catch (error) {
-      console.error('Failed to simulate game:', error);
-    }
-  };
-
-  const handleSimulateSeries = async (seriesId: string) => {
-    try {
-      await simulateSeries.mutateAsync(seriesId);
-    } catch (error) {
-      console.error('Failed to simulate series:', error);
-    }
-  };
-
   const handleSimulateRound = async () => {
     try {
       await simulateRound.mutateAsync();
@@ -151,8 +109,7 @@ export default function PlayoffsPage() {
     }
   };
 
-  const isAnySimulating = simulateGame.isPending || simulateSeries.isPending ||
-                          simulateRound.isPending || simulateAll.isPending;
+  const isAnySimulating = simulateRound.isPending || simulateAll.isPending;
 
   // Pre-playoffs: Show standings and start button (no series yet)
   if (!playoffs?.series.length) {
@@ -278,26 +235,40 @@ export default function PlayoffsPage() {
                 {seriesByRound[currentRound]?.length || 0} series complete
               </div>
               <div className="flex gap-2">
-                <Button
-                  onClick={handleSimulateRound}
-                  disabled={isAnySimulating}
-                  variant="secondary"
-                  size="md"
-                >
-                  <FastForward className="w-4 h-4 mr-1.5" />
-                  <span className="hidden sm:inline">{simulateRound.isPending ? 'Simulating...' : 'Sim Round'}</span>
-                  <span className="sm:hidden">{simulateRound.isPending ? '...' : 'Round'}</span>
-                </Button>
-                <Button
-                  onClick={handleSimulateAll}
-                  disabled={isAnySimulating}
-                  variant="primary"
-                  size="md"
-                >
-                  <SkipForward className="w-4 h-4 mr-1.5" />
-                  <span className="hidden sm:inline">{simulateAll.isPending ? 'Simulating...' : 'Sim All Playoffs'}</span>
-                  <span className="sm:hidden">{simulateAll.isPending ? '...' : 'All'}</span>
-                </Button>
+                {currentRound === 0 ? (
+                  <Button
+                    onClick={handleSimulateRound}
+                    disabled={simulateRound.isPending}
+                    variant="primary"
+                    size="md"
+                  >
+                    <FastForward className="w-4 h-4 mr-1.5" />
+                    {simulateRound.isPending ? 'Simulating...' : 'Sim Play-In'}
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      onClick={handleSimulateRound}
+                      disabled={isAnySimulating}
+                      variant="secondary"
+                      size="md"
+                    >
+                      <FastForward className="w-4 h-4 mr-1.5" />
+                      <span className="hidden sm:inline">{simulateRound.isPending ? 'Simulating...' : 'Sim Round'}</span>
+                      <span className="sm:hidden">{simulateRound.isPending ? '...' : 'Round'}</span>
+                    </Button>
+                    <Button
+                      onClick={handleSimulateAll}
+                      disabled={isAnySimulating}
+                      variant="primary"
+                      size="md"
+                    >
+                      <SkipForward className="w-4 h-4 mr-1.5" />
+                      <span className="hidden sm:inline">{simulateAll.isPending ? 'Simulating...' : 'Sim All Playoffs'}</span>
+                      <span className="sm:hidden">{simulateAll.isPending ? '...' : 'All'}</span>
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           </CardContent>
@@ -357,9 +328,6 @@ export default function PlayoffsPage() {
                               series={series}
                               teams={teams || []}
                               franchise={franchise}
-                              onSimulateGame={handleSimulateGame}
-                              onSimulateSeries={handleSimulateSeries}
-                              isSimulating={isAnySimulating}
                             />
                           ))}
                       </div>
@@ -381,9 +349,6 @@ export default function PlayoffsPage() {
                               series={series}
                               teams={teams || []}
                               franchise={franchise}
-                              onSimulateGame={handleSimulateGame}
-                              onSimulateSeries={handleSimulateSeries}
-                              isSimulating={isAnySimulating}
                             />
                           ))}
                       </div>
@@ -403,9 +368,6 @@ export default function PlayoffsPage() {
                             series={series}
                             teams={teams || []}
                             franchise={franchise}
-                            onSimulateGame={handleSimulateGame}
-                            onSimulateSeries={handleSimulateSeries}
-                            isSimulating={isAnySimulating}
                           />
                         ))}
                       </div>
@@ -424,17 +386,13 @@ interface SeriesCardProps {
   series: PlayoffSeries;
   teams: any[];
   franchise: any;
-  onSimulateGame: (seriesId: string) => void;
-  onSimulateSeries: (seriesId: string) => void;
-  isSimulating: boolean;
 }
 
-function SeriesCard({ series, teams, franchise, onSimulateGame, onSimulateSeries, isSimulating }: SeriesCardProps) {
+function SeriesCard({ series, teams, franchise }: SeriesCardProps) {
   const higherTeam = teams.find(t => t.id === series.higher_seed_id);
   const lowerTeam = teams.find(t => t.id === series.lower_seed_id);
   const isUserSeries = series.higher_seed_id === franchise?.team_id ||
                        series.lower_seed_id === franchise?.team_id;
-  const canSimulate = series.status !== 'completed';
 
   return (
     <div
@@ -485,34 +443,6 @@ function SeriesCard({ series, teams, franchise, onSimulateGame, onSimulateSeries
           )}
         </div>
       </div>
-
-      {/* Simulate Buttons */}
-      {canSimulate && (
-        <div className="flex gap-2 mt-3">
-          <Button
-            onClick={() => onSimulateGame(series.id)}
-            disabled={isSimulating}
-            variant="secondary"
-            size="md"
-            className="flex-1 min-h-[44px]"
-          >
-            <Play className="w-4 h-4 mr-1.5" />
-            <span className="hidden sm:inline">{isSimulating ? 'Simulating...' : 'Play Game'}</span>
-            <span className="sm:hidden">{isSimulating ? '...' : 'Game'}</span>
-          </Button>
-          <Button
-            onClick={() => onSimulateSeries(series.id)}
-            disabled={isSimulating}
-            variant="outline"
-            size="md"
-            className="flex-1 min-h-[44px]"
-          >
-            <FastForward className="w-4 h-4 mr-1.5" />
-            <span className="hidden sm:inline">{isSimulating ? 'Simulating...' : 'Sim Series'}</span>
-            <span className="sm:hidden">{isSimulating ? '...' : 'Series'}</span>
-          </Button>
-        </div>
-      )}
 
       {/* Series Complete */}
       {series.status === 'completed' && (
