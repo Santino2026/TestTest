@@ -229,7 +229,7 @@ router.post('/simulate/series', authMiddleware(true), async (req: any, res) => {
     const winsNeeded = getWinsNeeded(series.round);
 
     // Simulate until series is complete
-    while (series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
+    while (series && series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
       const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
       const { homeTeamId, awayTeamId } = getHomeTeamIds(
         gamesPlayed,
@@ -257,7 +257,12 @@ router.post('/simulate/series', authMiddleware(true), async (req: any, res) => {
         'SELECT * FROM playoff_series WHERE id = $1',
         [series_id]
       );
+      if (refreshResult.rows.length === 0) break;
       series = refreshResult.rows[0];
+    }
+
+    if (!series) {
+      return res.status(500).json({ error: 'Series data lost during simulation' });
     }
 
     // Generate next round if this completed the round
@@ -275,12 +280,17 @@ router.post('/simulate/series', authMiddleware(true), async (req: any, res) => {
       [series_id]
     );
 
+    const finalSeries = finalResult.rows[0];
+    if (!finalSeries) {
+      return res.status(500).json({ error: 'Failed to get final series state' });
+    }
+
     res.json({
       series_id,
       games_simulated: gamesSimulated.length,
       games: gamesSimulated,
-      winner: finalResult.rows[0].winner_name,
-      series_score: `${finalResult.rows[0].higher_seed_wins}-${finalResult.rows[0].lower_seed_wins}`
+      winner: finalSeries.winner_name,
+      series_score: `${finalSeries.higher_seed_wins}-${finalSeries.lower_seed_wins}`
     });
   } catch (error) {
     console.error('Simulate series error:', error);
@@ -319,9 +329,10 @@ router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
 
     for (const seriesRow of incompleteSeries.rows) {
       const seriesResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
+      if (seriesResult.rows.length === 0) continue;
       let series = seriesResult.rows[0] as any;
 
-      while (series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
+      while (series && series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
         const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
         const { homeTeamId, awayTeamId } = getHomeTeamIds(
           gamesPlayed,
@@ -337,18 +348,22 @@ router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
         await updateSeriesResult(seriesRow.id, result.winner_id, result.id);
 
         const refreshResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
+        if (refreshResult.rows.length === 0) break;
         series = refreshResult.rows[0];
       }
 
-      const finalSeries = await pool.query(
+      const finalSeriesResult = await pool.query(
         `SELECT ps.*, wt.name as winner_name FROM playoff_series ps LEFT JOIN teams wt ON ps.winner_id = wt.id WHERE ps.id = $1`,
         [seriesRow.id]
       );
-      results.push({
-        series_id: seriesRow.id,
-        winner: finalSeries.rows[0].winner_name,
-        score: `${finalSeries.rows[0].higher_seed_wins}-${finalSeries.rows[0].lower_seed_wins}`
-      });
+      if (finalSeriesResult.rows.length > 0) {
+        const finalSeries = finalSeriesResult.rows[0];
+        results.push({
+          series_id: seriesRow.id,
+          winner: finalSeries.winner_name,
+          score: `${finalSeries.higher_seed_wins}-${finalSeries.lower_seed_wins}`
+        });
+      }
     }
 
     // Generate next round
@@ -412,9 +427,10 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
 
       for (const seriesRow of incompleteSeries.rows) {
         const seriesQueryResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
+        if (seriesQueryResult.rows.length === 0) continue;
         let series = seriesQueryResult.rows[0] as any;
 
-        while (series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
+        while (series && series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
           const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
           const { homeTeamId, awayTeamId } = getHomeTeamIds(
             gamesPlayed,
@@ -430,17 +446,21 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
           await updateSeriesResult(seriesRow.id, result.winner_id, result.id);
 
           const refreshResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
+          if (refreshResult.rows.length === 0) break;
           series = refreshResult.rows[0];
         }
 
-        const finalSeries = await pool.query(
+        const finalSeriesResult = await pool.query(
           `SELECT ps.*, wt.name as winner_name FROM playoff_series ps LEFT JOIN teams wt ON ps.winner_id = wt.id WHERE ps.id = $1`,
           [seriesRow.id]
         );
-        seriesResults.push({
-          winner: finalSeries.rows[0].winner_name,
-          score: `${finalSeries.rows[0].higher_seed_wins}-${finalSeries.rows[0].lower_seed_wins}`
-        });
+        if (finalSeriesResult.rows.length > 0) {
+          const finalSeries = finalSeriesResult.rows[0];
+          seriesResults.push({
+            winner: finalSeries.winner_name,
+            score: `${finalSeries.higher_seed_wins}-${finalSeries.lower_seed_wins}`
+          });
+        }
       }
 
       roundResults.push({
