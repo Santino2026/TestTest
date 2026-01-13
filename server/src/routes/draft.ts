@@ -76,7 +76,8 @@ router.post('/generate', async (req, res) => {
             height_inches, weight_lbs, age, overall, potential,
             mock_draft_position, big_board_rank, peak_age, durability,
             coachability, motor)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+           ON CONFLICT (id) DO NOTHING`,
           [prospect.id, seasonId, prospect.first_name, prospect.last_name,
            prospect.position, prospect.archetype, prospect.height_inches,
            prospect.weight_lbs, prospect.age, prospect.overall, prospect.potential,
@@ -98,7 +99,8 @@ router.post('/generate', async (req, res) => {
             clutch, consistency, work_ethic, aggression, streakiness, composure)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
                    $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29,
-                   $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45)`,
+                   $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45)
+           ON CONFLICT (prospect_id) DO NOTHING`,
           [prospect.id,
            attrs.inside_scoring, attrs.close_shot, attrs.mid_range, attrs.three_point,
            attrs.free_throw, attrs.shot_iq, attrs.offensive_consistency, attrs.layup,

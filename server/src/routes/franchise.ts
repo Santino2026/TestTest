@@ -39,7 +39,8 @@ async function createNewFranchise(
       `INSERT INTO standings (season_id, team_id, wins, losses, home_wins, home_losses,
        away_wins, away_losses, conference_wins, conference_losses, division_wins, division_losses,
        points_for, points_against, streak, last_10_wins)
-       VALUES ($1, $2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)`,
+       VALUES ($1, $2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+       ON CONFLICT (season_id, team_id) DO NOTHING`,
       [seasonId, t.id]
     );
   }

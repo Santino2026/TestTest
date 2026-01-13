@@ -178,7 +178,8 @@ router.post('/offer', authMiddleware(true), async (req: any, res) => {
       `INSERT INTO contract_offers
        (id, player_id, team_id, season_id, years, salary_per_year, total_value,
         player_option, team_option, signing_bonus, status, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', NOW() + INTERVAL '7 days')`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', NOW() + INTERVAL '7 days')
+       ON CONFLICT (id) DO NOTHING`,
       [offerId, player_id, team_id, seasonId, years, salary_per_year, salary_per_year * years,
        player_option || false, team_option || false, signing_bonus || 0]
     );

@@ -110,7 +110,7 @@ export async function saveGameResult(
     await db.query(
       `INSERT INTO game_quarters (game_id, quarter, home_points, away_points)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT DO NOTHING`,
+       ON CONFLICT (game_id, quarter) DO NOTHING`,
       [result.id, quarter.quarter, quarter.home_points, quarter.away_points]
     );
   }

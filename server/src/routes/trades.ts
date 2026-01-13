@@ -240,7 +240,8 @@ router.post('/propose', authMiddleware(true), async (req: any, res) => {
     await pool.query(
       `INSERT INTO trade_proposals
        (id, season_id, team_ids, proposed_by_team_id, status, is_valid, validation_errors, summary)
-       VALUES ($1, $2, $3, $4, 'pending', true, $5, $6)`,
+       VALUES ($1, $2, $3, $4, 'pending', true, $5, $6)
+       ON CONFLICT (id) DO NOTHING`,
       [tradeId, seasonId, [from_team_id, to_team_id], from_team_id,
        validation.warnings, `Trade between ${teamsMap.get(from_team_id)?.team_name} and ${teamsMap.get(to_team_id)?.team_name}`]
     );
@@ -250,7 +251,8 @@ router.post('/propose', authMiddleware(true), async (req: any, res) => {
       await pool.query(
         `INSERT INTO trade_assets
          (trade_id, from_team_id, to_team_id, asset_type, player_id, pick_year, pick_round, pick_original_team_id, cash_amount)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (id) DO NOTHING`,
         [tradeId, asset.from_team_id, asset.to_team_id, asset.asset_type || 'player',
          asset.player_id || null, asset.pick_year || null, asset.pick_round || null,
          asset.pick_original_team_id || null, asset.cash_amount || null]
