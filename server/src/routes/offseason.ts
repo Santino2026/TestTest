@@ -241,31 +241,38 @@ router.post('/finalize-playoffs', authMiddleware(true), async (req: any, res) =>
     }
 
     const champion = finalsResult.rows[0].winner_id;
-    const userIsChampion = champion === franchise.team_id;
-
-    // Update team championships if user won
-    if (userIsChampion) {
-      await pool.query(
-        `UPDATE teams SET championships = championships + 1 WHERE id = $1`,
-        [franchise.team_id]
-      );
-      await pool.query(
-        `UPDATE franchises SET championships = championships + 1 WHERE id = $1`,
-        [franchise.id]
-      );
+    if (!champion) {
+      return res.status(400).json({ error: 'Finals completed but no winner determined' });
     }
 
-    // Transition to offseason with 'review' sub-phase
-    await pool.query(
-      `UPDATE franchises SET phase = 'offseason', offseason_phase = 'review', last_played_at = NOW() WHERE id = $1`,
-      [franchise.id]
-    );
+    const userIsChampion = champion === franchise.team_id;
 
-    // Update season status
-    await pool.query(
-      `UPDATE seasons SET status = 'offseason' WHERE id = $1`,
-      [franchise.season_id]
-    );
+    // Wrap all updates in transaction to prevent partial updates on double-click
+    await withTransaction(async (client) => {
+      // Update team championships if user won
+      if (userIsChampion) {
+        await client.query(
+          `UPDATE teams SET championships = championships + 1 WHERE id = $1`,
+          [franchise.team_id]
+        );
+        await client.query(
+          `UPDATE franchises SET championships = championships + 1 WHERE id = $1`,
+          [franchise.id]
+        );
+      }
+
+      // Transition to offseason with 'review' sub-phase
+      await client.query(
+        `UPDATE franchises SET phase = 'offseason', offseason_phase = 'review', last_played_at = NOW() WHERE id = $1`,
+        [franchise.id]
+      );
+
+      // Update season status
+      await client.query(
+        `UPDATE seasons SET status = 'offseason' WHERE id = $1`,
+        [franchise.season_id]
+      );
+    });
 
     res.json({
       message: 'Season complete!',
