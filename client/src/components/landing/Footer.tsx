@@ -13,8 +13,8 @@ export function Footer() {
               className="h-8 w-auto opacity-80"
             />
             <div>
-              <p className="text-white font-semibold">Sports League Office</p>
-              <p className="text-sm">&copy; {new Date().getFullYear()} All rights reserved</p>
+              <p className="text-white font-semibold">Modernize Games</p>
+              <p className="text-sm">&copy; 2026 Modernize Games. All rights reserved</p>
             </div>
           </div>
 

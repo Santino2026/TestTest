@@ -1,5 +1,7 @@
 # Sports League Office - Basketball
 
+**Company:** Modernize Games - 2026
+
 Premium single-player basketball franchise simulation. $10 one-time purchase via Stripe.
 
 **Live:** sportsleagueoffice.com/basketball
