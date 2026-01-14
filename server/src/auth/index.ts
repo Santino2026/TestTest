@@ -72,24 +72,20 @@ export async function signup(
   password: string,
   name?: string
 ): Promise<AuthResult> {
-  // Check if user exists
-  const existing = await pool.query(
-    'SELECT id FROM users WHERE email = $1',
-    [email.toLowerCase()]
-  );
-
-  if (existing.rows.length > 0) {
-    throw new Error('Email already registered');
-  }
-
-  // Hash password and create user
+  // Hash password and create user atomically with ON CONFLICT to prevent race condition
   const passwordHash = await hashPassword(password);
   const result = await pool.query(
     `INSERT INTO users (email, password_hash, name)
      VALUES ($1, $2, $3)
+     ON CONFLICT (email) DO NOTHING
      RETURNING id, email, name, has_purchased, purchased_at, is_active, created_at`,
     [email.toLowerCase(), passwordHash, name || null]
   );
+
+  // If no row returned, email already exists
+  if (result.rows.length === 0) {
+    throw new Error('Email already registered');
+  }
 
   const user = result.rows[0];
 
@@ -165,45 +161,59 @@ export async function login(
 export async function refreshAccessToken(
   refreshToken: string
 ): Promise<{ access_token: string; refresh_token: string }> {
-  // Find valid session
-  const result = await pool.query(
-    `SELECT s.*, u.id as user_id, u.email, u.name, u.has_purchased, u.purchased_at, u.is_active, u.created_at
-     FROM sessions s
-     JOIN users u ON s.user_id = u.id
-     WHERE s.refresh_token = $1 AND s.expires_at > NOW() AND u.is_active = true`,
-    [refreshToken]
-  );
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-  if (result.rows.length === 0) {
-    throw new Error('Invalid or expired refresh token');
+    // Find and lock session row to prevent race condition
+    const result = await client.query(
+      `SELECT s.*, u.id as user_id, u.email, u.name, u.has_purchased, u.purchased_at, u.is_active, u.created_at
+       FROM sessions s
+       JOIN users u ON s.user_id = u.id
+       WHERE s.refresh_token = $1 AND s.expires_at > NOW() AND u.is_active = true
+       FOR UPDATE OF s`,
+      [refreshToken]
+    );
+
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      throw new Error('Invalid or expired refresh token');
+    }
+
+    const session = result.rows[0];
+    const user = {
+      id: session.user_id,
+      email: session.email,
+      name: session.name,
+      has_purchased: session.has_purchased,
+      purchased_at: session.purchased_at,
+      is_active: session.is_active,
+      created_at: session.created_at,
+    };
+
+    // Generate new tokens
+    const newAccessToken = generateAccessToken(user);
+    const newRefreshToken = generateRefreshToken();
+
+    // Update session with new refresh token
+    const newExpiresAt = new Date();
+    newExpiresAt.setDate(newExpiresAt.getDate() + REFRESH_TOKEN_EXPIRES_DAYS);
+
+    await client.query(
+      `UPDATE sessions SET refresh_token = $1, expires_at = $2 WHERE id = $3`,
+      [newRefreshToken, newExpiresAt, session.id]
+    );
+
+    await client.query('COMMIT');
+
+    // Return snake_case to match client expectations
+    return { access_token: newAccessToken, refresh_token: newRefreshToken };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
-
-  const session = result.rows[0];
-  const user = {
-    id: session.user_id,
-    email: session.email,
-    name: session.name,
-    has_purchased: session.has_purchased,
-    purchased_at: session.purchased_at,
-    is_active: session.is_active,
-    created_at: session.created_at,
-  };
-
-  // Generate new tokens
-  const newAccessToken = generateAccessToken(user);
-  const newRefreshToken = generateRefreshToken();
-
-  // Update session with new refresh token
-  const newExpiresAt = new Date();
-  newExpiresAt.setDate(newExpiresAt.getDate() + REFRESH_TOKEN_EXPIRES_DAYS);
-
-  await pool.query(
-    `UPDATE sessions SET refresh_token = $1, expires_at = $2 WHERE id = $3`,
-    [newRefreshToken, newExpiresAt, session.id]
-  );
-
-  // Return snake_case to match client expectations
-  return { access_token: newAccessToken, refresh_token: newRefreshToken };
 }
 
 // Logout (invalidate refresh token)
@@ -226,19 +236,22 @@ export async function getUserById(userId: string): Promise<User | null> {
   return result.rows[0] || null;
 }
 
-// Mark user as purchased
+// Mark user as purchased (idempotent - safe to call multiple times)
 export async function markUserPurchased(
   userId: string,
   stripeCustomerId: string,
   stripePaymentId: string
-): Promise<void> {
-  await pool.query(
+): Promise<boolean> {
+  // Only update if not already purchased - prevents race condition from duplicate webhooks
+  const result = await pool.query(
     `UPDATE users
      SET has_purchased = true, purchased_at = NOW(),
          stripe_customer_id = $2, stripe_payment_id = $3
-     WHERE id = $1`,
+     WHERE id = $1 AND has_purchased = false
+     RETURNING id`,
     [userId, stripeCustomerId, stripePaymentId]
   );
+  return result.rows.length > 0;
 }
 
 // Express middleware for auth

@@ -73,12 +73,16 @@ router.post('/webhook', raw({ type: 'application/json' }), async (req, res) => {
       const userId = session.metadata?.userId;
 
       if (userId) {
-        await markUserPurchased(
+        const wasUpdated = await markUserPurchased(
           userId,
           session.customer as string || '',
           session.payment_intent as string || ''
         );
-        console.log(`User ${userId} purchase completed`);
+        if (wasUpdated) {
+          console.log(`User ${userId} purchase completed`);
+        } else {
+          console.log(`User ${userId} already purchased (duplicate webhook ignored)`);
+        }
       }
     }
 
