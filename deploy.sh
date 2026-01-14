@@ -5,12 +5,11 @@
 set -e
 
 SERVER="root@178.156.146.91"
-SSH_KEY="~/.ssh/jmodernize"
 REMOTE_DIR="/opt/sportsleagueoffice"
 
 echo "🏀 Deploying Sports League Office..."
 
-ssh -i $SSH_KEY $SERVER << 'REMOTE'
+ssh $SERVER << 'REMOTE'
 set -e
 cd /opt/sportsleagueoffice
 

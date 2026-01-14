@@ -42,10 +42,21 @@ git add -A && git commit -m "<descriptive message>" && git push origin main && .
 
 ---
 
+## New Developer Setup
+
+1. Get `server/.env` from team lead
+2. Clone repo from GitHub
+3. Generate SSH key: `ssh-keygen -t ed25519`
+4. Send public key (`~/.ssh/id_ed25519.pub`) to team lead for server access
+5. Run `docker-compose up -d` to start local databases
+6. Run `cd server && npm install && npm run migrate && npm run seed && npm run dev`
+7. Run `cd client && npm install && npm run dev` (new terminal)
+
+---
+
 ## Deployment
 
 **Server:** `178.156.146.91` (Hetzner VPS)
-**SSH Key:** `~/.ssh/jmodernize`
 **Remote Path:** `/opt/sportsleagueoffice`
 
 ### Deploy to Production
@@ -65,7 +76,7 @@ This will:
 ### Manual Deploy (if needed)
 
 ```bash
-ssh -i ~/.ssh/jmodernize root@178.156.146.91
+ssh root@178.156.146.91
 cd /opt/sportsleagueoffice
 git pull origin main
 cd server && npm install && npm run build
@@ -112,18 +123,6 @@ sportsleagueoffice/
 ├── docs/                   # Deep documentation
 │   └── GAME_DESIGN.md      # Full game design (8000 lines)
 └── docker-compose.yml      # PostgreSQL + Redis
-```
-
----
-
-## Quick Start
-
-```bash
-docker-compose up -d          # Start databases
-cd server && npm run migrate  # Run migrations
-npm run seed                  # Seed 30 teams + players
-npm run dev                   # Start backend
-cd client && npm run dev      # Start frontend (new terminal)
 ```
 
 ---
@@ -263,7 +262,7 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 
 **Client (.env):**
 ```
-VITE_API_URL=http://localhost:3001  # Dev only, prod uses /api
+VITE_API_URL=http://localhost:3001/api  # Dev only, prod uses /api
 ```
 
 ---
