@@ -48,9 +48,20 @@ git add -A && git commit -m "<descriptive message>" && git push origin main && .
 2. Clone repo from GitHub
 3. Generate SSH key: `ssh-keygen -t ed25519`
 4. Send public key (`~/.ssh/id_ed25519.pub`) to team lead for server access
-5. Run `docker-compose up -d` to start local databases
-6. Run `cd server && npm install && npm run migrate && npm run seed && npm run dev`
-7. Run `cd client && npm install && npm run dev` (new terminal)
+5. Set up SSH config (one time, after team lead adds your key):
+   ```bash
+   echo -e "Host 178.156.146.91\n    IdentityFile ~/.ssh/id_ed25519\n    User root" >> ~/.ssh/config
+   ```
+6. Test SSH: `ssh 178.156.146.91` (should connect without password)
+7. Test deploy: `./deploy.sh`
+
+### Local Development (optional)
+
+```bash
+docker-compose up -d                                                    # Start databases
+cd server && npm install && npm run migrate && npm run seed && npm run dev  # Start backend
+cd client && npm install && npm run dev                                 # Start frontend (new terminal)
+```
 
 ---
 
