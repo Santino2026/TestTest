@@ -34,6 +34,44 @@ export function setAuthErrorHandler(handler: () => void) {
   onAuthError = handler;
 }
 
+// Mutex for token refresh - prevents race condition when multiple requests get 401
+let refreshPromise: Promise<boolean> | null = null;
+
+async function doTokenRefresh(): Promise<boolean> {
+  if (!refreshToken) return false;
+
+  try {
+    const refreshResponse = await fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+
+    if (refreshResponse.ok) {
+      const data = await refreshResponse.json();
+      setTokens(data.access_token, data.refresh_token);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+async function refreshTokenWithMutex(): Promise<boolean> {
+  // If refresh already in progress, wait for it
+  if (refreshPromise) {
+    return refreshPromise;
+  }
+
+  // Start new refresh and store promise
+  refreshPromise = doTokenRefresh().finally(() => {
+    refreshPromise = null;
+  });
+
+  return refreshPromise;
+}
+
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -52,51 +90,35 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
 
   // If unauthorized, try to refresh the token
   if (response.status === 401) {
-    // If we have a refresh token, try to use it
     if (refreshToken) {
-      try {
-        const refreshResponse = await fetch(`${API_BASE}/auth/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh_token: refreshToken }),
+      const refreshed = await refreshTokenWithMutex();
+
+      if (refreshed) {
+        // Retry the original request with new token
+        headers['Authorization'] = `Bearer ${accessToken}`;
+        const retryResponse = await fetch(`${API_BASE}${endpoint}`, {
+          headers,
+          ...options,
         });
 
-        if (refreshResponse.ok) {
-          const data = await refreshResponse.json();
-          setTokens(data.access_token, data.refresh_token);
-
-          // Retry the original request
-          headers['Authorization'] = `Bearer ${data.access_token}`;
-          const retryResponse = await fetch(`${API_BASE}${endpoint}`, {
-            headers,
-            ...options,
-          });
-
-          if (!retryResponse.ok) {
-            let errorMessage = `API Error: ${retryResponse.status}`;
-            try {
-              const errorData = await retryResponse.json();
-              errorMessage = errorData.error || errorData.message || errorMessage;
-            } catch {
-              const errorText = await retryResponse.text();
-              if (errorText) errorMessage = errorText;
-            }
-            throw new Error(errorMessage);
+        if (!retryResponse.ok) {
+          let errorMessage = `API Error: ${retryResponse.status}`;
+          try {
+            const errorData = await retryResponse.json();
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          } catch {
+            const errorText = await retryResponse.text();
+            if (errorText) errorMessage = errorText;
           }
-          return retryResponse.json();
-        } else {
-          // Token refresh failed - clear auth and don't throw (will redirect to login)
-          clearTokens();
-          onAuthError?.();
-          throw new Error('Session expired. Please log in again.');
+          throw new Error(errorMessage);
         }
-      } catch (refreshError) {
+        return retryResponse.json();
+      } else {
         clearTokens();
         onAuthError?.();
         throw new Error('Session expired. Please log in again.');
       }
     } else {
-      // No refresh token - clear and redirect
       clearTokens();
       onAuthError?.();
       throw new Error('Please log in to continue.');
