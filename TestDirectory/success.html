@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome Aboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --cream: #FAF7F2;
+            --cream-dark: #F0EBE3;
+            --charcoal: #1A1A1A;
+            --charcoal-soft: #2D2D2D;
+            --coral: #E85D4C;
+            --coral-soft: #FF7A6B;
+            --sage: #8B9A7D;
+            --sage-soft: #A8B89A;
+            --gold: #C9A227;
+            --text-muted: #6B6B6B;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            background: var(--charcoal);
+            color: var(--cream);
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* Grain texture */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+            opacity: 0.04;
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        /* Animated background gradient */
+        .bg-gradient {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background:
+                radial-gradient(ellipse 80% 50% at 20% 40%, rgba(232, 93, 76, 0.15) 0%, transparent 50%),
+                radial-gradient(ellipse 60% 40% at 80% 60%, rgba(139, 154, 125, 0.12) 0%, transparent 50%),
+                radial-gradient(ellipse 50% 30% at 50% 80%, rgba(201, 162, 39, 0.08) 0%, transparent 50%);
+            animation: gradientShift 8s ease-in-out infinite alternate;
+        }
+
+        @keyframes gradientShift {
+            0% { opacity: 1; transform: scale(1); }
+            100% { opacity: 0.8; transform: scale(1.1); }
+        }
+
+        /* Confetti canvas */
+        #confetti-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        /* Floating particles */
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: var(--coral);
+            border-radius: 50%;
+            opacity: 0;
+            animation: float 4s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% {
+                opacity: 0;
+                transform: translateY(100vh) scale(0);
+            }
+            10% { opacity: 0.6; }
+            90% { opacity: 0.6; }
+            100% {
+                opacity: 0;
+                transform: translateY(-10vh) scale(1);
+            }
+        }
+
+        /* Main content */
+        .page-wrapper {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            position: relative;
+            z-index: 10;
+        }
+
+        /* Success icon */
+        .success-badge {
+            position: relative;
+            width: 120px;
+            height: 120px;
+            margin-bottom: 3rem;
+        }
+
+        .success-ring {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 2px solid var(--coral);
+            border-radius: 50%;
+            opacity: 0;
+            animation: ringExpand 0.8s ease-out forwards;
+            animation-delay: 0.3s;
+        }
+
+        .success-ring:nth-child(2) {
+            animation-delay: 0.5s;
+        }
+
+        .success-ring:nth-child(3) {
+            animation-delay: 0.7s;
+        }
+
+        @keyframes ringExpand {
+            0% {
+                transform: scale(0.5);
+                opacity: 0.8;
+            }
+            100% {
+                transform: scale(1.8);
+                opacity: 0;
+            }
+        }
+
+        .success-circle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            width: 100px;
+            height: 100px;
+            background: linear-gradient(135deg, var(--coral) 0%, var(--coral-soft) 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: popIn 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+            animation-delay: 0.2s;
+            box-shadow:
+                0 10px 40px rgba(232, 93, 76, 0.4),
+                0 0 80px rgba(232, 93, 76, 0.2);
+        }
+
+        @keyframes popIn {
+            0% { transform: translate(-50%, -50%) scale(0); }
+            100% { transform: translate(-50%, -50%) scale(1); }
+        }
+
+        .success-circle svg {
+            width: 48px;
+            height: 48px;
+            stroke: white;
+            stroke-width: 3;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-dasharray: 50;
+            stroke-dashoffset: 50;
+            animation: drawCheck 0.5s ease forwards;
+            animation-delay: 0.7s;
+        }
+
+        @keyframes drawCheck {
+            to { stroke-dashoffset: 0; }
+        }
+
+        /* Content */
+        .content {
+            text-align: center;
+            max-width: 600px;
+        }
+
+        .tag {
+            display: inline-block;
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 0.25em;
+            text-transform: uppercase;
+            color: var(--sage-soft);
+            background: rgba(139, 154, 125, 0.15);
+            padding: 0.5rem 1.25rem;
+            border-radius: 50px;
+            margin-bottom: 1.5rem;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeSlideUp 0.6s ease forwards;
+            animation-delay: 0.9s;
+        }
+
+        .title {
+            font-family: 'DM Serif Display', serif;
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            line-height: 1.1;
+            margin-bottom: 1rem;
+            opacity: 0;
+            transform: translateY(30px);
+            animation: fadeSlideUp 0.8s ease forwards;
+            animation-delay: 1s;
+        }
+
+        .title em {
+            font-style: italic;
+            color: var(--coral);
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            line-height: 1.8;
+            color: rgba(250, 247, 242, 0.6);
+            margin-bottom: 3rem;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeSlideUp 0.6s ease forwards;
+            animation-delay: 1.2s;
+        }
+
+        /* Next steps card */
+        .steps-card {
+            background: rgba(250, 247, 242, 0.03);
+            border: 1px solid rgba(250, 247, 242, 0.08);
+            border-radius: 20px;
+            padding: 2.5rem;
+            margin-bottom: 2.5rem;
+            text-align: left;
+            backdrop-filter: blur(10px);
+            opacity: 0;
+            transform: translateY(30px);
+            animation: fadeSlideUp 0.8s ease forwards;
+            animation-delay: 1.4s;
+        }
+
+        .steps-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .steps-header h2 {
+            font-family: 'DM Serif Display', serif;
+            font-size: 1.25rem;
+            color: var(--cream);
+        }
+
+        .steps-header svg {
+            width: 20px;
+            height: 20px;
+            stroke: var(--gold);
+            stroke-width: 2;
+            fill: none;
+        }
+
+        .steps-list {
+            list-style: none;
+        }
+
+        .steps-list li {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+            padding: 1rem 0;
+            border-bottom: 1px solid rgba(250, 247, 242, 0.06);
+            opacity: 0;
+            transform: translateX(-20px);
+            animation: slideIn 0.5s ease forwards;
+        }
+
+        .steps-list li:nth-child(1) { animation-delay: 1.6s; }
+        .steps-list li:nth-child(2) { animation-delay: 1.75s; }
+        .steps-list li:nth-child(3) { animation-delay: 1.9s; }
+
+        .steps-list li:last-child {
+            border-bottom: none;
+        }
+
+        @keyframes slideIn {
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .step-number {
+            width: 28px;
+            height: 28px;
+            background: rgba(232, 93, 76, 0.15);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--coral);
+            flex-shrink: 0;
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .step-content strong {
+            display: block;
+            color: var(--cream);
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+        }
+
+        .step-content span {
+            font-size: 0.9rem;
+            color: rgba(250, 247, 242, 0.5);
+            line-height: 1.5;
+        }
+
+        /* CTA button */
+        .cta-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.75rem;
+            background: var(--cream);
+            color: var(--charcoal);
+            text-decoration: none;
+            padding: 1.25rem 2.5rem;
+            border-radius: 14px;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeSlideUp 0.6s ease forwards;
+            animation-delay: 2.1s;
+        }
+
+        .cta-link svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
+            stroke-width: 2.5;
+            fill: none;
+            transition: transform 0.3s ease;
+        }
+
+        .cta-link:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 40px rgba(250, 247, 242, 0.15);
+        }
+
+        .cta-link:hover svg {
+            transform: translateX(-4px);
+        }
+
+        /* Social proof */
+        .social-proof {
+            margin-top: 3rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            opacity: 0;
+            animation: fadeIn 0.8s ease forwards;
+            animation-delay: 2.3s;
+        }
+
+        .avatars {
+            display: flex;
+        }
+
+        .avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 2px solid var(--charcoal);
+            margin-left: -10px;
+            background: linear-gradient(135deg, var(--sage) 0%, var(--sage-soft) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: white;
+        }
+
+        .avatar:first-child {
+            margin-left: 0;
+            background: linear-gradient(135deg, var(--coral) 0%, var(--coral-soft) 100%);
+        }
+
+        .avatar:nth-child(2) {
+            background: linear-gradient(135deg, var(--gold) 0%, #E8C547 100%);
+        }
+
+        .social-text {
+            font-size: 0.85rem;
+            color: rgba(250, 247, 242, 0.5);
+        }
+
+        .social-text strong {
+            color: var(--cream);
+        }
+
+        /* Animations */
+        @keyframes fadeSlideUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .page-wrapper {
+                padding: 1.5rem;
+            }
+
+            .steps-card {
+                padding: 1.5rem;
+            }
+
+            .social-proof {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+</head>
+<body>
+    <div class="bg-gradient"></div>
+    <canvas id="confetti-canvas"></canvas>
+
+    <!-- Floating particles -->
+    <div class="particles" id="particles"></div>
+
+    <div class="page-wrapper">
+        <!-- Success badge -->
+        <div class="success-badge">
+            <div class="success-ring"></div>
+            <div class="success-ring"></div>
+            <div class="success-ring"></div>
+            <div class="success-circle">
+                <svg viewBox="0 0 24 24">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            </div>
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+            <span class="tag">Subscription Confirmed</span>
+            <h1 class="title">Welcome to the <em>inner circle</em></h1>
+            <p class="subtitle">
+                You've just joined a community of thousands who refuse to settle for ordinary.
+                Your first issue arrives soon.
+            </p>
+
+            <div class="steps-card">
+                <div class="steps-header">
+                    <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                    <h2>What happens next</h2>
+                </div>
+                <ul class="steps-list">
+                    <li>
+                        <span class="step-number">1</span>
+                        <div class="step-content">
+                            <strong>Check your inbox</strong>
+                            <span>A confirmation email is on its way with a special welcome gift.</span>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="step-number">2</span>
+                        <div class="step-content">
+                            <strong>Add us to contacts</strong>
+                            <span>Keep our emails out of spam by adding us to your address book.</span>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="step-number">3</span>
+                        <div class="step-content">
+                            <strong>Get your first issue</strong>
+                            <span>This coming Monday, expect something special in your inbox.</span>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+
+            <a href="index.html" class="cta-link">
+                <svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                Back to Home
+            </a>
+
+            <div class="social-proof">
+                <div class="avatars">
+                    <div class="avatar">JK</div>
+                    <div class="avatar">ML</div>
+                    <div class="avatar">AR</div>
+                    <div class="avatar">+</div>
+                </div>
+                <span class="social-text">Join <strong>12,847</strong> readers worldwide</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Generate floating particles
+        function createParticles() {
+            const container = document.getElementById('particles');
+            const colors = ['#E85D4C', '#8B9A7D', '#C9A227', '#FAF7F2'];
+
+            for (let i = 0; i < 30; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.background = colors[Math.floor(Math.random() * colors.length)];
+                particle.style.animationDelay = Math.random() * 4 + 's';
+                particle.style.animationDuration = (3 + Math.random() * 3) + 's';
+                container.appendChild(particle);
+            }
+        }
+
+        // Celebration sound
+        function playSuccessSound() {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const notes = [392, 523.25, 659.25, 783.99]; // G4, C5, E5, G5
+
+                notes.forEach((freq, i) => {
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+
+                    oscillator.frequency.value = freq;
+                    oscillator.type = 'sine';
+
+                    const startTime = audioContext.currentTime + (i * 0.12);
+                    const duration = 0.4;
+
+                    gainNode.gain.setValueAtTime(0.2, startTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+
+                    oscillator.start(startTime);
+                    oscillator.stop(startTime + duration);
+                });
+            } catch (e) {
+                console.log('Audio not supported');
+            }
+        }
+
+        // Confetti celebration
+        function fireConfetti() {
+            const canvas = document.getElementById('confetti-canvas');
+            const myConfetti = confetti.create(canvas, { resize: true });
+            const colors = ['#E85D4C', '#FF7A6B', '#8B9A7D', '#C9A227', '#FAF7F2'];
+
+            // Initial burst from sides
+            myConfetti({
+                particleCount: 80,
+                spread: 60,
+                angle: 60,
+                origin: { x: 0, y: 0.7 },
+                colors: colors
+            });
+
+            myConfetti({
+                particleCount: 80,
+                spread: 60,
+                angle: 120,
+                origin: { x: 1, y: 0.7 },
+                colors: colors
+            });
+
+            // Center celebration
+            setTimeout(() => {
+                myConfetti({
+                    particleCount: 100,
+                    spread: 100,
+                    origin: { x: 0.5, y: 0.6 },
+                    colors: colors,
+                    scalar: 1.2
+                });
+            }, 300);
+
+            // Subtle follow-up bursts
+            setTimeout(() => {
+                myConfetti({
+                    particleCount: 40,
+                    spread: 80,
+                    origin: { x: 0.3, y: 0.5 },
+                    colors: colors
+                });
+            }, 600);
+
+            setTimeout(() => {
+                myConfetti({
+                    particleCount: 40,
+                    spread: 80,
+                    origin: { x: 0.7, y: 0.5 },
+                    colors: colors
+                });
+            }, 800);
+        }
+
+        // Run celebrations on load
+        window.addEventListener('load', () => {
+            createParticles();
+
+            setTimeout(() => {
+                fireConfetti();
+                playSuccessSound();
+            }, 200);
+        });
+    </script>
+</body>
+</html>
