@@ -127,6 +127,10 @@ export async function loadTeamForSimulation(teamId: string): Promise<SimTeam> {
 
   // Set starters (top 5 by overall, respecting positions)
   const starters = selectStarters(roster);
+  // Mark starters as on court
+  for (const p of starters) {
+    p.is_on_court = true;
+  }
   const bench = roster.filter(p => !starters.includes(p));
 
   return {
@@ -137,7 +141,7 @@ export async function loadTeamForSimulation(teamId: string): Promise<SimTeam> {
     roster,
     starters,
     bench,
-    on_court: []
+    on_court: [...starters]
   };
 }
 
