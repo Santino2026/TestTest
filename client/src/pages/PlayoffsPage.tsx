@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { PageTemplate } from '@/components/layout/PageTemplate';
@@ -12,7 +13,7 @@ import {
 import { useFranchise as useFranchiseContext } from '@/context/FranchiseContext';
 import { api } from '@/api/client';
 import { cn } from '@/lib/utils';
-import { Trophy, Play, ChevronRight, ArrowRight, FastForward, SkipForward } from 'lucide-react';
+import { Trophy, ChevronRight, ArrowRight, FastForward, SkipForward } from 'lucide-react';
 import type { PlayoffSeries } from '@/api/client';
 
 const ROUND_NAMES: Record<number, string> = {
@@ -85,14 +86,6 @@ export default function PlayoffsPage() {
     },
   });
 
-  const handleStartPlayoffs = async () => {
-    try {
-      await startPlayoffs.mutateAsync();
-    } catch (error) {
-      console.error('Failed to start playoffs:', error);
-    }
-  };
-
   const handleSimulateRound = async () => {
     try {
       await simulateRound.mutateAsync();
@@ -111,7 +104,16 @@ export default function PlayoffsPage() {
 
   const isAnySimulating = simulateRound.isPending || simulateAll.isPending;
 
-  // Pre-playoffs: Show standings and start button (no series yet)
+  // Auto-start playoffs when entering playoffs phase (simulates play-in automatically)
+  const hasStartedRef = useRef(false);
+  useEffect(() => {
+    if (franchise?.phase === 'playoffs' && !playoffs?.series.length && !startPlayoffs.isPending && !hasStartedRef.current) {
+      hasStartedRef.current = true;
+      startPlayoffs.mutate();
+    }
+  }, [franchise?.phase, playoffs?.series.length, startPlayoffs.isPending]);
+
+  // Pre-playoffs: Show standings and loading state
   if (!playoffs?.series.length) {
     return (
       <PageTemplate
@@ -174,23 +176,15 @@ export default function PlayoffsPage() {
           </div>
         )}
 
-        {/* Auto-start playoffs when in playoffs phase */}
+        {/* Auto-starting playoffs */}
         {franchise?.phase === 'playoffs' && (
           <Card>
             <CardContent className="py-8 text-center">
-              <Trophy className="w-16 h-16 mx-auto text-amber-500 mb-4" />
-              <h2 className="text-2xl font-bold mb-2 text-white">Start Playoffs</h2>
-              <p className="text-slate-400 mb-6">
-                Begin the playoff tournament
+              <Trophy className="w-16 h-16 mx-auto text-amber-500 mb-4 animate-pulse" />
+              <h2 className="text-2xl font-bold mb-2 text-white">Starting Playoffs...</h2>
+              <p className="text-slate-400">
+                Simulating Play-In Tournament
               </p>
-              <Button
-                onClick={handleStartPlayoffs}
-                disabled={startPlayoffs.isPending}
-                size="lg"
-              >
-                <Play className="w-5 h-5 mr-2" />
-                {startPlayoffs.isPending ? 'Starting Playoffs...' : 'Start Playoffs'}
-              </Button>
             </CardContent>
           </Card>
         )}
@@ -283,9 +277,10 @@ export default function PlayoffsPage() {
         </Card>
       )}
 
-      {/* Bracket Display */}
+      {/* Bracket Display - filter out play-in (round 0) */}
       <div className="space-y-4 md:space-y-8">
         {Object.entries(seriesByRound)
+          .filter(([round]) => parseInt(round) > 0)
           .sort(([a], [b]) => parseInt(a) - parseInt(b))
           .map(([round, roundSeries]) => (
             <Card key={round}>
