@@ -108,11 +108,60 @@ router.post('/start', authMiddleware(true), async (req: any, res) => {
       );
     });
 
+    // Auto-simulate entire play-in tournament
+    const winsNeeded = getWinsNeeded(0); // 1 for play-in (single game)
+
+    // Simulate all play-in games until round 0 is complete
+    let playInComplete = false;
+    while (!playInComplete) {
+      const incompleteSeries = await pool.query(
+        `SELECT id FROM playoff_series WHERE season_id = $1 AND round = 0 AND status != 'completed'`,
+        [seasonId]
+      );
+
+      if (incompleteSeries.rows.length === 0) {
+        playInComplete = true;
+        break;
+      }
+
+      for (const seriesRow of incompleteSeries.rows) {
+        const seriesResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
+        if (seriesResult.rows.length === 0) continue;
+        let series = seriesResult.rows[0] as any;
+
+        while (series && series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
+          const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
+          const { homeTeamId, awayTeamId } = getHomeTeamIds(
+            gamesPlayed,
+            series.higher_seed_id,
+            series.lower_seed_id
+          );
+
+          const homeTeam = await loadTeamForSimulation(homeTeamId);
+          const awayTeam = await loadTeamForSimulation(awayTeamId);
+          const result = simulateGame(homeTeam, awayTeam);
+
+          await savePlayoffGame(result, seasonId);
+          await updateSeriesResult(seriesRow.id, result.winner_id, result.id);
+
+          const refreshResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
+          if (refreshResult.rows.length === 0) break;
+          series = refreshResult.rows[0];
+        }
+      }
+
+      // Check if Game 3 needs to be generated (after Games 1 & 2 complete)
+      await generateNextRoundIfReady(seasonId, 0);
+    }
+
+    // Generate first round bracket
+    await generateNextRoundIfReady(seasonId, 0);
+
     res.json({
-      message: 'Playoffs started',
-      round: 0,
-      roundName: getRoundName(0),
-      series: playInSeries.length
+      message: 'Playoffs started - Play-In complete',
+      round: 1,
+      roundName: getRoundName(1),
+      series: 8
     });
   } catch (error: any) {
     if (error.status) {

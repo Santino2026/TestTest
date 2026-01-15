@@ -174,14 +174,14 @@ export default function PlayoffsPage() {
           </div>
         )}
 
-        {/* Start Playoffs Button - show when in playoffs phase but no series yet */}
+        {/* Auto-start playoffs when in playoffs phase */}
         {franchise?.phase === 'playoffs' && (
           <Card>
             <CardContent className="py-8 text-center">
               <Trophy className="w-16 h-16 mx-auto text-amber-500 mb-4" />
               <h2 className="text-2xl font-bold mb-2 text-white">Start Playoffs</h2>
               <p className="text-slate-400 mb-6">
-                Begin the playoff tournament with the Play-In games
+                Begin the playoff tournament
               </p>
               <Button
                 onClick={handleStartPlayoffs}
@@ -189,7 +189,7 @@ export default function PlayoffsPage() {
                 size="lg"
               >
                 <Play className="w-5 h-5 mr-2" />
-                {startPlayoffs.isPending ? 'Starting...' : 'Start Playoffs'}
+                {startPlayoffs.isPending ? 'Starting Playoffs...' : 'Start Playoffs'}
               </Button>
             </CardContent>
           </Card>
@@ -235,40 +235,26 @@ export default function PlayoffsPage() {
                 {seriesByRound[currentRound]?.length || 0} series complete
               </div>
               <div className="flex gap-2">
-                {currentRound === 0 ? (
-                  <Button
-                    onClick={handleSimulateRound}
-                    disabled={simulateRound.isPending}
-                    variant="primary"
-                    size="md"
-                  >
-                    <FastForward className="w-4 h-4 mr-1.5" />
-                    {simulateRound.isPending ? 'Simulating...' : 'Sim Play-In'}
-                  </Button>
-                ) : (
-                  <>
-                    <Button
-                      onClick={handleSimulateRound}
-                      disabled={isAnySimulating}
-                      variant="secondary"
-                      size="md"
-                    >
-                      <FastForward className="w-4 h-4 mr-1.5" />
-                      <span className="hidden sm:inline">{simulateRound.isPending ? 'Simulating...' : 'Sim Round'}</span>
-                      <span className="sm:hidden">{simulateRound.isPending ? '...' : 'Round'}</span>
-                    </Button>
-                    <Button
-                      onClick={handleSimulateAll}
-                      disabled={isAnySimulating}
-                      variant="primary"
-                      size="md"
-                    >
-                      <SkipForward className="w-4 h-4 mr-1.5" />
-                      <span className="hidden sm:inline">{simulateAll.isPending ? 'Simulating...' : 'Sim All Playoffs'}</span>
-                      <span className="sm:hidden">{simulateAll.isPending ? '...' : 'All'}</span>
-                    </Button>
-                  </>
-                )}
+                <Button
+                  onClick={handleSimulateRound}
+                  disabled={isAnySimulating}
+                  variant="secondary"
+                  size="md"
+                >
+                  <FastForward className="w-4 h-4 mr-1.5" />
+                  <span className="hidden sm:inline">{simulateRound.isPending ? 'Simulating...' : 'Sim Round'}</span>
+                  <span className="sm:hidden">{simulateRound.isPending ? '...' : 'Round'}</span>
+                </Button>
+                <Button
+                  onClick={handleSimulateAll}
+                  disabled={isAnySimulating}
+                  variant="primary"
+                  size="md"
+                >
+                  <SkipForward className="w-4 h-4 mr-1.5" />
+                  <span className="hidden sm:inline">{simulateAll.isPending ? 'Simulating...' : 'Sim All Playoffs'}</span>
+                  <span className="sm:hidden">{simulateAll.isPending ? '...' : 'All'}</span>
+                </Button>
               </div>
             </div>
           </CardContent>
