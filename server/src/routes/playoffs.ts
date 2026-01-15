@@ -469,6 +469,12 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
         series: seriesResults
       });
 
+      // Stop after Play-In to prevent timeout - user can click again for full playoffs
+      if (currentRound === 0) {
+        await generateNextRoundIfReady(seasonId, currentRound);
+        break;
+      }
+
       // Generate next round or mark playoffs complete
       if (currentRound < 4) {
         await generateNextRoundIfReady(seasonId, currentRound);
