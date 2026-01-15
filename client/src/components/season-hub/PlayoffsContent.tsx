@@ -38,24 +38,6 @@ export function PlayoffsContent() {
     },
   });
 
-  const simulateGame = useMutation({
-    mutationFn: (seriesId: string) => api.simulatePlayoffGame(seriesId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['playoffs'] });
-      queryClient.invalidateQueries({ queryKey: ['games'] });
-      refreshFranchise();
-    },
-  });
-
-  const simulateSeries = useMutation({
-    mutationFn: (seriesId: string) => api.simulatePlayoffSeries(seriesId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['playoffs'] });
-      queryClient.invalidateQueries({ queryKey: ['games'] });
-      refreshFranchise();
-    },
-  });
-
   const simulateRound = useMutation({
     mutationFn: api.simulatePlayoffRound,
     onSuccess: () => {
@@ -82,8 +64,7 @@ export function PlayoffsContent() {
     },
   });
 
-  const isAnySimulating = simulateGame.isPending || simulateSeries.isPending ||
-                          simulateRound.isPending || simulateAll.isPending;
+  const isAnySimulating = simulateRound.isPending || simulateAll.isPending;
 
   // Pre-playoffs: Show standings and start button
   if (!playoffs?.series.length) {
@@ -266,9 +247,6 @@ export function PlayoffsContent() {
                               series={series}
                               teams={teams || []}
                               franchise={franchise}
-                              onSimulateGame={(id) => simulateGame.mutate(id)}
-                              onSimulateSeries={(id) => simulateSeries.mutate(id)}
-                              isSimulating={isAnySimulating}
                             />
                           ))}
                       </div>
@@ -288,9 +266,6 @@ export function PlayoffsContent() {
                               series={series}
                               teams={teams || []}
                               franchise={franchise}
-                              onSimulateGame={(id) => simulateGame.mutate(id)}
-                              onSimulateSeries={(id) => simulateSeries.mutate(id)}
-                              isSimulating={isAnySimulating}
                             />
                           ))}
                       </div>
@@ -308,9 +283,6 @@ export function PlayoffsContent() {
                             series={series}
                             teams={teams || []}
                             franchise={franchise}
-                            onSimulateGame={(id) => simulateGame.mutate(id)}
-                            onSimulateSeries={(id) => simulateSeries.mutate(id)}
-                            isSimulating={isAnySimulating}
                           />
                         ))}
                       </div>
@@ -329,22 +301,15 @@ function SeriesCard({
   series,
   teams,
   franchise,
-  onSimulateGame,
-  onSimulateSeries,
-  isSimulating,
 }: {
   series: PlayoffSeries;
   teams: any[];
   franchise: any;
-  onSimulateGame: (seriesId: string) => void;
-  onSimulateSeries: (seriesId: string) => void;
-  isSimulating: boolean;
 }) {
   const higherTeam = teams.find(t => t.id === series.higher_seed_id);
   const lowerTeam = teams.find(t => t.id === series.lower_seed_id);
   const isUserSeries = series.higher_seed_id === franchise?.team_id ||
                        series.lower_seed_id === franchise?.team_id;
-  const canSimulate = series.status !== 'completed';
 
   return (
     <div
@@ -395,32 +360,6 @@ function SeriesCard({
           )}
         </div>
       </div>
-
-      {/* Simulate Buttons */}
-      {canSimulate && (
-        <div className="flex gap-2 mt-3">
-          <Button
-            onClick={() => onSimulateGame(series.id)}
-            disabled={isSimulating}
-            variant="secondary"
-            size="sm"
-            className="flex-1"
-          >
-            <Play className="w-4 h-4 mr-1" />
-            Game
-          </Button>
-          <Button
-            onClick={() => onSimulateSeries(series.id)}
-            disabled={isSimulating}
-            variant="outline"
-            size="sm"
-            className="flex-1"
-          >
-            <FastForward className="w-4 h-4 mr-1" />
-            Series
-          </Button>
-        </div>
-      )}
 
       {/* Series Complete */}
       {series.status === 'completed' && (
