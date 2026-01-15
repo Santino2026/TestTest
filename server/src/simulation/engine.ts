@@ -464,16 +464,29 @@ export function simulateGame(homeTeam: SimTeam, awayTeam: SimTeam): GameResult {
     player.hot_cold_state = initializeHotColdState();
   }
 
-  // Set starters on court
-  for (let i = 0; i < 5 && i < homeTeam.starters.length; i++) {
-    homeTeam.starters[i].is_on_court = true;
+  // Set starters on court (with fallback to best 5 from roster)
+  const homeStarters = homeTeam.starters?.length >= 5 ? homeTeam.starters : homeTeam.roster.slice(0, 5);
+  const awayStarters = awayTeam.starters?.length >= 5 ? awayTeam.starters : awayTeam.roster.slice(0, 5);
+  
+  for (let i = 0; i < 5 && i < homeStarters.length; i++) {
+    homeStarters[i].is_on_court = true;
   }
-  for (let i = 0; i < 5 && i < awayTeam.starters.length; i++) {
-    awayTeam.starters[i].is_on_court = true;
+  for (let i = 0; i < 5 && i < awayStarters.length; i++) {
+    awayStarters[i].is_on_court = true;
   }
 
   homeTeam.on_court = homeTeam.roster.filter(p => p.is_on_court);
   awayTeam.on_court = awayTeam.roster.filter(p => p.is_on_court);
+  
+  // Final safety check
+  if (homeTeam.on_court.length === 0) {
+    homeTeam.on_court = homeTeam.roster.slice(0, 5);
+    homeTeam.on_court.forEach(p => p.is_on_court = true);
+  }
+  if (awayTeam.on_court.length === 0) {
+    awayTeam.on_court = awayTeam.roster.slice(0, 5);
+    awayTeam.on_court.forEach(p => p.is_on_court = true);
+  }
 
   const quarters: QuarterResult[] = [];
   const allPlays: Play[] = [];
