@@ -223,8 +223,8 @@ export default function PlayoffsPage() {
         : ROUND_NAMES[currentRound]
       }
     >
-      {/* Quick Actions Bar */}
-      {!playoffs?.isComplete && (
+      {/* Quick Actions Bar - hide during play-in (round 0) as it auto-simulates */}
+      {!playoffs?.isComplete && currentRound > 0 && (
         <Card className="mb-4 md:mb-6">
           <CardContent className="py-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
