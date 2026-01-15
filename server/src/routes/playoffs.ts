@@ -298,7 +298,7 @@ router.post('/simulate/series', authMiddleware(true), async (req: any, res) => {
   }
 });
 
-// Simulate entire round
+// Simulate entire round (optimized with team caching)
 router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
   try {
     const franchise = await getUserActiveFranchise(req.user.userId);
@@ -320,17 +320,31 @@ router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
     }
 
     const incompleteSeries = await pool.query(
-      `SELECT id FROM playoff_series WHERE season_id = $1 AND round = $2 AND status != 'completed'`,
+      `SELECT * FROM playoff_series WHERE season_id = $1 AND round = $2 AND status != 'completed'`,
       [seasonId, currentRound]
     );
+
+    if (incompleteSeries.rows.length === 0) {
+      return res.json({ round: currentRound, round_name: getRoundName(currentRound), series_completed: 0, results: [] });
+    }
+
+    // Pre-load all teams involved in this round (optimization)
+    const teamIds = new Set<string>();
+    for (const s of incompleteSeries.rows) {
+      teamIds.add(s.higher_seed_id);
+      teamIds.add(s.lower_seed_id);
+    }
+    
+    const teamCache = new Map();
+    for (const teamId of teamIds) {
+      teamCache.set(teamId, await loadTeamForSimulation(teamId));
+    }
 
     const results = [];
     const winsNeeded = getWinsNeeded(currentRound);
 
     for (const seriesRow of incompleteSeries.rows) {
-      const seriesResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
-      if (seriesResult.rows.length === 0) continue;
-      let series = seriesResult.rows[0] as any;
+      let series = seriesRow as any;
 
       while (series && series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
         const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
@@ -340,14 +354,15 @@ router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
           series.lower_seed_id
         );
 
-        const homeTeam = await loadTeamForSimulation(homeTeamId);
-        const awayTeam = await loadTeamForSimulation(awayTeamId);
+        // Use cached teams (deep clone to avoid mutation issues)
+        const homeTeam = JSON.parse(JSON.stringify(teamCache.get(homeTeamId)));
+        const awayTeam = JSON.parse(JSON.stringify(teamCache.get(awayTeamId)));
         const result = simulateGame(homeTeam, awayTeam);
 
         await savePlayoffGame(result, seasonId);
-        await updateSeriesResult(seriesRow.id, result.winner_id, result.id);
+        await updateSeriesResult(series.id, result.winner_id, result.id);
 
-        const refreshResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
+        const refreshResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [series.id]);
         if (refreshResult.rows.length === 0) break;
         series = refreshResult.rows[0];
       }
@@ -413,7 +428,7 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
       }
 
       const incompleteSeries = await pool.query(
-        `SELECT id FROM playoff_series WHERE season_id = $1 AND round = $2 AND status != 'completed'`,
+        `SELECT * FROM playoff_series WHERE season_id = $1 AND round = $2 AND status != 'completed'`,
         [seasonId, currentRound]
       );
 
@@ -422,13 +437,23 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
         break;
       }
 
+      // Pre-load all teams for this round (optimization)
+      const teamIds = new Set<string>();
+      for (const s of incompleteSeries.rows) {
+        teamIds.add(s.higher_seed_id);
+        teamIds.add(s.lower_seed_id);
+      }
+      
+      const teamCache = new Map();
+      for (const teamId of teamIds) {
+        teamCache.set(teamId, await loadTeamForSimulation(teamId));
+      }
+
       const winsNeeded = getWinsNeeded(currentRound);
       const seriesResults = [];
 
       for (const seriesRow of incompleteSeries.rows) {
-        const seriesQueryResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
-        if (seriesQueryResult.rows.length === 0) continue;
-        let series = seriesQueryResult.rows[0] as any;
+        let series = seriesRow as any;
 
         while (series && series.higher_seed_wins < winsNeeded && series.lower_seed_wins < winsNeeded) {
           const gamesPlayed = series.higher_seed_wins + series.lower_seed_wins;
@@ -438,14 +463,15 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
             series.lower_seed_id
           );
 
-          const homeTeam = await loadTeamForSimulation(homeTeamId);
-          const awayTeam = await loadTeamForSimulation(awayTeamId);
+          // Use cached teams (deep clone to avoid mutation)
+          const homeTeam = JSON.parse(JSON.stringify(teamCache.get(homeTeamId)));
+          const awayTeam = JSON.parse(JSON.stringify(teamCache.get(awayTeamId)));
           const result = simulateGame(homeTeam, awayTeam);
 
           await savePlayoffGame(result, seasonId);
-          await updateSeriesResult(seriesRow.id, result.winner_id, result.id);
+          await updateSeriesResult(series.id, result.winner_id, result.id);
 
-          const refreshResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [seriesRow.id]);
+          const refreshResult = await pool.query('SELECT * FROM playoff_series WHERE id = $1', [series.id]);
           if (refreshResult.rows.length === 0) break;
           series = refreshResult.rows[0];
         }
