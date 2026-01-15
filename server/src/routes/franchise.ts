@@ -142,7 +142,7 @@ router.get('/list', authMiddleware(true), async (req: any, res) => {
   }
 });
 
-// Create a NEW franchise (does NOT overwrite existing ones)
+// Create a NEW franchise (allows multiple per user)
 router.post('/create', authMiddleware(true), async (req: any, res) => {
   try {
     const userId = req.user.userId;
@@ -159,18 +159,7 @@ router.post('/create', authMiddleware(true), async (req: any, res) => {
     }
     const team = teamResult.rows[0];
 
-    // Check if user already has any franchise (unique constraint on user_id)
-    const existingResult = await pool.query(
-      'SELECT id, team_id FROM franchises WHERE user_id = $1',
-      [userId]
-    );
-    if (existingResult.rows.length > 0) {
-      // User already has a franchise - return it instead of error
-      const franchise = await getFranchiseWithDetails(existingResult.rows[0].id);
-      return res.json({ existing: true, franchise });
-    }
-
-    // No existing franchise - create new one
+    // Deactivate existing franchises, then create new one
     await pool.query(
       'UPDATE franchises SET is_active = FALSE WHERE user_id = $1',
       [userId]
@@ -189,7 +178,7 @@ router.post('/create', authMiddleware(true), async (req: any, res) => {
   }
 });
 
-// Legacy endpoint - now creates new franchise instead of overwriting
+// Legacy endpoint - creates new franchise (allows multiple)
 router.post('/select', authMiddleware(true), async (req: any, res) => {
   try {
     const userId = req.user.userId;
@@ -199,24 +188,18 @@ router.post('/select', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: 'team_id is required' });
     }
 
-    // Check if user already has any franchise
-    const existingResult = await pool.query(
-      'SELECT id, team_id FROM franchises WHERE user_id = $1',
-      [userId]
-    );
-
-    if (existingResult.rows.length > 0) {
-      // User already has a franchise - return it
-      const franchise = await getFranchiseWithDetails(existingResult.rows[0].id);
-      return res.json({ existing: true, franchise });
-    }
-
-    // Create new franchise
+    // Verify team exists
     const teamResult = await pool.query('SELECT * FROM teams WHERE id = $1', [team_id]);
     if (teamResult.rows.length === 0) {
       return res.status(404).json({ error: 'Team not found' });
     }
     const team = teamResult.rows[0];
+
+    // Deactivate existing franchises for this user
+    await pool.query(
+      'UPDATE franchises SET is_active = FALSE WHERE user_id = $1',
+      [userId]
+    );
 
     // Create franchise using helper
     const franchiseName = `${team.city} ${team.name}`;
