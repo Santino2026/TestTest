@@ -411,9 +411,6 @@ router.post('/complete', authMiddleware(true), async (req: any, res) => {
       [franchise.season_id]
     );
 
-    if (gameResult.rows.length === 0) {
-      return res.status(400).json({ error: 'Must complete All-Star Game first' });
-    }
 
     // Return to regular season, advance day past All-Star break
     await pool.query(
