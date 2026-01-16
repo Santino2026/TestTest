@@ -25,11 +25,11 @@ router.get('/prospects', async (req, res) => {
     const seasonId = await getLatestSeasonId();
 
     if (!seasonId) {
-      return res.json({ prospects: [] });
+      return res.json([]);
     }
 
     const result = await pool.query(
-      `SELECT dp.*, dpa.*
+      `SELECT dp.*, dp.mock_draft_position as projected_pick, dpa.*
        FROM draft_prospects dp
        LEFT JOIN draft_prospect_attributes dpa ON dp.id = dpa.prospect_id
        WHERE dp.season_id = $1 AND dp.is_drafted = false
@@ -37,7 +37,7 @@ router.get('/prospects', async (req, res) => {
       [seasonId]
     );
 
-    res.json({ prospects: result.rows });
+    res.json(result.rows);
   } catch (error) {
     console.error('Draft prospects error:', error);
     res.status(500).json({ error: 'Failed to fetch draft prospects' });
@@ -158,13 +158,11 @@ router.get('/lottery/odds', async (req, res) => {
       team_id: t.id,
       team_name: t.name,
       abbreviation: t.abbreviation,
-      wins: t.wins,
-      losses: t.losses,
-      lottery_position: idx + 1,
-      odds: getLotteryOdds(idx + 1)
+      record: `${t.wins}-${t.losses}`,
+      odds_pct: getLotteryOdds(idx + 1)
     }));
 
-    res.json({ lottery_teams: lotteryTeams });
+    res.json(lotteryTeams);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch lottery odds' });
   }
@@ -291,58 +289,31 @@ router.get('/order', async (req, res) => {
   try {
     const seasonId = await getLatestSeasonId();
 
-    // Get lottery results for picks 1-14
-    const lotteryResult = await pool.query(
-      `SELECT dl.*, t.name, t.abbreviation
-       FROM draft_lottery dl
-       JOIN teams t ON dl.team_id = t.id
-       WHERE dl.season_id = $1
-       ORDER BY dl.post_lottery_position`,
+    if (!seasonId) {
+      return res.json([]);
+    }
+
+    // Get all draft picks with player info if drafted
+    const picksResult = await pool.query(
+      `SELECT dp.pick_number, dp.round, dp.current_team_id as team_id,
+              t.name as team_name, t.abbreviation,
+              dp.player_id,
+              p.first_name || ' ' || p.last_name as player_name
+       FROM draft_picks dp
+       JOIN teams t ON dp.current_team_id = t.id
+       LEFT JOIN players p ON dp.player_id = p.id
+       WHERE dp.season_id = $1
+       ORDER BY dp.pick_number`,
       [seasonId]
     );
 
-    // Get non-lottery teams (15-30) ordered by record (worst first)
-    const nonLotteryResult = await pool.query(
-      `SELECT t.id, t.name, t.abbreviation, s.wins, s.losses
-       FROM standings s
-       JOIN teams t ON s.team_id = t.id
-       WHERE s.season_id = $1
-         AND t.id NOT IN (SELECT team_id FROM draft_lottery WHERE season_id = $1)
-       ORDER BY s.wins ASC, s.losses DESC`,
-      [seasonId]
-    );
+    // If draft picks exist (lottery has been run), return them
+    if (picksResult.rows.length > 0) {
+      return res.json(picksResult.rows);
+    }
 
-    // Combine for full first round
-    const draftOrder = [
-      ...lotteryResult.rows.map((t: any) => ({
-        pick: t.post_lottery_position,
-        round: 1,
-        team_id: t.team_id,
-        team_name: t.name,
-        abbreviation: t.abbreviation,
-        lottery_win: t.lottery_win
-      })),
-      ...nonLotteryResult.rows.map((t: any, idx: number) => ({
-        pick: 15 + idx,
-        round: 1,
-        team_id: t.id,
-        team_name: t.name,
-        abbreviation: t.abbreviation,
-        lottery_win: false
-      }))
-    ];
-
-    // Add second round (reverse order of first round)
-    const secondRound = [...draftOrder].reverse().map((t, idx) => ({
-      ...t,
-      pick: 31 + idx,
-      round: 2
-    }));
-
-    res.json({
-      first_round: draftOrder,
-      second_round: secondRound
-    });
+    // Lottery hasn't been run yet - return empty array
+    res.json([]);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch draft order' });
   }

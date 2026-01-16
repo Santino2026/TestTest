@@ -46,6 +46,7 @@ export default function DraftPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['draftOrder'] });
       queryClient.invalidateQueries({ queryKey: ['lotteryOdds'] });
+      queryClient.invalidateQueries({ queryKey: ['draft'] });
     },
   });
 
@@ -129,6 +130,13 @@ export default function DraftPage() {
           </Badge>
         )}
       </div>
+
+      {/* Error Messages */}
+      {(generateDraft.error || runLottery.error || makePick.error) && (
+        <div className="mb-4 p-3 bg-red-900/30 border border-red-500/50 rounded-lg text-red-300 text-sm">
+          {generateDraft.error?.message || runLottery.error?.message || makePick.error?.message}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         {/* Draft Order */}
