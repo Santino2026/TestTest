@@ -338,12 +338,20 @@ router.get('/order', authMiddleware(true), async (req: any, res) => {
 });
 
 // Make a draft pick
-router.post('/pick', async (req, res) => {
+router.post('/pick', authMiddleware(true), async (req: any, res) => {
   try {
-    const { prospect_id, team_id } = req.body;
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (!prospect_id || !team_id) {
-      return res.status(400).json({ error: 'prospect_id and team_id required' });
+    if (!franchise) {
+      return res.status(404).json({ error: 'No active franchise' });
+    }
+
+    // Accept both player_id (from frontend) and prospect_id (legacy)
+    const prospect_id = req.body.player_id || req.body.prospect_id;
+    const team_id = franchise.team_id;
+
+    if (!prospect_id) {
+      return res.status(400).json({ error: 'player_id required' });
     }
 
     // Use advisory lock to serialize draft picks for this prospect
