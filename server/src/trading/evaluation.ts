@@ -356,13 +356,3 @@ export function evaluateTradeForTeam(
   };
 }
 
-// Generate a counter offer
-export function generateCounterOffer(
-  originalProposal: TradeProposal,
-  teamId: string,
-  valueDelta: number
-): Partial<TradeProposal> | null {
-  // Would need access to team's draft picks and players to suggest additions
-  // For now, return null (decline to counter)
-  return null;
-}

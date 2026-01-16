@@ -35,18 +35,6 @@ export function getStatBgColor(value: number): string {
   return BG_COLORS[getStatTierIndex(value)];
 }
 
-// Format position name
-export function formatPosition(pos: string): string {
-  const positions: Record<string, string> = {
-    PG: 'Point Guard',
-    SG: 'Shooting Guard',
-    SF: 'Small Forward',
-    PF: 'Power Forward',
-    C: 'Center',
-  };
-  return positions[pos] || pos;
-}
-
 // Format archetype name
 export function formatArchetype(archetype: string): string {
   return archetype
@@ -62,18 +50,3 @@ export function calculateWinPct(wins: number, losses: number): string {
   return pct.toFixed(3).replace('0.', '.');
 }
 
-// Calculate games behind leader
-export function calculateGB(leaderWins: number, leaderLosses: number, wins: number, losses: number): string {
-  const gb = ((leaderWins - wins) + (losses - leaderLosses)) / 2;
-  if (gb === 0) return '-';
-  return gb.toFixed(1);
-}
-
-// Format season day for display (handles preseason negative days)
-export function formatSeasonDay(currentDay: number, phase: string): string {
-  if (phase === 'preseason') {
-    const gameNumber = (currentDay ?? -7) + 8;
-    return `Preseason Game ${gameNumber}/8`;
-  }
-  return `Day ${currentDay}`;
-}

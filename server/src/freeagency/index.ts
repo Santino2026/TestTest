@@ -23,8 +23,5 @@ export {
   generateFAPreferences,
   calculateAskingSalary,
   scoreOffer,
-  evaluateOffers,
-  canMatchOffer,
-  validateOffer,
-  generateCPUOffers
+  validateOffer
 } from './signing';

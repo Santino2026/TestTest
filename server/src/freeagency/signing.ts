@@ -173,47 +173,6 @@ export function scoreOffer(
   };
 }
 
-// Evaluate all offers and decide which to accept
-export function evaluateOffers(
-  fa: FreeAgent,
-  offers: Array<{ offer: ContractOffer; team: TeamContext }>
-): { acceptedOffer: ContractOffer | null; scores: Map<string, OfferScore> } {
-  if (offers.length === 0) {
-    return { acceptedOffer: null, scores: new Map() };
-  }
-
-  const scores = new Map<string, OfferScore>();
-  let bestOffer: ContractOffer | null = null;
-  let bestScore = 0;
-
-  for (const { offer, team } of offers) {
-    const score = scoreOffer(fa, offer, team);
-    scores.set(team.team_id, score);
-
-    if (score.total > bestScore) {
-      bestScore = score.total;
-      bestOffer = offer;
-    }
-  }
-
-  // Only accept if score is above threshold (players won't take bad deals)
-  const acceptThreshold = 50 + (fa.overall - 70);  // Better players more demanding
-  if (bestScore < acceptThreshold) {
-    return { acceptedOffer: null, scores };
-  }
-
-  return { acceptedOffer: bestOffer, scores };
-}
-
-// Handle RFA matching
-export function canMatchOffer(
-  rightsTeam: { payroll: number; cap_space: number },
-  offer: ContractOffer
-): boolean {
-  const { canSign } = canAffordContract(rightsTeam.payroll, offer.salary_per_year);
-  return canSign;
-}
-
 // Validate an offer
 export interface OfferValidation {
   valid: boolean;
@@ -265,49 +224,4 @@ export function validateOffer(
     errors,
     warnings
   };
-}
-
-// Generate CPU team offers for a free agent
-export function generateCPUOffers(
-  fa: FreeAgent,
-  interestedTeams: TeamContext[],
-  maxOffers: number = 3
-): Array<{ offer: ContractOffer; team: TeamContext }> {
-  const offers: Array<{ offer: ContractOffer; team: TeamContext }> = [];
-
-  // Sort teams by how much they need this player
-  const sortedTeams = [...interestedTeams].sort((a, b) => {
-    const aScore = (a.needs_position ? 30 : 0) + (15 - a.roster_size) * 2 + (82 - a.wins) / 2;
-    const bScore = (b.needs_position ? 30 : 0) + (15 - b.roster_size) * 2 + (82 - b.wins) / 2;
-    return bScore - aScore;
-  });
-
-  for (const team of sortedTeams.slice(0, maxOffers)) {
-    // Determine offer based on team need
-    const needMultiplier = team.needs_position ? 1.1 : 0.95;
-    const offerSalary = Math.round(fa.market_value * needMultiplier);
-
-    // Determine years based on age
-    let years: number;
-    if (fa.age <= 27) {
-      years = Math.min(4, Math.floor(Math.random() * 3) + 2);
-    } else if (fa.age <= 32) {
-      years = Math.min(3, Math.floor(Math.random() * 2) + 2);
-    } else {
-      years = Math.floor(Math.random() * 2) + 1;
-    }
-
-    offers.push({
-      offer: {
-        team_id: team.team_id,
-        player_id: fa.player_id,
-        years,
-        salary_per_year: Math.round(offerSalary / 100_000) * 100_000,
-        total_value: offerSalary * years
-      },
-      team
-    });
-  }
-
-  return offers;
 }

@@ -9,9 +9,6 @@ export {
 export {
   simulateLottery,
   getLotteryOdds,
-  formatLotteryOdds,
-  calculatePickProbability,
-  generateLotterySummary,
   LotteryTeam
 } from './lottery';
 

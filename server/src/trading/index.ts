@@ -9,6 +9,5 @@ export {
   calculatePlayerValue,
   estimatePickValue,
   validateTrade,
-  evaluateTradeForTeam,
-  generateCounterOffer
+  evaluateTradeForTeam
 } from './evaluation';
