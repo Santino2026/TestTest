@@ -4,9 +4,9 @@ import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge } from '@/components/ui';
 import { api } from '@/api/client';
 import { useFranchise } from '@/context/FranchiseContext';
-import { useDraftState, useTeamNeeds, useSimToPick, useAutoDraft } from '@/api/hooks';
+import { useDraftState, useTeamNeeds } from '@/api/hooks';
 import { cn, getStatColor } from '@/lib/utils';
-import { Trophy, Users, FastForward, Bot } from 'lucide-react';
+import { Trophy, Users } from 'lucide-react';
 
 export default function DraftPage() {
   const queryClient = useQueryClient();
@@ -28,11 +28,9 @@ export default function DraftPage() {
     queryFn: api.getLotteryOdds,
   });
 
-  // AI Draft hooks
+  // Draft state hooks
   const { data: draftState } = useDraftState();
   const { data: teamNeeds } = useTeamNeeds();
-  const simToPick = useSimToPick();
-  const autoDraft = useAutoDraft();
 
   const generateDraft = useMutation({
     mutationFn: api.generateDraftClass,
@@ -100,29 +98,6 @@ export default function DraftPage() {
           >
             {runLottery.isPending ? 'Running...' : 'Run Draft Lottery'}
           </Button>
-        )}
-        {/* AI Draft Controls - only show when draft is in progress */}
-        {(draftOrder?.length ?? 0) > 0 && !draftState?.is_draft_complete && (
-          <>
-            {!isUserPick && (
-              <Button
-                onClick={() => simToPick.mutate()}
-                disabled={simToPick.isPending}
-                variant="secondary"
-              >
-                <FastForward className="w-4 h-4 mr-2" />
-                {simToPick.isPending ? 'Simulating...' : 'Sim to My Pick'}
-              </Button>
-            )}
-            <Button
-              onClick={() => autoDraft.mutate()}
-              disabled={autoDraft.isPending}
-              variant="outline"
-            >
-              <Bot className="w-4 h-4 mr-2" />
-              {autoDraft.isPending ? 'Drafting...' : 'Auto-Draft All'}
-            </Button>
-          </>
         )}
         {draftState?.is_draft_complete && (
           <Badge variant="success" className="text-sm px-3 py-1.5">
