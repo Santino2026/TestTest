@@ -20,13 +20,15 @@ import { getLatestSeasonId, getUserActiveFranchise } from '../db/queries';
 const router = Router();
 
 // Get current draft class (prospects)
-router.get('/prospects', async (req, res) => {
+router.get('/prospects', authMiddleware(true), async (req: any, res) => {
   try {
-    const seasonId = await getLatestSeasonId();
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (!seasonId) {
-      return res.json([]);
+    if (!franchise) {
+      return res.status(404).json({ error: 'No active franchise' });
     }
+
+    const seasonId = franchise.season_id;
 
     const result = await pool.query(
       `SELECT dp.*, dp.mock_draft_position as projected_pick, dpa.*
@@ -45,13 +47,15 @@ router.get('/prospects', async (req, res) => {
 });
 
 // Generate new draft class
-router.post('/generate', async (req, res) => {
+router.post('/generate', authMiddleware(true), async (req: any, res) => {
   try {
-    const seasonId = await getLatestSeasonId();
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (!seasonId) {
-      return res.status(400).json({ error: 'No active season' });
+    if (!franchise) {
+      return res.status(404).json({ error: 'No active franchise' });
     }
+
+    const seasonId = franchise.season_id;
 
     // Generate draft class data before entering transaction (CPU-bound work)
     const prospects = generateDraftClass();
@@ -138,9 +142,15 @@ router.post('/generate', async (req, res) => {
 });
 
 // Get lottery odds
-router.get('/lottery/odds', async (req, res) => {
+router.get('/lottery/odds', authMiddleware(true), async (req: any, res) => {
   try {
-    const seasonId = await getLatestSeasonId();
+    const franchise = await getUserActiveFranchise(req.user.userId);
+
+    if (!franchise) {
+      return res.status(404).json({ error: 'No active franchise' });
+    }
+
+    const seasonId = franchise.season_id;
 
     // Get bottom 14 teams by record
     const standingsResult = await pool.query(
@@ -169,9 +179,15 @@ router.get('/lottery/odds', async (req, res) => {
 });
 
 // Run the draft lottery
-router.post('/lottery/run', async (req, res) => {
+router.post('/lottery/run', authMiddleware(true), async (req: any, res) => {
   try {
-    const seasonId = await getLatestSeasonId();
+    const franchise = await getUserActiveFranchise(req.user.userId);
+
+    if (!franchise) {
+      return res.status(404).json({ error: 'No active franchise' });
+    }
+
+    const seasonId = franchise.season_id;
 
     // Check if lottery already run
     const existingResult = await pool.query(
@@ -285,13 +301,15 @@ router.post('/lottery/run', async (req, res) => {
 });
 
 // Get draft order (after lottery)
-router.get('/order', async (req, res) => {
+router.get('/order', authMiddleware(true), async (req: any, res) => {
   try {
-    const seasonId = await getLatestSeasonId();
+    const franchise = await getUserActiveFranchise(req.user.userId);
 
-    if (!seasonId) {
-      return res.json([]);
+    if (!franchise) {
+      return res.status(404).json({ error: 'No active franchise' });
     }
+
+    const seasonId = franchise.season_id;
 
     // Get all draft picks with player info if drafted
     const picksResult = await pool.query(
