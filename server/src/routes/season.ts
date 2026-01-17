@@ -182,8 +182,12 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
     let allStarComplete = franchise.all_star_complete;
 
     while (currentDay <= REGULAR_SEASON_END_DAY) {
-      const { results } = await simulateDayGames({ ...franchise, current_day: currentDay });
-      userResults.push(...results.filter((r: any) => r.is_user_game));
+      try {
+        const { results } = await simulateDayGames({ ...franchise, current_day: currentDay });
+        userResults.push(...results.filter((r: any) => r.is_user_game));
+      } catch (simError) {
+        console.error(`Failed to simulate day ${currentDay}, continuing:`, simError);
+      }
 
       const newDay = currentDay + 1;
 

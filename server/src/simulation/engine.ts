@@ -175,6 +175,11 @@ function calculateTeamStats(players: SimPlayer[]): TeamGameStats {
   stats.three_pct = stats.three_pa > 0 ? stats.three_pm / stats.three_pa : 0;
   stats.ft_pct = stats.fta > 0 ? stats.ftm / stats.fta : 0;
 
+  // Sanity check: a team should never finish with 0 FGA
+  if (stats.fga === 0) {
+    console.error('SIMULATION BUG: Team finished with 0 field goal attempts');
+  }
+
   return stats;
 }
 
@@ -291,8 +296,11 @@ function simulateQuarter(
 
     if (homeTeam.on_court.length === 0 || awayTeam.on_court.length === 0) {
       console.error('No players on court! Home:', homeTeam.on_court.length, 'Away:', awayTeam.on_court.length);
-      for (const p of homeTeam.starters.slice(0, 5)) p.is_on_court = true;
-      for (const p of awayTeam.starters.slice(0, 5)) p.is_on_court = true;
+      // Use starters if available, otherwise fall back to roster
+      const homePlayers = homeTeam.starters.length >= 5 ? homeTeam.starters : homeTeam.roster;
+      const awayPlayers = awayTeam.starters.length >= 5 ? awayTeam.starters : awayTeam.roster;
+      for (const p of homePlayers.slice(0, 5)) p.is_on_court = true;
+      for (const p of awayPlayers.slice(0, 5)) p.is_on_court = true;
       homeTeam.on_court = homeTeam.roster.filter(p => p.is_on_court);
       awayTeam.on_court = awayTeam.roster.filter(p => p.is_on_court);
     }
@@ -438,7 +446,8 @@ export function simulateGame(homeTeam: SimTeam, awayTeam: SimTeam): GameResult {
     }
   }
 
-  while (homeScore === awayScore && overtimePeriods < 6) {
+  // Keep playing OT until someone wins (no limit - real NBA has no OT cap)
+  while (homeScore === awayScore) {
     overtimePeriods++;
     const otResult = simulateQuarter(homeTeam, awayTeam, 4 + overtimePeriods, homeScore, awayScore, possession, OVERTIME_LENGTH);
     quarters.push(otResult.result);
@@ -446,6 +455,13 @@ export function simulateGame(homeTeam: SimTeam, awayTeam: SimTeam): GameResult {
     homeScore = otResult.finalHomeScore;
     awayScore = otResult.finalAwayScore;
     possession = otResult.possession;
+
+    // Safety: prevent infinite loop in case of simulation bug (should never happen)
+    if (overtimePeriods >= 10) {
+      console.error('WARNING: 10 OT periods reached, forcing tiebreaker');
+      homeScore += 1; // Force home team win as tiebreaker
+      break;
+    }
   }
 
   const homeStats = calculateTeamStats(homeTeam.roster);
