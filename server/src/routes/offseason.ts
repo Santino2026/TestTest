@@ -408,6 +408,14 @@ router.post('/offseason/skip-to', authMiddleware(true), async (req: any, res) =>
       if (!franchise) throw { status: 404, message: 'No franchise found' };
       if (franchise.phase !== 'offseason') throw { status: 400, message: 'Not in offseason' };
 
+      // Only allow skipping forward, not backward
+      const currentPhase = franchise.offseason_phase || 'review';
+      const currentIndex = OFFSEASON_PHASES.indexOf(currentPhase);
+      const targetIndex = OFFSEASON_PHASES.indexOf(target_phase);
+      if (targetIndex <= currentIndex) {
+        throw { status: 400, message: 'Can only skip forward to a later phase' };
+      }
+
       await client.query(
         `UPDATE franchises SET offseason_phase = $1, last_played_at = NOW() WHERE id = $2`,
         [target_phase, franchise.id]

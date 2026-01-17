@@ -254,6 +254,9 @@ router.post('/simulate', authMiddleware(true), async (req: any, res) => {
 
 router.post('/simulate/series', authMiddleware(true), async (req: any, res) => {
   try {
+    const franchise = await getUserActiveFranchise(req.user.userId);
+    if (!franchise) return res.status(404).json({ error: 'No franchise found' });
+
     const { series_id } = req.body;
     if (!series_id) {
       return res.status(400).json({ error: 'series_id is required' });
@@ -265,6 +268,12 @@ router.post('/simulate/series', authMiddleware(true), async (req: any, res) => {
     }
 
     const series = seriesResult.rows[0];
+
+    // Verify series belongs to user's season
+    if (series.season_id !== franchise.season_id) {
+      return res.status(403).json({ error: 'Series does not belong to your franchise' });
+    }
+
     if (series.status === 'completed') {
       return res.status(400).json({ error: 'Series already completed' });
     }

@@ -7,6 +7,9 @@ import { saveCompleteGameResult, GameResult } from '../services/gamePersistence'
 
 const router = Router();
 
+// Simple UUID format check
+const isValidUUID = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
 router.post('/simulate', async (req, res) => {
   try {
     const { home_team_id, away_team_id, save_result = true } = req.body;
@@ -14,10 +17,18 @@ router.post('/simulate', async (req, res) => {
       return res.status(400).json({ error: 'home_team_id and away_team_id are required' });
     }
 
+    if (!isValidUUID(home_team_id) || !isValidUUID(away_team_id)) {
+      return res.status(400).json({ error: 'Invalid team ID format' });
+    }
+
     const [homeTeam, awayTeam] = await Promise.all([
       loadTeamForSimulation(home_team_id),
       loadTeamForSimulation(away_team_id)
     ]);
+
+    if (!homeTeam || !awayTeam) {
+      return res.status(404).json({ error: 'One or both teams not found' });
+    }
 
     const result = simulateGame(homeTeam, awayTeam);
 
