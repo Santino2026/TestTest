@@ -240,6 +240,11 @@ router.post('/calculate', authMiddleware(true), async (req: any, res) => {
     const forwards = players.filter(p => ['SF', 'PF'].includes(p.position)).sort((a, b) => compositeScore(b) - compositeScore(a));
     const centers = players.filter(p => p.position === 'C').sort((a, b) => compositeScore(b) - compositeScore(a));
 
+    // Validate minimum players for All-NBA teams
+    if (guards.length < 6 || forwards.length < 6 || centers.length < 3) {
+      console.warn(`Insufficient players for All-NBA teams: ${guards.length} guards, ${forwards.length} forwards, ${centers.length} centers`);
+    }
+
     const allNbaTeams = [
       { type: 'all_nba_1', guards: guards.slice(0, 2), forwards: forwards.slice(0, 2), centers: centers.slice(0, 1) },
       { type: 'all_nba_2', guards: guards.slice(2, 4), forwards: forwards.slice(2, 4), centers: centers.slice(1, 2) },
@@ -247,7 +252,7 @@ router.post('/calculate', authMiddleware(true), async (req: any, res) => {
     ];
 
     for (const team of allNbaTeams) {
-      const teamPlayers = [...team.guards, ...team.forwards, ...team.centers];
+      const teamPlayers = [...team.guards, ...team.forwards, ...team.centers].filter(Boolean);
       for (const player of teamPlayers) {
         awards.push(createAward(seasonId, team.type, player, parseFloat(player.ppg)));
       }

@@ -196,7 +196,8 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: 'team_id, player_id, years, and salary_per_year required' });
     }
 
-    const result = await withAdvisoryLock(`sign-player-${player_id}`, async (client) => {
+    // Lock on both player and team to prevent race conditions
+    const result = await withAdvisoryLock(`sign-team-${team_id}`, async (client) => {
       const seasonId = await getLatestSeasonId(client);
       if (!seasonId) {
         throw { status: 500, message: 'No active season found' };
@@ -210,7 +211,11 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
         throw { status: 400, message: 'Player is not a free agent or was already signed' };
       }
 
-      const rosterResult = await client.query(`SELECT COUNT(*) FROM players WHERE team_id = $1`, [team_id]);
+      // Use FOR UPDATE to lock the roster count during this transaction
+      const rosterResult = await client.query(
+        `SELECT COUNT(*) FROM players WHERE team_id = $1 FOR UPDATE`,
+        [team_id]
+      );
       if (parseInt(rosterResult.rows[0].count) >= 15) {
         throw { status: 400, message: 'Roster is full (15 players max)' };
       }

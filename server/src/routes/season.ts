@@ -181,7 +181,11 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
     let currentDay = franchise.current_day;
     let allStarComplete = franchise.all_star_complete;
 
-    while (currentDay <= REGULAR_SEASON_END_DAY) {
+    const MAX_ITERATIONS = 200; // Safety limit to prevent infinite loops
+    let iterations = 0;
+
+    while (currentDay <= REGULAR_SEASON_END_DAY && iterations < MAX_ITERATIONS) {
+      iterations++;
       try {
         const { results } = await simulateDayGames({ ...franchise, current_day: currentDay });
         userResults.push(...results.filter((r: any) => r.is_user_game));

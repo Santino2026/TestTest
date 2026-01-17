@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db/pool';
 import { withTransaction } from '../db/transactions';
 import { getLatestSeasonId } from '../db/queries';
+import { authMiddleware } from '../auth';
 import {
   CPUTeamContext,
   determineTeamStrategy,
@@ -101,7 +102,7 @@ async function getMultipleTeamContexts(teamIds: string[], seasonId: string): Pro
   return contexts;
 }
 
-router.get('/team/:teamId/analysis', async (req, res) => {
+router.get('/team/:teamId/analysis', authMiddleware(true), async (req: any, res) => {
   try {
     const { teamId } = req.params;
     const seasonId = await getLatestSeasonId();
@@ -159,7 +160,7 @@ function getRecommendations(context: CPUTeamContext, strategy: string): string[]
   return recs;
 }
 
-router.post('/process/:phase', async (req, res) => {
+router.post('/process/:phase', authMiddleware(true), async (req: any, res) => {
   try {
     const { phase } = req.params;
     const { user_team_id } = req.body;
@@ -242,7 +243,7 @@ router.post('/process/:phase', async (req, res) => {
   }
 });
 
-router.post('/draft/pick', async (req, res) => {
+router.post('/draft/pick', authMiddleware(true), async (req: any, res) => {
   try {
     const { team_id, pick_number } = req.body;
     const seasonId = await getLatestSeasonId();
@@ -305,7 +306,7 @@ function getContractYears(age: number): number {
   return 2;
 }
 
-router.post('/freeagency', async (req, res) => {
+router.post('/freeagency', authMiddleware(true), async (req: any, res) => {
   try {
     const { user_team_id } = req.body;
     const seasonId = await getLatestSeasonId();
@@ -403,7 +404,7 @@ async function executeTradeAtomic(
   }
 }
 
-router.post('/trades', async (req, res) => {
+router.post('/trades', authMiddleware(true), async (req: any, res) => {
   try {
     const { user_team_id } = req.body;
     const seasonId = await getLatestSeasonId();
@@ -496,7 +497,7 @@ router.post('/trades', async (req, res) => {
   }
 });
 
-router.post('/lineup/:teamId', async (req, res) => {
+router.post('/lineup/:teamId', authMiddleware(true), async (req: any, res) => {
   try {
     const { teamId } = req.params;
     const rosterResult = await pool.query(
