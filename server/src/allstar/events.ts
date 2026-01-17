@@ -559,15 +559,14 @@ export async function getEventResults(seasonId: string): Promise<EventResult[]> 
   return result.rows.map((r: any) => ({
     event_type: r.event_type,
     winner_id: r.winner_id,
-    winner_name: r.winner_first ? `${r.winner_first} ${r.winner_last}` : null,
+    winner_name: r.winner_first ? `${r.winner_first} ${r.winner_last}` : undefined,
     runner_up_id: r.runner_up_id,
-    runner_up_name: r.runner_up_first ? `${r.runner_up_first} ${r.runner_up_last}` : null,
+    runner_up_name: r.runner_up_first ? `${r.runner_up_first} ${r.runner_up_last}` : undefined,
     mvp_id: r.mvp_id,
-    mvp_name: r.mvp_first ? `${r.mvp_first} ${r.mvp_last}` : null,
+    mvp_name: r.mvp_first ? `${r.mvp_first} ${r.mvp_last}` : undefined,
     winning_team: r.winning_team,
     winning_score: r.winning_score,
     losing_score: r.losing_score,
     details: r.details,
-    simulated_at: r.simulated_at,
   }));
 }

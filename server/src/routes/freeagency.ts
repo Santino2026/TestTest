@@ -198,6 +198,9 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
 
     const result = await withAdvisoryLock(`sign-player-${player_id}`, async (client) => {
       const seasonId = await getLatestSeasonId(client);
+      if (!seasonId) {
+        throw { status: 500, message: 'No active season found' };
+      }
 
       const player = await lockPlayer(client, player_id);
       if (!player) {
