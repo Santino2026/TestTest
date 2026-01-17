@@ -200,17 +200,16 @@ function generateAttributes(archetype: Archetype, overall: number): Record<strin
   return attrs;
 }
 
-function generateHiddenAttributes(age: number, overall: number): Record<string, number> {
-  // Hidden attributes from GAME_DESIGN.md Section 4.2
+function generateHiddenAttributes(): Record<string, number> {
   return {
-    peak_age: random(26, 31), // Most players peak 26-31
-    durability: random(50, 95), // Injury resistance
-    coachability: random(50, 90), // Learning speed
-    greed: random(20, 90), // Contract demands
-    ego: random(20, 90), // Demands touches
-    loyalty: random(30, 85), // Re-sign likelihood
-    leadership: random(30, 90), // Locker room impact
-    motor: random(55, 95), // Effort level
+    peak_age: random(26, 31),
+    durability: random(50, 95),
+    coachability: random(50, 90),
+    greed: random(20, 90),
+    ego: random(20, 90),
+    loyalty: random(30, 85),
+    leadership: random(30, 90),
+    motor: random(55, 95),
   };
 }
 
@@ -225,7 +224,7 @@ export function generatePlayer(teamId: string | null, position: Position, isPrem
   const potential = generatePotential(age, overall);
   const yearsExperience = Math.max(0, age - 19);
   const yearsInLeague = Math.min(yearsExperience, random(0, yearsExperience));
-  const hiddenAttrs = generateHiddenAttributes(age, overall);
+  const hiddenAttrs = generateHiddenAttributes();
   const attributes = generateAttributes(archetype, overall);
   const traits = assignTraits(attributes, hiddenAttrs, overall, isPremium);
 
@@ -324,9 +323,7 @@ export function assignTraits(
   isPremium: boolean
 ): Array<{ traitId: string; tier: string }> {
   const assignedTraits: Array<{ traitId: string; tier: string }> = [];
-  const tiers = ['bronze', 'silver', 'gold', 'hall_of_fame'];
 
-  // Determine tier based on overall
   function getTier(overall: number): string {
     if (overall >= 88) return pickRandom(['gold', 'hall_of_fame']);
     if (overall >= 80) return pickRandom(['silver', 'gold']);
@@ -334,37 +331,25 @@ export function assignTraits(
     return 'bronze';
   }
 
-  // Check positive traits
-  const positiveTraits = Object.entries(traitRequirements)
-    .filter(([_, req]) => req.category !== 'negative');
+  function getPlayerAttribute(attr: string): number {
+    return attributes[attr] ?? hiddenAttrs[attr] ?? 50;
+  }
 
-  for (const [traitId, requirement] of positiveTraits) {
-    const meetsRequirements = Object.entries(requirement.attrs).every(([attr, minValue]) => {
-      const playerValue = attributes[attr] ?? hiddenAttrs[attr] ?? 50;
-      return playerValue >= minValue;
+  for (const [traitId, requirement] of Object.entries(traitRequirements)) {
+    const isNegativeTrait = requirement.category === 'negative';
+    const chance = isNegativeTrait ? 0.25 : 0.4;
+
+    const meetsRequirements = Object.entries(requirement.attrs).every(([attr, threshold]) => {
+      const playerValue = getPlayerAttribute(attr);
+      return isNegativeTrait ? playerValue <= threshold : playerValue >= threshold;
     });
 
-    if (meetsRequirements && Math.random() < 0.4) { // 40% chance if meets requirements
-      assignedTraits.push({ traitId, tier: getTier(overall) });
+    if (meetsRequirements && Math.random() < chance) {
+      const tier = isNegativeTrait ? 'bronze' : getTier(overall);
+      assignedTraits.push({ traitId, tier });
     }
   }
 
-  // Check negative traits (based on LOW attributes)
-  const negativeTraits = Object.entries(traitRequirements)
-    .filter(([_, req]) => req.category === 'negative');
-
-  for (const [traitId, requirement] of negativeTraits) {
-    const meetsNegativeRequirements = Object.entries(requirement.attrs).every(([attr, maxValue]) => {
-      const playerValue = attributes[attr] ?? hiddenAttrs[attr] ?? 50;
-      return playerValue <= maxValue; // Note: <= for negative traits
-    });
-
-    if (meetsNegativeRequirements && Math.random() < 0.25) { // 25% chance
-      assignedTraits.push({ traitId, tier: 'bronze' }); // Negative traits always bronze
-    }
-  }
-
-  // Limit traits: stars get 2-4, regular players get 0-3
   const maxTraits = isPremium ? random(2, 4) : random(0, 3);
   return assignedTraits.slice(0, maxTraits);
 }

@@ -54,31 +54,22 @@ async function updateTeamStanding(
 ): Promise<void> {
   const { won, isHome, pointsFor, pointsAgainst, conferenceGame, divisionGame } = update;
 
-  if (won) {
-    const locationField = isHome ? 'home_wins' : 'away_wins';
-    await db.query(
-      `UPDATE standings SET
-         wins = wins + 1,
-         ${locationField} = COALESCE(${locationField}, 0) + 1,
-         points_for = COALESCE(points_for, 0) + $3,
-         points_against = COALESCE(points_against, 0) + $4,
-         conference_wins = conference_wins + $5,
-         division_wins = division_wins + $6
-       WHERE season_id = $1 AND team_id = $2`,
-      [seasonId, teamId, pointsFor, pointsAgainst, conferenceGame, divisionGame]
-    );
-  } else {
-    const locationField = isHome ? 'home_losses' : 'away_losses';
-    await db.query(
-      `UPDATE standings SET
-         losses = losses + 1,
-         ${locationField} = COALESCE(${locationField}, 0) + 1,
-         points_for = COALESCE(points_for, 0) + $3,
-         points_against = COALESCE(points_against, 0) + $4,
-         conference_losses = conference_losses + $5,
-         division_losses = division_losses + $6
-       WHERE season_id = $1 AND team_id = $2`,
-      [seasonId, teamId, pointsFor, pointsAgainst, conferenceGame, divisionGame]
-    );
-  }
+  const winField = won ? 'wins' : 'losses';
+  const locationWinField = isHome ? 'home_wins' : 'away_wins';
+  const locationLossField = isHome ? 'home_losses' : 'away_losses';
+  const locationField = won ? locationWinField : locationLossField;
+  const confField = won ? 'conference_wins' : 'conference_losses';
+  const divField = won ? 'division_wins' : 'division_losses';
+
+  await db.query(
+    `UPDATE standings SET
+       ${winField} = ${winField} + 1,
+       ${locationField} = COALESCE(${locationField}, 0) + 1,
+       points_for = COALESCE(points_for, 0) + $3,
+       points_against = COALESCE(points_against, 0) + $4,
+       ${confField} = ${confField} + $5,
+       ${divField} = ${divField} + $6
+     WHERE season_id = $1 AND team_id = $2`,
+    [seasonId, teamId, pointsFor, pointsAgainst, conferenceGame, divisionGame]
+  );
 }

@@ -3,6 +3,7 @@ import { simulateGame } from '../simulation';
 import { loadTeamForSimulation } from './simulation';
 import { saveCompleteGameResult, GameResult } from './gamePersistence';
 import { SEASON_START_DATE } from '../constants';
+import { withTransaction } from '../db/transactions';
 
 interface SimulationResult {
   gameDateStr: string;
@@ -86,43 +87,54 @@ async function simulateGamesForDay(
     const isUserGame = scheduledGame.home_team_id === userTeamId ||
                        scheduledGame.away_team_id === userTeamId;
 
-    const homeTeam = await loadTeamForSimulation(scheduledGame.home_team_id);
-    const awayTeam = await loadTeamForSimulation(scheduledGame.away_team_id);
-    const simResult = simulateGame(homeTeam, awayTeam);
+    try {
+      const homeTeam = await loadTeamForSimulation(scheduledGame.home_team_id);
+      const awayTeam = await loadTeamForSimulation(scheduledGame.away_team_id);
+      const simResult = simulateGame(homeTeam, awayTeam);
 
-    const gameResult = buildGameResult(simResult);
+      const gameResult = buildGameResult(simResult);
 
-    await saveCompleteGameResult(
-      gameResult,
-      seasonId,
-      { id: homeTeam.id, starters: homeTeam.starters },
-      { id: awayTeam.id, starters: awayTeam.starters },
-      updateStandings
-    );
+      await withTransaction(async (client) => {
+        await saveCompleteGameResult(
+          gameResult,
+          seasonId,
+          { id: homeTeam.id, starters: homeTeam.starters },
+          { id: awayTeam.id, starters: awayTeam.starters },
+          updateStandings,
+          client
+        );
 
-    await pool.query(
-      `UPDATE schedule SET status = 'completed', game_id = $1, is_user_game = $2
-       WHERE id = $3`,
-      [simResult.id, isUserGame, scheduledGame.id]
-    );
+        await client.query(
+          `UPDATE schedule SET status = 'completed', game_id = $1, is_user_game = $2
+           WHERE id = $3`,
+          [simResult.id, isUserGame, scheduledGame.id]
+        );
+      });
 
-    if (isUserGame) {
-      userGameResult = buildUserGameResult(simResult, scheduledGame, userTeamId);
+      if (isUserGame) {
+        userGameResult = buildUserGameResult(simResult, scheduledGame, userTeamId);
 
-      if (isPreseason) {
-        await updatePreseasonRecord(franchise.id, simResult.winner_id === userTeamId);
+        if (isPreseason) {
+          await updatePreseasonRecord(franchise.id, simResult.winner_id === userTeamId);
+        }
       }
-    }
 
-    results.push({
-      game_id: simResult.id,
-      home_team: scheduledGame.home_team_name,
-      away_team: scheduledGame.away_team_name,
-      home_score: simResult.home_score,
-      away_score: simResult.away_score,
-      is_user_game: isUserGame,
-      is_preseason: isPreseason || undefined
-    });
+      results.push({
+        game_id: simResult.id,
+        home_team: scheduledGame.home_team_name,
+        away_team: scheduledGame.away_team_name,
+        home_score: simResult.home_score,
+        away_score: simResult.away_score,
+        is_user_game: isUserGame,
+        is_preseason: isPreseason || undefined
+      });
+    } catch (error) {
+      console.error(`Failed to simulate game ${scheduledGame.id}:`, error);
+      await pool.query(
+        `UPDATE schedule SET status = 'scheduled' WHERE id = $1`,
+        [scheduledGame.id]
+      );
+    }
   }
 
   return { gameDateStr, results, userGameResult };
