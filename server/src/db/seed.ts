@@ -51,51 +51,74 @@ async function seed() {
     // 3. Generate Players for each team
     console.log('👥 Generating players...');
     let totalPlayers = 0;
+    let totalTraits = 0;
 
     for (const [abbrev, teamId] of teamIds) {
       const roster = generateRoster(teamId);
 
-      for (const { player, attributes } of roster) {
-        // Insert player
+      for (const { player, attributes, traits } of roster) {
+        // Insert player with all hidden attributes
         const playerResult = await pool.query(
           `INSERT INTO players (first_name, last_name, team_id, position, secondary_position, archetype,
-                                height_inches, weight_lbs, age, jersey_number, years_pro, overall, potential)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                                height_inches, weight_lbs, age, jersey_number, years_pro, overall, potential,
+                                peak_age, durability, coachability, greed, ego, loyalty, leadership, motor)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
            RETURNING id`,
           [player.first_name, player.last_name, player.team_id, player.position, player.secondary_position,
            player.archetype, player.height_inches, player.weight_lbs, player.age, player.jersey_number,
-           player.years_pro, player.overall, player.potential]
+           player.years_pro, player.overall, player.potential,
+           player.peak_age, player.durability, player.coachability, player.greed, player.ego,
+           player.loyalty, player.leadership, player.motor]
         );
         const playerId = playerResult.rows[0].id;
 
-        // Insert attributes
+        // Insert all 43 attributes
         await pool.query(
           `INSERT INTO player_attributes (player_id,
-             inside_scoring, mid_range, three_point, free_throw, shot_iq, offensive_consistency,
-             layup, standing_dunk, driving_dunk, draw_foul, post_moves,
-             ball_handling, passing_accuracy, passing_vision, passing_iq,
+             inside_scoring, close_shot, mid_range, three_point, free_throw, shot_iq, offensive_consistency,
+             layup, standing_dunk, driving_dunk, draw_foul, post_moves, post_control,
+             ball_handling, speed_with_ball, passing_accuracy, passing_vision, passing_iq, offensive_iq,
              interior_defense, perimeter_defense, steal, block, defensive_iq, defensive_consistency,
-             offensive_rebound, defensive_rebound,
+             lateral_quickness, help_defense_iq,
+             offensive_rebound, defensive_rebound, box_out, rebound_timing,
              speed, acceleration, strength, vertical, stamina, hustle,
-             basketball_iq, clutch, consistency, work_ethic)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)`,
+             basketball_iq, clutch, consistency, work_ethic, aggression, streakiness, composure)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                   $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38,
+                   $39, $40, $41, $42, $43, $44, $45)`,
           [playerId,
-           attributes.inside_scoring, attributes.mid_range, attributes.three_point, attributes.free_throw,
-           attributes.shot_iq, attributes.offensive_consistency, attributes.layup, attributes.standing_dunk,
-           attributes.driving_dunk, attributes.draw_foul, attributes.post_moves, attributes.ball_handling,
-           attributes.passing_accuracy, attributes.passing_vision, attributes.passing_iq,
+           attributes.inside_scoring, attributes.close_shot, attributes.mid_range, attributes.three_point,
+           attributes.free_throw, attributes.shot_iq, attributes.offensive_consistency,
+           attributes.layup, attributes.standing_dunk, attributes.driving_dunk, attributes.draw_foul,
+           attributes.post_moves, attributes.post_control,
+           attributes.ball_handling, attributes.speed_with_ball, attributes.passing_accuracy,
+           attributes.passing_vision, attributes.passing_iq, attributes.offensive_iq,
            attributes.interior_defense, attributes.perimeter_defense, attributes.steal, attributes.block,
-           attributes.defensive_iq, attributes.defensive_consistency, attributes.offensive_rebound,
-           attributes.defensive_rebound, attributes.speed, attributes.acceleration, attributes.strength,
-           attributes.vertical, attributes.stamina, attributes.hustle, attributes.basketball_iq,
-           attributes.clutch, attributes.consistency, attributes.work_ethic]
+           attributes.defensive_iq, attributes.defensive_consistency, attributes.lateral_quickness,
+           attributes.help_defense_iq,
+           attributes.offensive_rebound, attributes.defensive_rebound, attributes.box_out, attributes.rebound_timing,
+           attributes.speed, attributes.acceleration, attributes.strength, attributes.vertical,
+           attributes.stamina, attributes.hustle,
+           attributes.basketball_iq, attributes.clutch, attributes.consistency, attributes.work_ethic,
+           attributes.aggression, attributes.streakiness, attributes.composure]
         );
+
+        // Insert player traits
+        for (const trait of traits) {
+          await pool.query(
+            `INSERT INTO player_traits (player_id, trait_id, tier)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (player_id, trait_id) DO NOTHING`,
+            [playerId, trait.traitId, trait.tier]
+          );
+          totalTraits++;
+        }
 
         totalPlayers++;
       }
       process.stdout.write(`   ${abbrev} `);
     }
-    console.log(`\n   ✓ Generated ${totalPlayers} players for ${teamIds.size} teams\n`);
+    console.log(`\n   ✓ Generated ${totalPlayers} players with ${totalTraits} traits for ${teamIds.size} teams\n`);
 
     // 4. Generate Free Agents (60 players without teams)
     console.log('🆓 Generating free agents...');
@@ -104,44 +127,68 @@ async function seed() {
 
     for (let i = 0; i < 60; i++) {
       const position = positions[i % 5];
-      const { player, attributes } = generatePlayer(null, position, false);
+      const { player, attributes, traits } = generatePlayer(null, position, false);
 
+      // Insert free agent with all hidden attributes
       const playerResult = await pool.query(
         `INSERT INTO players (first_name, last_name, team_id, position, secondary_position, archetype,
-                              height_inches, weight_lbs, age, jersey_number, years_pro, overall, potential)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                              height_inches, weight_lbs, age, jersey_number, years_pro, overall, potential,
+                              peak_age, durability, coachability, greed, ego, loyalty, leadership, motor)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
          RETURNING id`,
         [player.first_name, player.last_name, null, player.position, player.secondary_position,
          player.archetype, player.height_inches, player.weight_lbs, player.age, player.jersey_number,
-         player.years_pro, player.overall, player.potential]
+         player.years_pro, player.overall, player.potential,
+         player.peak_age, player.durability, player.coachability, player.greed, player.ego,
+         player.loyalty, player.leadership, player.motor]
       );
       const playerId = playerResult.rows[0].id;
 
+      // Insert all 43 attributes
       await pool.query(
         `INSERT INTO player_attributes (player_id,
-           inside_scoring, mid_range, three_point, free_throw, shot_iq, offensive_consistency,
-           layup, standing_dunk, driving_dunk, draw_foul, post_moves,
-           ball_handling, passing_accuracy, passing_vision, passing_iq,
+           inside_scoring, close_shot, mid_range, three_point, free_throw, shot_iq, offensive_consistency,
+           layup, standing_dunk, driving_dunk, draw_foul, post_moves, post_control,
+           ball_handling, speed_with_ball, passing_accuracy, passing_vision, passing_iq, offensive_iq,
            interior_defense, perimeter_defense, steal, block, defensive_iq, defensive_consistency,
-           offensive_rebound, defensive_rebound,
+           lateral_quickness, help_defense_iq,
+           offensive_rebound, defensive_rebound, box_out, rebound_timing,
            speed, acceleration, strength, vertical, stamina, hustle,
-           basketball_iq, clutch, consistency, work_ethic)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)`,
+           basketball_iq, clutch, consistency, work_ethic, aggression, streakiness, composure)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38,
+                 $39, $40, $41, $42, $43, $44, $45)`,
         [playerId,
-         attributes.inside_scoring, attributes.mid_range, attributes.three_point, attributes.free_throw,
-         attributes.shot_iq, attributes.offensive_consistency, attributes.layup, attributes.standing_dunk,
-         attributes.driving_dunk, attributes.draw_foul, attributes.post_moves, attributes.ball_handling,
-         attributes.passing_accuracy, attributes.passing_vision, attributes.passing_iq,
+         attributes.inside_scoring, attributes.close_shot, attributes.mid_range, attributes.three_point,
+         attributes.free_throw, attributes.shot_iq, attributes.offensive_consistency,
+         attributes.layup, attributes.standing_dunk, attributes.driving_dunk, attributes.draw_foul,
+         attributes.post_moves, attributes.post_control,
+         attributes.ball_handling, attributes.speed_with_ball, attributes.passing_accuracy,
+         attributes.passing_vision, attributes.passing_iq, attributes.offensive_iq,
          attributes.interior_defense, attributes.perimeter_defense, attributes.steal, attributes.block,
-         attributes.defensive_iq, attributes.defensive_consistency, attributes.offensive_rebound,
-         attributes.defensive_rebound, attributes.speed, attributes.acceleration, attributes.strength,
-         attributes.vertical, attributes.stamina, attributes.hustle, attributes.basketball_iq,
-         attributes.clutch, attributes.consistency, attributes.work_ethic]
+         attributes.defensive_iq, attributes.defensive_consistency, attributes.lateral_quickness,
+         attributes.help_defense_iq,
+         attributes.offensive_rebound, attributes.defensive_rebound, attributes.box_out, attributes.rebound_timing,
+         attributes.speed, attributes.acceleration, attributes.strength, attributes.vertical,
+         attributes.stamina, attributes.hustle,
+         attributes.basketball_iq, attributes.clutch, attributes.consistency, attributes.work_ethic,
+         attributes.aggression, attributes.streakiness, attributes.composure]
       );
+
+      // Insert free agent traits
+      for (const trait of traits) {
+        await pool.query(
+          `INSERT INTO player_traits (player_id, trait_id, tier)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (player_id, trait_id) DO NOTHING`,
+          [playerId, trait.traitId, trait.tier]
+        );
+        totalTraits++;
+      }
 
       freeAgentCount++;
     }
-    console.log(`   ✓ Generated ${freeAgentCount} free agents\n`);
+    console.log(`   ✓ Generated ${freeAgentCount} free agents with traits\n`);
 
     // 5. Create initial season
     console.log('📅 Creating initial season...');

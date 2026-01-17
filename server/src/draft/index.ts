@@ -1,5 +1,3 @@
-// Draft Module Exports
-
 export {
   generateDraftClass,
   convertProspectToPlayer,

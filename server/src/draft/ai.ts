@@ -1,11 +1,8 @@
-// AI Draft Logic
-// Handles CPU team draft picks using Best Player Available + Team Needs evaluation
-
 import { pool } from '../db/pool';
 
 export interface TeamNeed {
   position: string;
-  need_score: number; // 0-100, higher = more needed
+  need_score: number;
   starter_overall: number;
   depth: number;
 }
@@ -22,7 +19,16 @@ export interface ProspectEvaluation {
   total_score: number;
 }
 
-// Position groupings for need evaluation
+interface DraftOrderPick {
+  pick: number;
+  round: number;
+  team_id: string;
+  team_name: string;
+  abbreviation: string;
+  original_team_id: string;
+  was_traded: boolean;
+}
+
 const POSITION_GROUPS: Record<string, string[]> = {
   PG: ['PG'],
   SG: ['SG', 'PG'],
@@ -31,9 +37,23 @@ const POSITION_GROUPS: Record<string, string[]> = {
   C: ['C', 'PF'],
 };
 
-// Evaluate team needs based on roster
+function calculateNeedScore(starterOverall: number, depth: number): number {
+  if (depth === 0) {
+    return 100;
+  }
+  if (starterOverall < 65) {
+    return 90 - starterOverall;
+  }
+  if (starterOverall < 75) {
+    return 85 - starterOverall;
+  }
+  if (depth < 2) {
+    return 30;
+  }
+  return Math.max(0, 20 - (starterOverall - 75));
+}
+
 export async function evaluateTeamNeeds(teamId: string): Promise<TeamNeed[]> {
-  // Get team roster with positions and overalls
   const rosterResult = await pool.query(
     `SELECT p.position, p.overall, p.id
      FROM players p
@@ -44,67 +64,38 @@ export async function evaluateTeamNeeds(teamId: string): Promise<TeamNeed[]> {
 
   const roster = rosterResult.rows;
   const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
-  const needs: TeamNeed[] = [];
 
-  for (const pos of positions) {
-    // Find players who can play this position
+  return positions.map(pos => {
     const eligiblePlayers = roster.filter((p: any) =>
       POSITION_GROUPS[pos]?.includes(p.position)
     );
-
-    // Get best player at position (starter)
-    const starter = eligiblePlayers[0];
-    const starterOverall = starter?.overall || 0;
-
-    // Calculate depth (players who can reasonably play this position)
+    const starterOverall = eligiblePlayers[0]?.overall || 0;
     const depth = eligiblePlayers.length;
+    const needScore = calculateNeedScore(starterOverall, depth);
 
-    // Calculate need score (higher = more needed)
-    let needScore = 0;
-
-    if (depth === 0) {
-      needScore = 100; // Critical need - no one at position
-    } else if (starterOverall < 65) {
-      needScore = 90 - starterOverall; // Below average starter
-    } else if (starterOverall < 75) {
-      needScore = 75 - starterOverall + 10; // Average starter
-    } else if (depth < 2) {
-      needScore = 30; // Good starter but no depth
-    } else {
-      needScore = Math.max(0, 20 - (starterOverall - 75)); // Low need
-    }
-
-    needs.push({
+    return {
       position: pos,
       need_score: Math.max(0, Math.min(100, needScore)),
       starter_overall: starterOverall,
       depth,
-    });
-  }
-
-  return needs;
+    };
+  });
 }
 
-// Get Best Player Available score based on overall and potential
 export function calculateBPAScore(overall: number, potential: number, mockPosition: number): number {
-  // Weight: 60% overall, 30% potential, 10% mock draft position value
   const overallScore = overall * 0.6;
   const potentialScore = potential * 0.3;
-  const mockScore = Math.max(0, (60 - mockPosition)) * 0.1; // Bonus for being higher on mock draft
-
+  const mockScore = Math.max(0, (60 - mockPosition)) * 0.1;
   return overallScore + potentialScore + mockScore;
 }
 
-// Evaluate all available prospects for a team
 export async function evaluateProspects(
   teamId: string,
   seasonId: string
 ): Promise<ProspectEvaluation[]> {
-  // Get team needs
   const needs = await evaluateTeamNeeds(teamId);
   const needsMap = new Map(needs.map(n => [n.position, n.need_score]));
 
-  // Get available prospects
   const prospectsResult = await pool.query(
     `SELECT id, first_name, last_name, position, overall, potential, mock_draft_position
      FROM draft_prospects
@@ -113,23 +104,16 @@ export async function evaluateProspects(
     [seasonId]
   );
 
-  const evaluations: ProspectEvaluation[] = [];
-
-  for (const prospect of prospectsResult.rows) {
+  const evaluations: ProspectEvaluation[] = prospectsResult.rows.map((prospect: any) => {
     const bpaScore = calculateBPAScore(
       prospect.overall,
       prospect.potential,
       prospect.mock_draft_position
     );
-
-    // Get need score for prospect's position
     const needScore = needsMap.get(prospect.position) || 50;
-
-    // Total score: 70% BPA, 30% team need
-    // This ensures we don't completely ignore BPA for team needs
     const totalScore = bpaScore * 0.7 + needScore * 0.3;
 
-    evaluations.push({
+    return {
       prospect_id: prospect.id,
       first_name: prospect.first_name,
       last_name: prospect.last_name,
@@ -139,16 +123,12 @@ export async function evaluateProspects(
       bpa_score: bpaScore,
       need_score: needScore,
       total_score: totalScore,
-    });
-  }
+    };
+  });
 
-  // Sort by total score descending
-  evaluations.sort((a, b) => b.total_score - a.total_score);
-
-  return evaluations;
+  return evaluations.sort((a, b) => b.total_score - a.total_score);
 }
 
-// Select the best prospect for AI team
 export async function selectAIPick(teamId: string, seasonId: string): Promise<ProspectEvaluation | null> {
   const evaluations = await evaluateProspects(teamId, seasonId);
 
@@ -156,11 +136,8 @@ export async function selectAIPick(teamId: string, seasonId: string): Promise<Pr
     return null;
   }
 
-  // Add some randomness to AI picks
-  // 80% pick top choice, 15% pick second, 5% pick third
   const rand = Math.random();
   const pickIndex = getRandomizedPickIndex(rand, evaluations.length);
-
   return evaluations[pickIndex];
 }
 
@@ -174,70 +151,56 @@ function getRandomizedPickIndex(rand: number, availableCount: number): number {
   return Math.min(2, availableCount - 1);
 }
 
-// Get current draft state
 export async function getDraftState(seasonId: string) {
-  // Get total picks made
   const picksResult = await pool.query(
     `SELECT COUNT(*) as picks_made FROM draft_prospects WHERE season_id = $1 AND is_drafted = true`,
     [seasonId]
   );
   const picksMade = parseInt(picksResult.rows[0].picks_made);
-
-  // Calculate current pick (1-60)
   const currentPick = picksMade + 1;
   const currentRound = currentPick <= 30 ? 1 : 2;
-  const pickInRound = currentRound === 1 ? currentPick : currentPick - 30;
-
-  // Draft is complete after 60 picks
-  const isDraftComplete = picksMade >= 60;
 
   return {
     picks_made: picksMade,
     current_pick: currentPick,
     current_round: currentRound,
-    pick_in_round: pickInRound,
-    is_draft_complete: isDraftComplete,
+    pick_in_round: currentRound === 1 ? currentPick : currentPick - 30,
+    is_draft_complete: picksMade >= 60,
   };
 }
 
-// Get team picking at specific position
 export async function getTeamAtPick(seasonId: string, pickNumber: number): Promise<string | null> {
   const round = pickNumber <= 30 ? 1 : 2;
   const pickInRound = round === 1 ? pickNumber : pickNumber - 30;
 
-  if (round === 1) {
-    // First round: lottery results for 1-14, then by record for 15-30
-    if (pickInRound <= 14) {
-      const result = await pool.query(
-        `SELECT team_id FROM draft_lottery
-         WHERE season_id = $1 AND post_lottery_position = $2`,
-        [seasonId, pickInRound]
-      );
-      return result.rows[0]?.team_id || null;
-    } else {
-      // Non-lottery picks (15-30): ordered by wins ascending
-      const result = await pool.query(
-        `SELECT t.id
-         FROM standings s
-         JOIN teams t ON s.team_id = t.id
-         WHERE s.season_id = $1
-           AND t.id NOT IN (SELECT team_id FROM draft_lottery WHERE season_id = $1)
-         ORDER BY s.wins ASC, s.losses DESC
-         LIMIT 1 OFFSET $2`,
-        [seasonId, pickInRound - 15]
-      );
-      return result.rows[0]?.id || null;
-    }
-  } else {
-    // Second round: reverse of first round
+  if (round === 2) {
     const firstRoundPick = 31 - pickInRound;
     return getTeamAtPick(seasonId, firstRoundPick);
   }
+
+  if (pickInRound <= 14) {
+    const result = await pool.query(
+      `SELECT team_id FROM draft_lottery
+       WHERE season_id = $1 AND post_lottery_position = $2`,
+      [seasonId, pickInRound]
+    );
+    return result.rows[0]?.team_id || null;
+  }
+
+  const result = await pool.query(
+    `SELECT t.id
+     FROM standings s
+     JOIN teams t ON s.team_id = t.id
+     WHERE s.season_id = $1
+       AND t.id NOT IN (SELECT team_id FROM draft_lottery WHERE season_id = $1)
+     ORDER BY s.wins ASC, s.losses DESC
+     LIMIT 1 OFFSET $2`,
+    [seasonId, pickInRound - 15]
+  );
+  return result.rows[0]?.id || null;
 }
 
-// Build full draft order from draft_picks table (respects traded picks)
-export async function buildDraftOrder(seasonId: string): Promise<{ pick: number; round: number; team_id: string; team_name: string; abbreviation: string; original_team_id: string; was_traded: boolean }[]> {
-  // Try to get from draft_picks table first (respects traded picks)
+export async function buildDraftOrder(seasonId: string): Promise<DraftOrderPick[]> {
   const picksResult = await pool.query(
     `SELECT dp.pick_number, dp.round, dp.current_team_id, dp.original_team_id, dp.was_traded,
             t.name, t.abbreviation
@@ -248,7 +211,6 @@ export async function buildDraftOrder(seasonId: string): Promise<{ pick: number;
     [seasonId]
   );
 
-  // If draft_picks table is populated, use it
   if (picksResult.rows.length > 0) {
     return picksResult.rows.map((row: any) => ({
       pick: row.pick_number,
@@ -261,10 +223,12 @@ export async function buildDraftOrder(seasonId: string): Promise<{ pick: number;
     }));
   }
 
-  // Fallback to old logic if draft_picks not yet populated (backwards compatibility)
-  const order: { pick: number; round: number; team_id: string; team_name: string; abbreviation: string; original_team_id: string; was_traded: boolean }[] = [];
+  return buildFallbackDraftOrder(seasonId);
+}
 
-  // Get lottery results (picks 1-14)
+async function buildFallbackDraftOrder(seasonId: string): Promise<DraftOrderPick[]> {
+  const order: DraftOrderPick[] = [];
+
   const lotteryResult = await pool.query(
     `SELECT dl.team_id, dl.post_lottery_position, t.name, t.abbreviation
      FROM draft_lottery dl
@@ -286,7 +250,6 @@ export async function buildDraftOrder(seasonId: string): Promise<{ pick: number;
     });
   }
 
-  // Get non-lottery teams (picks 15-30)
   const nonLotteryResult = await pool.query(
     `SELECT t.id, t.name, t.abbreviation
      FROM standings s
@@ -311,7 +274,6 @@ export async function buildDraftOrder(seasonId: string): Promise<{ pick: number;
     pickNum++;
   }
 
-  // Second round (reverse order)
   const firstRound = [...order];
   for (let i = firstRound.length - 1; i >= 0; i--) {
     order.push({

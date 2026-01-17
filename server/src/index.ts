@@ -3,7 +3,7 @@ dotenv.config();
 
 import express from 'express';
 import cors from 'cors';
-import { pool } from './db/pool';
+import { pool, closePool } from './db/pool';
 import routes from './routes';
 
 const app = express();
@@ -46,7 +46,27 @@ app.use('/api', routes);
 
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`🏀 Sports League Office API running on port ${PORT}`);
+const server = app.listen(PORT, () => {
+  console.log(`Sports League Office API running on port ${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/api/health`);
 });
+
+// Graceful shutdown
+async function shutdown(signal: string): Promise<void> {
+  console.log(`\n${signal} received. Shutting down gracefully...`);
+
+  server.close(async () => {
+    console.log('HTTP server closed');
+    await closePool();
+    process.exit(0);
+  });
+
+  // Force exit after 10 seconds if graceful shutdown fails
+  setTimeout(() => {
+    console.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

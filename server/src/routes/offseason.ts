@@ -1,4 +1,3 @@
-// Offseason routes - handles offseason processing, playoffs finalization, and new season
 import { Router } from 'express';
 import { pool } from '../db/pool';
 import { developPlayer, agePlayer, shouldRetire, DevelopmentResult } from '../development';
@@ -6,14 +5,10 @@ import { authMiddleware } from '../auth';
 import { generateSchedule, generatePreseasonSchedule } from '../schedule/generator';
 import { getUserActiveFranchise } from '../db/queries';
 import { withTransaction, withAdvisoryLock, lockUserActiveFranchise } from '../db/transactions';
-import {
-  OFFSEASON_PHASES,
-  OFFSEASON_PHASE_LABELS
-} from '../constants';
+import { OFFSEASON_PHASES, OFFSEASON_PHASE_LABELS } from '../constants';
 
 const router = Router();
 
-// Player attribute names for development processing
 const PLAYER_ATTRIBUTES = [
   'work_ethic', 'basketball_iq', 'speed', 'acceleration', 'vertical',
   'stamina', 'strength', 'lateral_quickness', 'hustle',
@@ -25,29 +20,20 @@ const PLAYER_ATTRIBUTES = [
   'interior_defense', 'perimeter_defense', 'offensive_rebound', 'defensive_rebound'
 ] as const;
 
-const DEFAULT_ATTRIBUTE_VALUE = 60;
-
-// Build attributes object from player row with defaults
 function buildPlayerAttributes(player: Record<string, any>): Record<string, number> {
   const attributes: Record<string, number> = {};
   for (const attr of PLAYER_ATTRIBUTES) {
-    attributes[attr] = player[attr] ?? DEFAULT_ATTRIBUTE_VALUE;
+    attributes[attr] = player[attr] ?? 60;
   }
   return attributes;
 }
 
-// Process offseason (player development, aging, retirements)
-// POST /api/season/offseason
 router.post('/offseason', authMiddleware(true), async (req: any, res) => {
   try {
     const franchise = await getUserActiveFranchise(req.user.userId);
-    if (!franchise) {
-      return res.status(404).json({ error: 'No franchise found' });
-    }
+    if (!franchise) return res.status(404).json({ error: 'No franchise found' });
 
-    // Use advisory lock to prevent concurrent offseason processing
     const result = await withAdvisoryLock(`offseason-${franchise.id}`, async (client) => {
-      // Re-check franchise state inside lock
       const franchiseCheck = await client.query(
         `SELECT phase FROM franchises WHERE id = $1 FOR UPDATE`,
         [franchise.id]
@@ -56,7 +42,6 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
         throw { status: 400, message: 'Offseason already processed' };
       }
 
-      // Get all players with their attributes
       const playersResult = await client.query(
         `SELECT p.*,
                 pa.work_ethic, pa.basketball_iq, pa.speed, pa.acceleration, pa.vertical,
@@ -73,12 +58,12 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
 
       const developmentResults: DevelopmentResult[] = [];
       const retirements: any[] = [];
-      const aged: any[] = [];
+      const retiringPlayerIds: string[] = [];
+      const playerUpdates: Array<{ id: string; age: number; overall: number }> = [];
+      const attrChanges: Map<string, Array<{ playerId: string; change: number }>> = new Map();
 
+      // First pass: calculate all changes without database calls
       for (const player of playersResult.rows) {
-        const attributes = buildPlayerAttributes(player);
-
-        // Check for retirement first
         if (shouldRetire(player.age, player.overall, player.years_pro || 0)) {
           retirements.push({
             player_id: player.id,
@@ -87,24 +72,11 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
             overall: player.overall,
             years_pro: player.years_pro || 0
           });
-
-          // Mark player as retired (remove from team, set status)
-          await client.query(
-            `UPDATE players SET team_id = NULL WHERE id = $1`,
-            [player.id]
-          );
+          retiringPlayerIds.push(player.id);
           continue;
         }
 
-        // Age the player
         const newAge = agePlayer(player.age);
-        aged.push({
-          player_id: player.id,
-          previous_age: player.age,
-          new_age: newAge
-        });
-
-        // Develop player
         const devResult = developPlayer({
           id: player.id,
           first_name: player.first_name,
@@ -116,56 +88,83 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
           archetype: player.archetype,
           work_ethic: player.work_ethic || 60,
           coachability: player.coachability || 60,
-          attributes
+          attributes: buildPlayerAttributes(player)
         });
-
         developmentResults.push(devResult);
+        playerUpdates.push({ id: player.id, age: newAge, overall: devResult.new_overall });
 
-        // Apply changes to database
-        await client.query(
-          `UPDATE players SET age = $1, overall = $2, years_pro = COALESCE(years_pro, 0) + 1 WHERE id = $3`,
-          [newAge, devResult.new_overall, player.id]
-        );
-
-        // Update individual attributes
+        // Collect attribute changes
         for (const [attr, change] of Object.entries(devResult.changes)) {
           if (change !== 0) {
-            await client.query(
-              `UPDATE player_attributes SET ${attr} = GREATEST(30, LEAST(99, COALESCE(${attr}, 60) + $1)) WHERE player_id = $2`,
-              [change, player.id]
-            );
+            if (!attrChanges.has(attr)) {
+              attrChanges.set(attr, []);
+            }
+            attrChanges.get(attr)!.push({ playerId: player.id, change });
           }
         }
       }
 
-      // Update contracts (reduce years remaining)
+      // Batch update retiring players
+      if (retiringPlayerIds.length > 0) {
+        await client.query(
+          `UPDATE players SET team_id = NULL WHERE id = ANY($1)`,
+          [retiringPlayerIds]
+        );
+      }
+
+      // Batch update player age/overall/years_pro
+      if (playerUpdates.length > 0) {
+        const updateValues = playerUpdates.map((p, i) =>
+          `($${i * 3 + 1}::uuid, $${i * 3 + 2}::integer, $${i * 3 + 3}::integer)`
+        ).join(', ');
+        const updateParams = playerUpdates.flatMap(p => [p.id, p.age, p.overall]);
+
+        await client.query(
+          `UPDATE players p SET
+             age = v.age,
+             overall = v.overall,
+             years_pro = COALESCE(p.years_pro, 0) + 1
+           FROM (VALUES ${updateValues}) AS v(id, age, overall)
+           WHERE p.id = v.id`,
+          updateParams
+        );
+      }
+
+      // Batch update attributes - one query per attribute that has changes
+      for (const [attr, changes] of attrChanges) {
+        if (changes.length === 0) continue;
+
+        const caseStatements = changes.map((c, i) =>
+          `WHEN player_id = $${i * 2 + 1} THEN GREATEST(30, LEAST(99, COALESCE(${attr}, 60) + $${i * 2 + 2}))`
+        ).join(' ');
+        const params = changes.flatMap(c => [c.playerId, c.change]);
+        const playerIds = changes.map(c => c.playerId);
+
+        await client.query(
+          `UPDATE player_attributes SET ${attr} = CASE ${caseStatements} ELSE ${attr} END
+           WHERE player_id = ANY($${params.length + 1})`,
+          [...params, playerIds]
+        );
+      }
+
       await client.query(
         `UPDATE contracts SET years_remaining = years_remaining - 1, updated_at = NOW()
          WHERE status = 'active' AND years_remaining > 0`
       );
-
-      // Expire contracts with 0 years remaining
       await client.query(
         `UPDATE contracts SET status = 'expired', updated_at = NOW()
          WHERE status = 'active' AND years_remaining <= 0`
       );
 
-      // Move players with expired contracts to free agency
       const expiredContracts = await client.query(
-        `SELECT c.player_id, c.annual_salary, p.overall, p.position
+        `SELECT c.player_id, c.annual_salary, p.overall
          FROM contracts c
          JOIN players p ON c.player_id = p.id
          WHERE c.status = 'expired' AND c.updated_at > NOW() - INTERVAL '1 minute'`
       );
 
       for (const row of expiredContracts.rows) {
-        // Clear player's team
-        await client.query(
-          `UPDATE players SET team_id = NULL, salary = 0 WHERE id = $1`,
-          [row.player_id]
-        );
-
-        // Add to free_agents table for free agency phase
+        await client.query(`UPDATE players SET team_id = NULL, salary = 0 WHERE id = $1`, [row.player_id]);
         await client.query(
           `INSERT INTO free_agents (player_id, previous_team_id, asking_salary, market_value, status)
            VALUES ($1, (SELECT team_id FROM contracts WHERE player_id = $1 ORDER BY created_at DESC LIMIT 1), $2, $3, 'available')
@@ -174,16 +173,13 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
         );
       }
 
-      // Update franchise phase to offseason with initial phase
       await client.query(
         `UPDATE franchises SET phase = 'offseason', offseason_phase = 'review', last_played_at = NOW() WHERE id = $1`,
         [franchise.id]
       );
 
-      // Summary stats
       const improved = developmentResults.filter(r => r.new_overall > r.previous_overall).length;
       const declined = developmentResults.filter(r => r.new_overall < r.previous_overall).length;
-      const unchanged = developmentResults.filter(r => r.new_overall === r.previous_overall).length;
 
       return {
         message: 'Offseason processed',
@@ -191,7 +187,7 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
           total_players: developmentResults.length,
           improved,
           declined,
-          unchanged,
+          unchanged: developmentResults.length - improved - declined,
           retirements: retirements.length,
           contracts_expired: expiredContracts.rows.length
         },
@@ -209,69 +205,39 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
 
     res.json(result);
   } catch (error: any) {
-    if (error.status) {
-      return res.status(error.status).json({ error: error.message });
-    }
+    if (error.status) return res.status(error.status).json({ error: error.message });
     console.error('Offseason error:', error);
     res.status(500).json({ error: 'Failed to process offseason' });
   }
 });
 
-// Finalize playoffs and transition to offseason
 router.post('/finalize-playoffs', authMiddleware(true), async (req: any, res) => {
   try {
     const franchise = await getUserActiveFranchise(req.user.userId);
-    if (!franchise) {
-      return res.status(404).json({ error: 'No franchise found' });
-    }
+    if (!franchise) return res.status(404).json({ error: 'No franchise found' });
+    if (franchise.phase !== 'playoffs') return res.status(400).json({ error: 'Not in playoffs phase' });
 
-    if (franchise.phase !== 'playoffs') {
-      return res.status(400).json({ error: 'Not in playoffs phase' });
-    }
-
-    // Check if Finals are complete
     const finalsResult = await pool.query(
-      `SELECT winner_id FROM playoff_series
-       WHERE season_id = $1 AND round = 4 AND status = 'completed'`,
+      `SELECT winner_id FROM playoff_series WHERE season_id = $1 AND round = 4 AND status = 'completed'`,
       [franchise.season_id]
     );
-
-    if (finalsResult.rows.length === 0) {
-      return res.status(400).json({ error: 'Playoffs not complete yet' });
-    }
+    if (finalsResult.rows.length === 0) return res.status(400).json({ error: 'Playoffs not complete yet' });
 
     const champion = finalsResult.rows[0].winner_id;
-    if (!champion) {
-      return res.status(400).json({ error: 'Finals completed but no winner determined' });
-    }
+    if (!champion) return res.status(400).json({ error: 'Finals completed but no winner determined' });
 
     const userIsChampion = champion === franchise.team_id;
 
-    // Wrap all updates in transaction to prevent partial updates on double-click
     await withTransaction(async (client) => {
-      // Update team championships if user won
       if (userIsChampion) {
-        await client.query(
-          `UPDATE teams SET championships = championships + 1 WHERE id = $1`,
-          [franchise.team_id]
-        );
-        await client.query(
-          `UPDATE franchises SET championships = championships + 1 WHERE id = $1`,
-          [franchise.id]
-        );
+        await client.query(`UPDATE teams SET championships = championships + 1 WHERE id = $1`, [franchise.team_id]);
+        await client.query(`UPDATE franchises SET championships = championships + 1 WHERE id = $1`, [franchise.id]);
       }
-
-      // Transition to offseason with 'review' sub-phase
       await client.query(
         `UPDATE franchises SET phase = 'offseason', offseason_phase = 'review', last_played_at = NOW() WHERE id = $1`,
         [franchise.id]
       );
-
-      // Update season status
-      await client.query(
-        `UPDATE seasons SET status = 'offseason' WHERE id = $1`,
-        [franchise.season_id]
-      );
+      await client.query(`UPDATE seasons SET status = 'offseason' WHERE id = $1`, [franchise.season_id]);
     });
 
     res.json({
@@ -287,28 +253,58 @@ router.post('/finalize-playoffs', authMiddleware(true), async (req: any, res) =>
   }
 });
 
-// Get season summary (for championship display)
+const ROUND_NAMES: Record<number, string> = {
+  0: 'Play-In Tournament',
+  1: 'First Round',
+  2: 'Conference Semifinals',
+  3: 'Conference Finals',
+  4: 'NBA Finals'
+};
+
+function getPlayoffFinish(series: any, teamId: string): string {
+  if (!series) return 'Did not make playoffs';
+  const userWon = series.winner_id === teamId;
+  if (userWon && series.round === 4) return 'CHAMPIONS!';
+  if (userWon) return `Won ${ROUND_NAMES[series.round]}`;
+  return `Lost in ${ROUND_NAMES[series.round]}`;
+}
+
 router.get('/summary', authMiddleware(true), async (req: any, res) => {
   try {
     const franchise = await getUserActiveFranchise(req.user.userId);
-    if (!franchise) {
-      return res.status(404).json({ error: 'No franchise found' });
-    }
+    if (!franchise) return res.status(404).json({ error: 'No franchise found' });
 
-    // Get finals result
-    const finalsResult = await pool.query(
-      `SELECT ps.*,
-              ht.name as higher_seed_name, ht.abbreviation as higher_abbrev, ht.city as higher_city,
-              lt.name as lower_seed_name, lt.abbreviation as lower_abbrev, lt.city as lower_city,
-              wt.name as winner_name, wt.abbreviation as winner_abbrev, wt.city as winner_city,
-              wt.id as winner_id
-       FROM playoff_series ps
-       JOIN teams ht ON ps.higher_seed_id = ht.id
-       JOIN teams lt ON ps.lower_seed_id = lt.id
-       LEFT JOIN teams wt ON ps.winner_id = wt.id
-       WHERE ps.season_id = $1 AND ps.round = 4`,
-      [franchise.season_id]
-    );
+    const [finalsResult, userStandingsResult, userPlayoffResult, topStandingsResult] = await Promise.all([
+      pool.query(
+        `SELECT ps.*, ht.name as higher_seed_name, ht.abbreviation as higher_abbrev, ht.city as higher_city,
+                lt.name as lower_seed_name, lt.abbreviation as lower_abbrev, lt.city as lower_city,
+                wt.name as winner_name, wt.abbreviation as winner_abbrev, wt.city as winner_city, wt.id as winner_id
+         FROM playoff_series ps
+         JOIN teams ht ON ps.higher_seed_id = ht.id
+         JOIN teams lt ON ps.lower_seed_id = lt.id
+         LEFT JOIN teams wt ON ps.winner_id = wt.id
+         WHERE ps.season_id = $1 AND ps.round = 4`,
+        [franchise.season_id]
+      ),
+      pool.query(
+        `SELECT s.wins, s.losses, t.name, t.abbreviation, t.conference
+         FROM standings s JOIN teams t ON s.team_id = t.id
+         WHERE s.season_id = $1 AND s.team_id = $2`,
+        [franchise.season_id, franchise.team_id]
+      ),
+      pool.query(
+        `SELECT ps.round, ps.winner_id FROM playoff_series ps
+         WHERE ps.season_id = $1 AND (ps.higher_seed_id = $2 OR ps.lower_seed_id = $2)
+         ORDER BY ps.round DESC LIMIT 1`,
+        [franchise.season_id, franchise.team_id]
+      ),
+      pool.query(
+        `SELECT s.wins, s.losses, t.name, t.abbreviation, t.conference
+         FROM standings s JOIN teams t ON s.team_id = t.id
+         WHERE s.season_id = $1 ORDER BY s.wins DESC LIMIT 8`,
+        [franchise.season_id]
+      )
+    ]);
 
     const finals = finalsResult.rows[0] || null;
     const champion = finals?.winner_id ? {
@@ -321,60 +317,7 @@ router.get('/summary', authMiddleware(true), async (req: any, res) => {
         : `${finals.lower_seed_wins}-${finals.higher_seed_wins}`
     } : null;
 
-    // Get user's team standings
-    const userStandingsResult = await pool.query(
-      `SELECT s.wins, s.losses, t.name, t.abbreviation, t.conference
-       FROM standings s
-       JOIN teams t ON s.team_id = t.id
-       WHERE s.season_id = $1 AND s.team_id = $2`,
-      [franchise.season_id, franchise.team_id]
-    );
     const userRecord = userStandingsResult.rows[0] || null;
-
-    // Get user's playoff result
-    const userPlayoffResult = await pool.query(
-      `SELECT ps.round, ps.winner_id, ps.higher_seed_wins, ps.lower_seed_wins,
-              ps.higher_seed_id, ps.lower_seed_id
-       FROM playoff_series ps
-       WHERE ps.season_id = $1
-         AND (ps.higher_seed_id = $2 OR ps.lower_seed_id = $2)
-       ORDER BY ps.round DESC
-       LIMIT 1`,
-      [franchise.season_id, franchise.team_id]
-    );
-
-    let userPlayoffFinish = 'Did not make playoffs';
-    const userPlayoffSeries = userPlayoffResult.rows[0];
-
-    if (userPlayoffSeries) {
-      const userWon = userPlayoffSeries.winner_id === franchise.team_id;
-      const roundNames: Record<number, string> = {
-        0: 'Play-In Tournament',
-        1: 'First Round',
-        2: 'Conference Semifinals',
-        3: 'Conference Finals',
-        4: 'NBA Finals'
-      };
-
-      if (userWon && userPlayoffSeries.round === 4) {
-        userPlayoffFinish = 'CHAMPIONS!';
-      } else if (userWon) {
-        userPlayoffFinish = `Won ${roundNames[userPlayoffSeries.round]}`;
-      } else {
-        userPlayoffFinish = `Lost in ${roundNames[userPlayoffSeries.round]}`;
-      }
-    }
-
-    // Get top standings
-    const topStandingsResult = await pool.query(
-      `SELECT s.wins, s.losses, t.name, t.abbreviation, t.conference
-       FROM standings s
-       JOIN teams t ON s.team_id = t.id
-       WHERE s.season_id = $1
-       ORDER BY s.wins DESC
-       LIMIT 8`,
-      [franchise.season_id]
-    );
 
     res.json({
       season_number: franchise.season_number || 1,
@@ -384,7 +327,7 @@ router.get('/summary', authMiddleware(true), async (req: any, res) => {
         abbreviation: userRecord?.abbreviation,
         wins: userRecord?.wins || 0,
         losses: userRecord?.losses || 0,
-        playoff_finish: userPlayoffFinish,
+        playoff_finish: getPlayoffFinish(userPlayoffResult.rows[0], franchise.team_id),
         is_champion: champion?.team_id === franchise.team_id
       },
       top_standings: topStandingsResult.rows,
@@ -396,28 +339,20 @@ router.get('/summary', authMiddleware(true), async (req: any, res) => {
   }
 });
 
-// Get current offseason state
-// GET /api/season/offseason
 router.get('/offseason', authMiddleware(true), async (req: any, res) => {
   try {
     const franchise = await getUserActiveFranchise(req.user.userId);
-    if (!franchise) {
-      return res.status(404).json({ error: 'No franchise found' });
-    }
-
-    if (franchise.phase !== 'offseason') {
-      return res.status(400).json({ error: 'Not in offseason' });
-    }
+    if (!franchise) return res.status(404).json({ error: 'No franchise found' });
+    if (franchise.phase !== 'offseason') return res.status(400).json({ error: 'Not in offseason' });
 
     const offseasonPhase = (franchise.offseason_phase || 'review') as typeof OFFSEASON_PHASES[number];
     const currentIndex = OFFSEASON_PHASES.indexOf(offseasonPhase);
-    const nextPhase = currentIndex < OFFSEASON_PHASES.length - 1 ? OFFSEASON_PHASES[currentIndex + 1] : null;
 
     res.json({
       phase: 'offseason',
-      offseason_phase: franchise.offseason_phase || 'review',
-      next_phase: nextPhase,
-      can_start_new_season: franchise.offseason_phase === 'training_camp'
+      offseason_phase: offseasonPhase,
+      next_phase: currentIndex < OFFSEASON_PHASES.length - 1 ? OFFSEASON_PHASES[currentIndex + 1] : null,
+      can_start_new_season: offseasonPhase === 'training_camp'
     });
   } catch (error) {
     console.error('Get offseason state error:', error);
@@ -425,31 +360,20 @@ router.get('/offseason', authMiddleware(true), async (req: any, res) => {
   }
 });
 
-// Advance to next offseason phase
-// POST /api/season/offseason/advance
 router.post('/offseason/advance', authMiddleware(true), async (req: any, res) => {
   try {
     const result = await withTransaction(async (client) => {
-      // Lock franchise to prevent concurrent phase change
       const franchise = await lockUserActiveFranchise(client, req.user.userId);
-      if (!franchise) {
-        throw { status: 404, message: 'No franchise found' };
-      }
-
-      if (franchise.phase !== 'offseason') {
-        throw { status: 400, message: 'Not in offseason' };
-      }
+      if (!franchise) throw { status: 404, message: 'No franchise found' };
+      if (franchise.phase !== 'offseason') throw { status: 400, message: 'Not in offseason' };
 
       const currentPhase = (franchise.offseason_phase || 'review') as typeof OFFSEASON_PHASES[number];
       const currentIndex = OFFSEASON_PHASES.indexOf(currentPhase);
-
       if (currentIndex >= OFFSEASON_PHASES.length - 1) {
         throw { status: 400, message: 'Already at final offseason phase. Start new season.' };
       }
 
       const nextPhase = OFFSEASON_PHASES[currentIndex + 1];
-
-      // Update franchise offseason phase
       await client.query(
         `UPDATE franchises SET offseason_phase = $1, last_played_at = NOW() WHERE id = $2`,
         [nextPhase, franchise.id]
@@ -466,72 +390,53 @@ router.post('/offseason/advance', authMiddleware(true), async (req: any, res) =>
 
     res.json(result);
   } catch (error: any) {
-    if (error.status) {
-      return res.status(error.status).json({ error: error.message });
-    }
+    if (error.status) return res.status(error.status).json({ error: error.message });
     console.error('Advance offseason phase error:', error);
     res.status(500).json({ error: 'Failed to advance offseason phase' });
   }
 });
 
-// Skip to specific offseason phase (for quick navigation)
-// POST /api/season/offseason/skip-to
 router.post('/offseason/skip-to', authMiddleware(true), async (req: any, res) => {
   try {
     const { target_phase } = req.body;
-
     if (!OFFSEASON_PHASES.includes(target_phase)) {
       return res.status(400).json({ error: 'Invalid target phase' });
     }
 
     const result = await withTransaction(async (client) => {
-      // Lock franchise to prevent concurrent phase change
       const franchise = await lockUserActiveFranchise(client, req.user.userId);
-
-      if (!franchise) {
-        throw { status: 404, message: 'No franchise found' };
-      }
-
-      if (franchise.phase !== 'offseason') {
-        throw { status: 400, message: 'Not in offseason' };
-      }
+      if (!franchise) throw { status: 404, message: 'No franchise found' };
+      if (franchise.phase !== 'offseason') throw { status: 400, message: 'Not in offseason' };
 
       await client.query(
         `UPDATE franchises SET offseason_phase = $1, last_played_at = NOW() WHERE id = $2`,
         [target_phase, franchise.id]
       );
 
+      const label = OFFSEASON_PHASE_LABELS[target_phase as keyof typeof OFFSEASON_PHASE_LABELS];
       return {
-        message: `Skipped to ${OFFSEASON_PHASE_LABELS[target_phase as keyof typeof OFFSEASON_PHASE_LABELS]}`,
+        message: `Skipped to ${label}`,
         offseason_phase: target_phase,
-        phase_label: OFFSEASON_PHASE_LABELS[target_phase as keyof typeof OFFSEASON_PHASE_LABELS],
+        phase_label: label,
         can_start_new_season: target_phase === 'training_camp'
       };
     });
 
     res.json(result);
   } catch (error: any) {
-    if (error.status) {
-      return res.status(error.status).json({ error: error.message });
-    }
+    if (error.status) return res.status(error.status).json({ error: error.message });
     console.error('Skip to offseason phase error:', error);
     res.status(500).json({ error: 'Failed to skip to phase' });
   }
 });
 
-// Start new season (after offseason - requires training_camp phase)
-// POST /api/season/new
 router.post('/new', authMiddleware(true), async (req: any, res) => {
   try {
     const franchise = await getUserActiveFranchise(req.user.userId);
-    if (!franchise) {
-      return res.status(404).json({ error: 'No franchise found' });
-    }
-
+    if (!franchise) return res.status(404).json({ error: 'No franchise found' });
     if (franchise.phase !== 'offseason') {
       return res.status(400).json({ error: 'Must be in offseason to start new season' });
     }
-
     if (franchise.offseason_phase !== 'training_camp') {
       return res.status(400).json({
         error: 'Complete offseason activities first',
@@ -540,20 +445,15 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
       });
     }
 
-    // Create new season
-    const seasonResult = await pool.query(
-      `SELECT MAX(season_number) as max_season FROM seasons`
-    );
+    const seasonResult = await pool.query(`SELECT MAX(season_number) as max_season FROM seasons`);
     const newSeasonNumber = (seasonResult.rows[0].max_season || 0) + 1;
 
     const newSeasonId = await pool.query(
       `INSERT INTO seasons (season_number, status) VALUES ($1, 'preseason') RETURNING id`,
       [newSeasonNumber]
     );
-
     const newSeason = newSeasonId.rows[0];
 
-    // Initialize standings for new season with all fields
     const teamsResult = await pool.query('SELECT id, conference, division FROM teams');
     const teams = teamsResult.rows;
 
@@ -568,14 +468,9 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
       );
     }
 
-    // Generate preseason and regular season schedules
-    const preseasonSchedule = generatePreseasonSchedule(teams);
-    const schedule = generateSchedule(teams);
-
-    // Batch insert all games for performance
     const allGames = [
-      ...preseasonSchedule.map(g => ({ ...g, is_preseason: true })),
-      ...schedule.map(g => ({ ...g, is_preseason: false }))
+      ...generatePreseasonSchedule(teams).map(g => ({ ...g, is_preseason: true })),
+      ...generateSchedule(teams).map(g => ({ ...g, is_preseason: false }))
     ];
 
     const batchSize = 100;
@@ -598,7 +493,6 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
       );
     }
 
-    // Update franchise - start in preseason, clear offseason_phase
     await pool.query(
       `UPDATE franchises SET season_id = $1, current_day = -7, phase = 'preseason', offseason_phase = NULL, season_number = $2, last_played_at = NOW() WHERE id = $3`,
       [newSeason.id, newSeasonNumber, franchise.id]

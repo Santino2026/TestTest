@@ -1,5 +1,3 @@
-// All-Star Module Exports
-
 export {
   getAllStarCandidates,
   selectAllStars,

@@ -10,7 +10,10 @@ import {
 
 const router = Router();
 
-// Signup
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
 router.post('/signup', async (req, res) => {
   try {
     const { email, password, name } = req.body;
@@ -18,7 +21,6 @@ router.post('/signup', async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
-
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
@@ -26,12 +28,10 @@ router.post('/signup', async (req, res) => {
     const result = await signup(email, password, name);
     res.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Signup failed';
-    res.status(400).json({ error: message });
+    res.status(400).json({ error: getErrorMessage(error, 'Signup failed') });
   }
 });
 
-// Login
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -43,15 +43,12 @@ router.post('/login', async (req, res) => {
     const result = await login(email, password);
     res.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Login failed';
-    res.status(401).json({ error: message });
+    res.status(401).json({ error: getErrorMessage(error, 'Login failed') });
   }
 });
 
-// Logout
 router.post('/logout', async (req, res) => {
   try {
-    // Support both snake_case (client) and camelCase
     const refreshToken = req.body.refresh_token || req.body.refreshToken;
     if (refreshToken) {
       await logout(refreshToken);
@@ -62,10 +59,8 @@ router.post('/logout', async (req, res) => {
   }
 });
 
-// Refresh token
 router.post('/refresh', async (req, res) => {
   try {
-    // Support both snake_case (client) and camelCase
     const refreshToken = req.body.refresh_token || req.body.refreshToken;
 
     if (!refreshToken) {
@@ -79,17 +74,15 @@ router.post('/refresh', async (req, res) => {
   }
 });
 
-// Get current user
 router.get('/me', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'No token provided' });
     }
 
     const token = authHeader.split(' ')[1];
     const payload = verifyAccessToken(token);
-
     if (!payload) {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }

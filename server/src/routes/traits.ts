@@ -3,7 +3,6 @@ import { pool } from '../db/pool';
 
 const router = Router();
 
-// Get all traits
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM traits ORDER BY category, rarity, name');

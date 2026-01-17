@@ -1,6 +1,3 @@
-// All-Star Selection Logic
-// Selects 15 players per conference based on stats and team record
-
 import { pool } from '../db/pool';
 
 export interface AllStarCandidate {
@@ -21,7 +18,6 @@ export interface AllStarCandidate {
   all_star_score: number;
 }
 
-// Calculate All-Star score based on stats and overall
 function calculateAllStarScore(
   overall: number,
   ppg: number,
@@ -32,15 +28,6 @@ function calculateAllStarScore(
   fg_pct: number,
   teamWins: number
 ): number {
-  // Weighted formula:
-  // 30% overall rating
-  // 25% PPG (normalized to 0-30)
-  // 15% RPG (normalized to 0-15)
-  // 15% APG (normalized to 0-12)
-  // 5% SPG+BPG (normalized to 0-5)
-  // 5% FG% (normalized 0-60)
-  // 5% team success (wins / 41 halfway point)
-
   const overallScore = (overall / 99) * 30;
   const ppgScore = Math.min(ppg / 30, 1) * 25;
   const rpgScore = Math.min(rpg / 15, 1) * 15;
@@ -52,13 +39,10 @@ function calculateAllStarScore(
   return overallScore + ppgScore + rpgScore + apgScore + defScore + fgScore + teamScore;
 }
 
-// Get All-Star candidates from a conference
 export async function getAllStarCandidates(
   seasonId: string,
   conference: 'Eastern' | 'Western'
 ): Promise<AllStarCandidate[]> {
-  // Get players with their season stats aggregated from game stats
-  // This aggregates directly from player_game_stats rather than relying on player_season_stats
   const result = await pool.query(
     `SELECT
       p.id as player_id,
@@ -104,37 +88,36 @@ export async function getAllStarCandidates(
   const confKey = conference === 'Eastern' ? 'east' : 'west';
 
   return result.rows
-    .filter((p: any) => p.games_played >= 5 || p.overall >= 85) // Lower threshold + allow stars
-    .map((p: any) => ({
-      player_id: p.player_id,
-      first_name: p.first_name,
-      last_name: p.last_name,
-      team_id: p.team_id,
-      team_name: p.team_name,
-      position: p.position,
-      conference: confKey as 'east' | 'west',
-      overall: p.overall,
-      ppg: parseFloat(p.ppg) || 0,
-      rpg: parseFloat(p.rpg) || 0,
-      apg: parseFloat(p.apg) || 0,
-      spg: parseFloat(p.spg) || 0,
-      bpg: parseFloat(p.bpg) || 0,
-      fg_pct: parseFloat(p.fg_pct) || 0,
-      all_star_score: calculateAllStarScore(
-        p.overall,
-        parseFloat(p.ppg) || 0,
-        parseFloat(p.rpg) || 0,
-        parseFloat(p.apg) || 0,
-        parseFloat(p.spg) || 0,
-        parseFloat(p.bpg) || 0,
-        parseFloat(p.fg_pct) || 0,
-        p.team_wins || 0
-      ),
-    }))
-    .sort((a: AllStarCandidate, b: AllStarCandidate) => b.all_star_score - a.all_star_score);
+    .filter((p: any) => p.games_played >= 5 || p.overall >= 85)
+    .map((p: any) => {
+      const ppg = parseFloat(p.ppg) || 0;
+      const rpg = parseFloat(p.rpg) || 0;
+      const apg = parseFloat(p.apg) || 0;
+      const spg = parseFloat(p.spg) || 0;
+      const bpg = parseFloat(p.bpg) || 0;
+      const fg_pct = parseFloat(p.fg_pct) || 0;
+
+      return {
+        player_id: p.player_id,
+        first_name: p.first_name,
+        last_name: p.last_name,
+        team_id: p.team_id,
+        team_name: p.team_name,
+        position: p.position,
+        conference: confKey as 'east' | 'west',
+        overall: p.overall,
+        ppg,
+        rpg,
+        apg,
+        spg,
+        bpg,
+        fg_pct,
+        all_star_score: calculateAllStarScore(p.overall, ppg, rpg, apg, spg, bpg, fg_pct, p.team_wins || 0),
+      };
+    })
+    .sort((a, b) => b.all_star_score - a.all_star_score);
 }
 
-// Select All-Stars for a conference
 export async function selectAllStars(
   seasonId: string,
   conference: 'Eastern' | 'Western'
@@ -142,85 +125,68 @@ export async function selectAllStars(
   const candidates = await getAllStarCandidates(seasonId, conference);
   const confKey = conference === 'Eastern' ? 'east' : 'west';
 
-  // Validate we have enough candidates
   if (candidates.length < 15) {
     throw new Error(`Insufficient All-Star candidates for ${conference} conference (found ${candidates.length}, need 15)`);
   }
 
-  // Select top 15 players
-  // Ensure positional balance: at least 2 guards, 2 forwards, 1 center as starters
-  const selected: AllStarCandidate[] = [];
-  const starters: AllStarCandidate[] = [];
-
-  // Position categories
   const guards = candidates.filter(c => c.position === 'PG' || c.position === 'SG');
   const forwards = candidates.filter(c => c.position === 'SF' || c.position === 'PF');
   const centers = candidates.filter(c => c.position === 'C');
 
-  // Validate positional distribution
   if (guards.length < 2 || forwards.length < 2 || centers.length < 1) {
-    throw new Error(`Insufficient positional distribution for ${conference} All-Star selection (G:${guards.length}, F:${forwards.length}, C:${centers.length})`)
+    throw new Error(`Insufficient positional distribution for ${conference} All-Star selection (G:${guards.length}, F:${forwards.length}, C:${centers.length})`);
   }
 
-  // Select starters (5): 2 guards, 2 forwards, 1 center
-  // Enforce one-per-team rule for starters to ensure variety
   const selectedTeams = new Set<string>();
+  const starters: AllStarCandidate[] = [];
 
-  // Helper to select best player not already from a selected team
-  const selectBestFromPosition = (pool: AllStarCandidate[], count: number): AllStarCandidate[] => {
+  function selectFromPosition(pool: AllStarCandidate[], count: number): AllStarCandidate[] {
     const result: AllStarCandidate[] = [];
+
     for (const player of pool) {
       if (result.length >= count) break;
-      // Allow one player per team in starters
       if (!selectedTeams.has(player.team_id)) {
         result.push(player);
         selectedTeams.add(player.team_id);
       }
     }
-    // If we couldn't fill with unique teams, allow duplicates
-    if (result.length < count) {
-      for (const player of pool) {
-        if (result.length >= count) break;
-        if (!result.includes(player)) {
-          result.push(player);
-        }
+
+    for (const player of pool) {
+      if (result.length >= count) break;
+      if (!result.includes(player)) {
+        result.push(player);
       }
     }
+
     return result;
-  };
-
-  const starterGuards = selectBestFromPosition(guards, 2);
-  const starterForwards = selectBestFromPosition(forwards, 2);
-  const starterCenter = selectBestFromPosition(centers, 1);
-
-  starters.push(...starterGuards, ...starterForwards, ...starterCenter);
-
-  // If we don't have enough at a position, fill with best available
-  while (starters.length < 5) {
-    const nextBest = candidates.find(c => !starters.includes(c));
-    if (nextBest) starters.push(nextBest);
-    else break;
   }
 
-  // Sort starters by all_star_score so captain (idx 0) is the best starter
+  starters.push(
+    ...selectFromPosition(guards, 2),
+    ...selectFromPosition(forwards, 2),
+    ...selectFromPosition(centers, 1)
+  );
+
+  while (starters.length < 5) {
+    const nextBest = candidates.find(c => !starters.includes(c));
+    if (nextBest) {
+      starters.push(nextBest);
+    } else {
+      break;
+    }
+  }
+
   starters.sort((a, b) => b.all_star_score - a.all_star_score);
-  selected.push(...starters);
 
-  // Select reserves (10 more): best available not already selected
-  // For reserves, prefer players from teams not yet represented, but don't enforce strictly
+  const selected: AllStarCandidate[] = [...starters];
   const teamsInSelected = new Set(selected.map(s => s.team_id));
+
   const unrepresentedCandidates = candidates.filter(c => !selected.includes(c) && !teamsInSelected.has(c.team_id));
-  const otherCandidates = candidates.filter(c => !selected.includes(c) && teamsInSelected.has(c.team_id));
+  const representedCandidates = candidates.filter(c => !selected.includes(c) && teamsInSelected.has(c.team_id));
 
-  // Take from unrepresented teams first, then fill with best remaining
-  const reserves = [
-    ...unrepresentedCandidates.slice(0, 10),
-    ...otherCandidates
-  ].slice(0, 10);
-
+  const reserves = [...unrepresentedCandidates, ...representedCandidates].slice(0, 10);
   selected.push(...reserves);
 
-  // Generate vote counts (simulated)
   const allStarsWithVotes = selected.map((player, idx) => {
     const isStarter = idx < 5;
     const baseVotes = Math.floor(player.all_star_score * 10000);
@@ -231,7 +197,7 @@ export async function selectAllStars(
     return {
       ...player,
       is_starter: isStarter,
-      is_captain: idx === 0, // Top scorer is captain
+      is_captain: idx === 0,
       votes: fanVotes + playerVotes + mediaVotes,
       fan_votes: fanVotes,
       player_votes: playerVotes,
@@ -239,7 +205,6 @@ export async function selectAllStars(
     };
   });
 
-  // Save to database
   for (const player of allStarsWithVotes) {
     await pool.query(
       `INSERT INTO all_star_selections
@@ -255,8 +220,7 @@ export async function selectAllStars(
   return allStarsWithVotes;
 }
 
-// Get already selected All-Stars
-export async function getSelectedAllStars(seasonId: string) {
+export async function getSelectedAllStars(seasonId: string): Promise<{ east: any[]; west: any[] }> {
   const result = await pool.query(
     `SELECT
       ass.*,
@@ -274,14 +238,13 @@ export async function getSelectedAllStars(seasonId: string) {
     [seasonId]
   );
 
-  const east = result.rows.filter((r: any) => r.conference === 'east');
-  const west = result.rows.filter((r: any) => r.conference === 'west');
-
-  return { east, west };
+  return {
+    east: result.rows.filter((r: any) => r.conference === 'east'),
+    west: result.rows.filter((r: any) => r.conference === 'west'),
+  };
 }
 
-// Get rising stars (rookies and sophomores)
-export async function getRisingStars(seasonId: string) {
+export async function getRisingStars(seasonId: string): Promise<{ rookies: any[]; sophomores: any[] }> {
   const result = await pool.query(
     `SELECT
       p.id as player_id,
@@ -304,8 +267,8 @@ export async function getRisingStars(seasonId: string) {
     [seasonId]
   );
 
-  const rookies = result.rows.filter((r: any) => r.years_pro === 0).slice(0, 12);
-  const sophomores = result.rows.filter((r: any) => r.years_pro === 1).slice(0, 12);
-
-  return { rookies, sophomores };
+  return {
+    rookies: result.rows.filter((r: any) => r.years_pro === 0).slice(0, 12),
+    sophomores: result.rows.filter((r: any) => r.years_pro === 1).slice(0, 12),
+  };
 }

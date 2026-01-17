@@ -1,19 +1,12 @@
-// Simulation Engine Types
-// Based on GAME_DESIGN.md specifications
-
-// =====================
-// HOT/COLD STATE SYSTEM (GDD Section 4.2 - "RANDOMLY HOT")
-// =====================
-
 export type HotColdState = 'ice_cold' | 'cold' | 'normal' | 'warm' | 'hot' | 'on_fire';
 
 export const HOT_COLD_MODIFIERS: Record<HotColdState, number> = {
-  'ice_cold': -0.20,  // -20% to all shooting
-  'cold':     -0.10,  // -10% to all shooting
-  'normal':    0.00,  // No modifier
-  'warm':     +0.08,  // +8% to all shooting
-  'hot':      +0.15,  // +15% to all shooting
-  'on_fire':  +0.25   // +25% to all shooting - UNSTOPPABLE
+  ice_cold: -0.20,
+  cold: -0.10,
+  normal: 0.00,
+  warm: +0.08,
+  hot: +0.15,
+  on_fire: +0.25
 };
 
 export interface PlayerHotColdState {
@@ -22,10 +15,6 @@ export interface PlayerHotColdState {
   consecutive_misses: number;
   modifier: number;
 }
-
-// =====================
-// SHOT TYPES
-// =====================
 
 export type ShotType =
   | 'dunk'
@@ -73,20 +62,9 @@ export type PossessionEnding =
   | 'end_of_period'
   | 'shot_clock_violation';
 
-export type ActionType =
-  | 'shoot'
-  | 'pass'
-  | 'drive'
-  | 'post_up'
-  | 'pick_and_roll'
-  | 'iso';
-
-// =====================
-// PLAYER TYPES
-// =====================
+export type ActionType = 'shoot' | 'pass' | 'drive' | 'post_up' | 'pick_and_roll' | 'iso';
 
 export interface PlayerAttributes {
-  // Shooting (8)
   inside_scoring: number;
   close_shot: number;
   mid_range: number;
@@ -94,24 +72,18 @@ export interface PlayerAttributes {
   free_throw: number;
   shot_iq: number;
   offensive_consistency: number;
-
-  // Finishing (5)
   layup: number;
   standing_dunk: number;
   driving_dunk: number;
   draw_foul: number;
   post_moves: number;
   post_control: number;
-
-  // Playmaking (6)
   ball_handling: number;
   speed_with_ball: number;
   passing_accuracy: number;
   passing_vision: number;
   passing_iq: number;
   offensive_iq: number;
-
-  // Defense (8)
   interior_defense: number;
   perimeter_defense: number;
   steal: number;
@@ -120,32 +92,24 @@ export interface PlayerAttributes {
   defensive_consistency: number;
   lateral_quickness: number;
   help_defense_iq: number;
-
-  // Rebounding (4)
   offensive_rebound: number;
   defensive_rebound: number;
   box_out: number;
   rebound_timing: number;
-
-  // Physical (6)
   speed: number;
   acceleration: number;
   strength: number;
   vertical: number;
   stamina: number;
   hustle: number;
-
-  // Mental/Intangibles (5) - THE GAME CHANGERS
   basketball_iq: number;
   clutch: number;
   consistency: number;
   work_ethic: number;
-  aggression: number;       // Drive vs. shoot tendency
-  streakiness: number;      // Hot/cold frequency (★ CRITICAL)
-  composure: number;        // Road game performance
-
-  // Legacy aliases for backwards compatibility
-  passing?: number;  // Alias for passing_accuracy
+  aggression: number;
+  streakiness: number;
+  composure: number;
+  passing?: number;
 }
 
 export interface PlayerTrait {
@@ -171,17 +135,11 @@ export interface SimPlayer {
   overall: number;
   attributes: PlayerAttributes;
   traits: PlayerTrait[];
-
-  // Game state
   fatigue: number;
   minutes_played: number;
   fouls: number;
   is_on_court: boolean;
-
-  // Hot/Cold state (GDD Section 4.2 - Streakiness system)
   hot_cold_state: PlayerHotColdState;
-
-  // Game stats
   stats: PlayerGameStats;
 }
 
@@ -205,10 +163,6 @@ export interface PlayerGameStats {
   minutes: number;
 }
 
-// =====================
-// TEAM TYPES
-// =====================
-
 export interface SimTeam {
   id: string;
   name: string;
@@ -220,14 +174,10 @@ export interface SimTeam {
   on_court: SimPlayer[];
 }
 
-// =====================
-// GAME CONTEXT
-// =====================
-
 export interface GameContext {
   quarter: number;
-  game_clock: number;       // Seconds remaining in quarter
-  shot_clock: number;       // Seconds remaining on shot clock
+  game_clock: number;
+  shot_clock: number;
   home_score: number;
   away_score: number;
   possession_team: 'home' | 'away';
@@ -262,10 +212,6 @@ export interface PossessionContext {
   score_differential: number;
   is_fast_break: boolean;
 }
-
-// =====================
-// RESULTS
-// =====================
 
 export interface ShotResult {
   made: boolean;
@@ -355,15 +301,10 @@ export interface TeamGameStats {
   second_chance_points: number;
 }
 
-// =====================
-// CONSTANTS
-// =====================
-
-export const QUARTER_LENGTH = 720; // 12 minutes in seconds
+export const QUARTER_LENGTH = 720;
 export const SHOT_CLOCK = 24;
-export const OVERTIME_LENGTH = 300; // 5 minutes
+export const OVERTIME_LENGTH = 300;
 
-// Base percentages by shot type (for 99-rated attribute)
 export const BASE_PERCENTAGES: Record<ShotType, number> = {
   dunk: 0.95,
   layup: 0.72,
@@ -383,7 +324,6 @@ export const BASE_PERCENTAGES: Record<ShotType, number> = {
   tip_in: 0.50
 };
 
-// Contest modifiers
 export const CONTEST_MODIFIERS: Record<ContestLevel, number> = {
   open: 1.10,
   light: 1.00,
@@ -392,16 +332,10 @@ export const CONTEST_MODIFIERS: Record<ContestLevel, number> = {
   smothered: 0.40
 };
 
-// Position rebound modifiers
 export const POSITION_REBOUND_MODS: Record<string, number> = {
-  C: 1.4,
-  PF: 1.2,
-  SF: 0.9,
-  SG: 0.7,
-  PG: 0.6
+  C: 1.4, PF: 1.2, SF: 0.9, SG: 0.7, PG: 0.6
 };
 
-// Fatigue effect thresholds
 export const FATIGUE_EFFECTS = {
   30: { shooting: 0, speed: 0, defense: 0 },
   50: { shooting: -0.03, speed: -0.05, defense: 0 },
@@ -409,38 +343,13 @@ export const FATIGUE_EFFECTS = {
   90: { shooting: -0.15, speed: -0.20, defense: -0.12 }
 };
 
-// Trait shot modifiers
 export const TRAIT_SHOT_MODIFIERS: Record<string, { applies_to: (type: ShotType) => boolean; modifier: number }> = {
-  'Sharpshooter': {
-    applies_to: (type) => type.includes('three'),
-    modifier: 1.08
-  },
-  'Deep Range': {
-    applies_to: (type) => type === 'three_point_deep',
-    modifier: 1.25
-  },
-  'Mid Range Maestro': {
-    applies_to: (type) => type.includes('mid_range'),
-    modifier: 1.10
-  },
-  'Acrobat': {
-    applies_to: (type) => ['layup', 'floater'].includes(type),
-    modifier: 1.12
-  },
-  'Posterizer': {
-    applies_to: (type) => type === 'dunk',
-    modifier: 1.20
-  },
-  'Cold Blooded': {
-    applies_to: () => true, // Applied based on clutch context
-    modifier: 1.15
-  },
-  'Spot Up Specialist': {
-    applies_to: (type) => type.includes('catch_shoot'),
-    modifier: 1.10
-  },
-  'Glass Cleaner': {
-    applies_to: () => false, // Rebounding trait
-    modifier: 1.0
-  }
+  'Sharpshooter': { applies_to: (type) => type.includes('three'), modifier: 1.08 },
+  'Deep Range': { applies_to: (type) => type === 'three_point_deep', modifier: 1.25 },
+  'Mid Range Maestro': { applies_to: (type) => type.includes('mid_range'), modifier: 1.10 },
+  'Acrobat': { applies_to: (type) => ['layup', 'floater'].includes(type), modifier: 1.12 },
+  'Posterizer': { applies_to: (type) => type === 'dunk', modifier: 1.20 },
+  'Cold Blooded': { applies_to: () => true, modifier: 1.15 },
+  'Spot Up Specialist': { applies_to: (type) => type.includes('catch_shoot'), modifier: 1.10 },
+  'Glass Cleaner': { applies_to: () => false, modifier: 1.0 }
 };

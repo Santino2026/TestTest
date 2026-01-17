@@ -1,5 +1,3 @@
-// AI Module Exports
-
 export {
   TeamStrategy,
   CPUTeamContext,
@@ -11,4 +9,4 @@ export {
   selectDraftPick,
   selectStarters,
   generateCPUActions
-} from './cpu';
+} from './cpu.js';

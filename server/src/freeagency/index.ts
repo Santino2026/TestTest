@@ -1,5 +1,3 @@
-// Free Agency Module Exports
-
 export {
   Contract,
   ContractType,
@@ -13,7 +11,7 @@ export {
   createContractFromOffer,
   canAffordContract,
   calculateLuxuryTax
-} from './contracts';
+} from './contracts.js';
 
 export {
   FreeAgent,
@@ -27,4 +25,4 @@ export {
   canMatchOffer,
   validateOffer,
   generateCPUOffers
-} from './signing';
+} from './signing.js';

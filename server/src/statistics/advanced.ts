@@ -1,6 +1,3 @@
-// Advanced Statistics Calculations
-// NBA-style advanced metrics
-
 export interface BasicStats {
   minutes: number;
   points: number;
@@ -30,59 +27,48 @@ export interface TeamTotals {
 }
 
 export interface AdvancedStats {
-  // Efficiency Metrics
-  per: number;                    // Player Efficiency Rating
-  true_shooting_pct: number;      // True Shooting %
-  effective_fg_pct: number;       // Effective FG %
-
-  // Usage & Production
-  usage_rate: number;             // Usage Rate
-  assist_pct: number;             // Assist %
-  rebound_pct: number;            // Total Rebound %
-
-  // Ratings
-  offensive_rating: number;       // Points per 100 possessions
-  defensive_rating: number;       // Points allowed per 100 possessions
-  net_rating: number;             // Off - Def
-
-  // Impact Metrics
-  win_shares: number;             // Win Shares
-  box_plus_minus: number;         // Box Plus/Minus (BPM)
-  vorp: number;                   // Value Over Replacement
-
-  // Single Game
-  game_score: number;             // Game Score (Hollinger)
+  per: number;
+  true_shooting_pct: number;
+  effective_fg_pct: number;
+  usage_rate: number;
+  assist_pct: number;
+  rebound_pct: number;
+  offensive_rating: number;
+  defensive_rating: number;
+  net_rating: number;
+  win_shares: number;
+  box_plus_minus: number;
+  vorp: number;
+  game_score: number;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// BASIC CALCULATIONS
-// ═══════════════════════════════════════════════════════════════════════════
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
 
-// Calculate possessions (team-level estimate)
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 export function estimatePossessions(
   fga: number,
   fta: number,
   oreb: number,
   turnovers: number
 ): number {
-  // Simplified possession formula: FGA - OREB + TO + 0.44*FTA
   return fga - oreb + turnovers + 0.44 * fta;
 }
 
-// True Shooting Percentage
-// Accounts for 3-pointers and free throws
 export function calculateTrueShootingPct(
   points: number,
   fga: number,
   fta: number
 ): number {
-  const tsa = 2 * (fga + 0.44 * fta);  // True Shooting Attempts
-  if (tsa === 0) return 0;
-  return points / tsa;
+  const trueShootingAttempts = 2 * (fga + 0.44 * fta);
+  if (trueShootingAttempts === 0) return 0;
+  return points / trueShootingAttempts;
 }
 
-// Effective Field Goal Percentage
-// Adjusts for 3-pointers being worth more
 export function calculateEffectiveFgPct(
   fgm: number,
   three_pm: number,
@@ -92,11 +78,6 @@ export function calculateEffectiveFgPct(
   return (fgm + 0.5 * three_pm) / fga;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// PLAYER EFFICIENCY RATING (PER)
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Simplified PER calculation (Hollinger)
 export function calculatePER(
   stats: BasicStats,
   teamTotals: TeamTotals,
@@ -104,10 +85,8 @@ export function calculatePER(
 ): number {
   if (stats.minutes === 0) return 0;
 
-  // Factor for pace adjustment
   const paceFactor = leaguePace / 100;
 
-  // Positive contributions
   const positives =
     stats.three_pm * 3 +
     stats.fgm * 2 +
@@ -118,27 +97,18 @@ export function calculatePER(
     stats.oreb * 1.5 +
     stats.dreb;
 
-  // Negative contributions
   const negatives =
     (stats.fga - stats.fgm) * 0.5 +
     (stats.fta - stats.ftm) * 0.3 +
     stats.turnovers * 2 +
     stats.fouls * 0.5;
 
-  // Raw PER
-  const rawPer = (positives - negatives) / stats.minutes * 48;
-
-  // Adjust for pace and normalize to 15 league average
+  const rawPer = ((positives - negatives) / stats.minutes) * 48;
   const per = rawPer * paceFactor;
 
-  return Math.max(0, Math.round(per * 10) / 10);
+  return Math.max(0, round1(per));
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// USAGE RATE
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Percentage of team possessions used by player while on court
 export function calculateUsageRate(
   fga: number,
   fta: number,
@@ -151,19 +121,14 @@ export function calculateUsageRate(
 ): number {
   if (minutes === 0 || teamMinutes === 0) return 0;
 
-  const playerPoss = fga + 0.44 * fta + turnovers;
-  const teamPoss = teamFga + 0.44 * teamFta + teamTurnovers;
+  const playerPossessions = fga + 0.44 * fta + turnovers;
+  const teamPossessions = teamFga + 0.44 * teamFta + teamTurnovers;
 
-  const usg = 100 * ((playerPoss * (teamMinutes / 5)) / (minutes * teamPoss));
+  const usage = 100 * ((playerPossessions * (teamMinutes / 5)) / (minutes * teamPossessions));
 
-  return Math.round(usg * 10) / 10;
+  return round1(usage);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// ASSIST PERCENTAGE
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Percentage of teammate field goals assisted while on court
 export function calculateAssistPct(
   assists: number,
   minutes: number,
@@ -176,16 +141,11 @@ export function calculateAssistPct(
   const teammateFgm = teamFgm - playerFgm;
   if (teammateFgm === 0) return 0;
 
-  const astPct = 100 * (assists * (teamMinutes / 5)) / (minutes * teammateFgm);
+  const assistPct = 100 * (assists * (teamMinutes / 5)) / (minutes * teammateFgm);
 
-  return Math.min(100, Math.round(astPct * 10) / 10);
+  return Math.min(100, round1(assistPct));
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// REBOUND PERCENTAGE
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Percentage of available rebounds grabbed while on court
 export function calculateReboundPct(
   oreb: number,
   dreb: number,
@@ -198,21 +158,16 @@ export function calculateReboundPct(
 ): number {
   if (minutes === 0) return 0;
 
-  const totalReb = oreb + dreb;
-  const availableReb = teamOreb + teamDreb + oppOreb + oppDreb;
+  const totalRebounds = oreb + dreb;
+  const availableRebounds = teamOreb + teamDreb + oppOreb + oppDreb;
 
-  if (availableReb === 0) return 0;
+  if (availableRebounds === 0) return 0;
 
-  const rebPct = 100 * (totalReb * (teamMinutes / 5)) / (minutes * availableReb);
+  const reboundPct = 100 * (totalRebounds * (teamMinutes / 5)) / (minutes * availableRebounds);
 
-  return Math.min(100, Math.round(rebPct * 10) / 10);
+  return Math.min(100, round1(reboundPct));
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// OFFENSIVE & DEFENSIVE RATING
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Points produced per 100 possessions
 export function calculateOffensiveRating(
   points: number,
   assists: number,
@@ -220,15 +175,12 @@ export function calculateOffensiveRating(
 ): number {
   if (possessions === 0) return 0;
 
-  // Simplified: (points + assist_points) / possessions * 100
-  // Assume each assist is worth ~2.5 points contribution
   const pointsProduced = points + assists * 0.5;
-  const offRtg = (pointsProduced / possessions) * 100;
+  const offensiveRating = (pointsProduced / possessions) * 100;
 
-  return Math.round(offRtg * 10) / 10;
+  return round1(offensiveRating);
 }
 
-// Points allowed per 100 possessions (team metric, estimated for players)
 export function calculateDefensiveRating(
   steals: number,
   blocks: number,
@@ -239,21 +191,14 @@ export function calculateDefensiveRating(
 ): number {
   if (minutes === 0) return teamDefRating;
 
-  // Estimate player's defensive impact relative to team
-  const defensiveContrib = (steals * 2 + blocks * 2 + dreb * 0.5 - fouls * 0.5);
-  const adjustment = defensiveContrib / Math.max(1, minutes) * 10;
+  const defensiveContribution = steals * 2 + blocks * 2 + dreb * 0.5 - fouls * 0.5;
+  const adjustment = (defensiveContribution / Math.max(1, minutes)) * 10;
 
-  // Better defensive stats = lower (better) defensive rating
-  const defRtg = Math.max(85, Math.min(125, teamDefRating - adjustment));
+  const defensiveRating = Math.max(85, Math.min(125, teamDefRating - adjustment));
 
-  return Math.round(defRtg * 10) / 10;
+  return round1(defensiveRating);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// WIN SHARES
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Estimate of wins contributed (simplified)
 export function calculateWinShares(
   per: number,
   minutes: number,
@@ -262,23 +207,13 @@ export function calculateWinShares(
 ): number {
   if (minutes === 0 || teamMinutes === 0) return 0;
 
-  // Estimate contribution based on PER relative to league average (15)
-  const perContrib = (per - 15) / 15;
-
-  // Share of team minutes
+  const perContribution = (per - 15) / 15;
   const minuteShare = minutes / teamMinutes;
+  const winShares = teamWins * minuteShare * (1 + perContribution);
 
-  // Win shares = team wins * player's contribution share
-  const ws = teamWins * minuteShare * (1 + perContrib);
-
-  return Math.max(0, Math.round(ws * 100) / 100);
+  return Math.max(0, round2(winShares));
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// BOX PLUS/MINUS
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Estimate of points contributed per 100 possessions above league average
 export function calculateBoxPlusMinus(
   points: number,
   rebounds: number,
@@ -292,54 +227,42 @@ export function calculateBoxPlusMinus(
 ): number {
   if (minutes === 0) return 0;
 
-  // Per-minute rates
-  const rate = (stat: number) => stat / minutes * 36;
+  const per36 = (stat: number) => (stat / minutes) * 36;
 
-  const ptsRate = rate(points);
-  const rebRate = rate(rebounds);
-  const astRate = rate(assists);
-  const stlRate = rate(steals);
-  const blkRate = rate(blocks);
-  const tovRate = rate(turnovers);
-  const missRate = rate(fga - fgm);
+  const pointsRate = per36(points);
+  const reboundsRate = per36(rebounds);
+  const assistsRate = per36(assists);
+  const stealsRate = per36(steals);
+  const blocksRate = per36(blocks);
+  const turnoversRate = per36(turnovers);
+  const missedShotsRate = per36(fga - fgm);
 
-  // Simplified BPM formula
   const bpm =
-    (ptsRate - 15) * 0.3 +
-    (rebRate - 7) * 0.5 +
-    (astRate - 4) * 0.6 +
-    stlRate * 1.5 +
-    blkRate * 1.0 -
-    tovRate * 1.5 -
-    missRate * 0.3;
+    (pointsRate - 15) * 0.3 +
+    (reboundsRate - 7) * 0.5 +
+    (assistsRate - 4) * 0.6 +
+    stealsRate * 1.5 +
+    blocksRate * 1.0 -
+    turnoversRate * 1.5 -
+    missedShotsRate * 0.3;
 
-  return Math.round(bpm * 10) / 10;
+  return round1(bpm);
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// VORP (Value Over Replacement Player)
-// ═══════════════════════════════════════════════════════════════════════════
 
 export function calculateVORP(
   bpm: number,
   minutes: number,
   teamGames: number
 ): number {
-  // VORP = (BPM - (-2)) * (% of team minutes) * team games / 82
   const replacementLevel = -2;
   const percentOfMinutes = minutes / (teamGames * 48 * 5);
   const vorp = (bpm - replacementLevel) * percentOfMinutes * teamGames;
 
-  return Math.round(vorp * 100) / 100;
+  return round2(vorp);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// GAME SCORE (Hollinger)
-// ═══════════════════════════════════════════════════════════════════════════
-
-// Single-game summary stat
 export function calculateGameScore(stats: BasicStats): number {
-  const gs =
+  const gameScore =
     stats.points +
     stats.fgm * 0.4 -
     stats.fga * 0.7 -
@@ -352,12 +275,8 @@ export function calculateGameScore(stats: BasicStats): number {
     stats.fouls * 0.4 -
     stats.turnovers;
 
-  return Math.round(gs * 10) / 10;
+  return round1(gameScore);
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// PER-GAME AVERAGES
-// ═══════════════════════════════════════════════════════════════════════════
 
 export function calculatePerGameAverages(
   totals: BasicStats,
@@ -375,18 +294,14 @@ export function calculatePerGameAverages(
   }
 
   return {
-    ppg: Math.round((totals.points / gamesPlayed) * 10) / 10,
-    rpg: Math.round(((totals.oreb + totals.dreb) / gamesPlayed) * 10) / 10,
-    apg: Math.round((totals.assists / gamesPlayed) * 10) / 10,
-    spg: Math.round((totals.steals / gamesPlayed) * 10) / 10,
-    bpg: Math.round((totals.blocks / gamesPlayed) * 10) / 10,
-    mpg: Math.round((totals.minutes / gamesPlayed) * 10) / 10
+    ppg: round1(totals.points / gamesPlayed),
+    rpg: round1((totals.oreb + totals.dreb) / gamesPlayed),
+    apg: round1(totals.assists / gamesPlayed),
+    spg: round1(totals.steals / gamesPlayed),
+    bpg: round1(totals.blocks / gamesPlayed),
+    mpg: round1(totals.minutes / gamesPlayed)
   };
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// CALCULATE ALL ADVANCED STATS
-// ═══════════════════════════════════════════════════════════════════════════
 
 export function calculateAllAdvancedStats(
   playerStats: BasicStats & { games_played: number },
@@ -412,6 +327,21 @@ export function calculateAllAdvancedStats(
     playerStats.fga,
     playerStats.fgm,
     playerStats.minutes
+  );
+
+  const offensiveRating = calculateOffensiveRating(
+    playerStats.points,
+    playerStats.assists,
+    possessions
+  );
+
+  const defensiveRating = calculateDefensiveRating(
+    playerStats.steals,
+    playerStats.blocks,
+    playerStats.dreb,
+    playerStats.fouls,
+    playerStats.minutes,
+    teamTotals.def_rating
   );
 
   return {
@@ -440,7 +370,7 @@ export function calculateAllAdvancedStats(
       playerStats.assists,
       playerStats.minutes,
       teamTotals.minutes,
-      playerStats.fgm + 100, // Estimate team FGM
+      playerStats.fgm + 100,
       playerStats.fgm
     ),
     rebound_pct: calculateReboundPct(
@@ -450,23 +380,12 @@ export function calculateAllAdvancedStats(
       teamTotals.minutes,
       teamTotals.oreb,
       teamTotals.dreb,
-      teamTotals.oreb, // Estimate opponent rebounds
+      teamTotals.oreb,
       teamTotals.dreb
     ),
-    offensive_rating: calculateOffensiveRating(
-      playerStats.points,
-      playerStats.assists,
-      possessions
-    ),
-    defensive_rating: calculateDefensiveRating(
-      playerStats.steals,
-      playerStats.blocks,
-      playerStats.dreb,
-      playerStats.fouls,
-      playerStats.minutes,
-      teamTotals.def_rating
-    ),
-    net_rating: 0, // Calculated from off - def
+    offensive_rating: offensiveRating,
+    defensive_rating: defensiveRating,
+    net_rating: round1(offensiveRating - defensiveRating),
     win_shares: calculateWinShares(
       per,
       playerStats.minutes,

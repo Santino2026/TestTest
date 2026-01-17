@@ -4,7 +4,6 @@ import { authMiddleware } from '../auth';
 
 const router = Router();
 
-// Get all players (with pagination)
 router.get('/', async (req, res) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
@@ -34,66 +33,76 @@ router.get('/', async (req, res) => {
     query += ` ORDER BY p.overall DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(limit, offset);
 
-    const result = await pool.query(query, params);
+    const [result, countResult] = await Promise.all([
+      pool.query(query, params),
+      pool.query('SELECT COUNT(*) FROM players')
+    ]);
 
-    const countResult = await pool.query('SELECT COUNT(*) FROM players');
     const total = parseInt(countResult.rows[0].count);
 
     res.json({
       players: result.rows,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
-      }
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) }
     });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch players' });
   }
 });
 
-// Get single player with full attributes
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query(
-      `SELECT p.*, pa.*, t.name as team_name, t.abbreviation as team_abbrev
-       FROM players p
-       LEFT JOIN player_attributes pa ON p.id = pa.player_id
-       LEFT JOIN teams t ON p.team_id = t.id
-       WHERE p.id = $1`,
-      [id]
-    );
 
-    if (result.rows.length === 0) {
+    const [playerResult, traitsResult] = await Promise.all([
+      pool.query(
+        `SELECT p.*, pa.*, t.name as team_name, t.abbreviation as team_abbrev
+         FROM players p
+         LEFT JOIN player_attributes pa ON p.id = pa.player_id
+         LEFT JOIN teams t ON p.team_id = t.id
+         WHERE p.id = $1`,
+        [id]
+      ),
+      pool.query(
+        `SELECT t.*, pt.tier
+         FROM player_traits pt
+         JOIN traits t ON pt.trait_id = t.id
+         WHERE pt.player_id = $1`,
+        [id]
+      )
+    ]);
+
+    if (playerResult.rows.length === 0) {
       return res.status(404).json({ error: 'Player not found' });
     }
 
-    // Get player traits
-    const traitsResult = await pool.query(
-      `SELECT t.*, pt.tier
-       FROM player_traits pt
-       JOIN traits t ON pt.trait_id = t.id
-       WHERE pt.player_id = $1`,
-      [id]
-    );
-
-    res.json({
-      ...result.rows[0],
-      traits: traitsResult.rows
-    });
+    res.json({ ...playerResult.rows[0], traits: traitsResult.rows });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch player' });
   }
 });
 
-// Get team roster with development info
+function calculateDevelopmentPhase(age: number, peakAge: number, overall: number, potential: number): { phase: string; projection: string } {
+  if (age < peakAge) {
+    const yearsToGo = peakAge - age;
+    const potentialGap = potential - overall;
+    return {
+      phase: 'development',
+      projection: `+${Math.round(potentialGap / yearsToGo)} OVR/yr until peak at age ${peakAge}`
+    };
+  }
+
+  if (age <= peakAge + 3) {
+    return { phase: 'peak', projection: `In prime years (peak age ${peakAge})` };
+  }
+
+  const yearsPastPeak = age - (peakAge + 3);
+  return { phase: 'decline', projection: `Declining (${yearsPastPeak} years past prime)` };
+}
+
 router.get('/team/:teamId/development', authMiddleware(true), async (req: any, res) => {
   try {
     const { teamId } = req.params;
 
-    // Get players with hidden development attributes
     const result = await pool.query(
       `SELECT
         p.id, p.first_name, p.last_name, p.position, p.archetype,
@@ -109,33 +118,15 @@ router.get('/team/:teamId/development', authMiddleware(true), async (req: any, r
       [teamId]
     );
 
-    // Calculate development phase and projection for each player
     const playersWithDev = result.rows.map(player => {
-      const age = player.age;
       const peakAge = player.peak_age || 28;
-
-      let phase: 'development' | 'peak' | 'decline';
-      let projection: string;
-
-      if (age < peakAge) {
-        phase = 'development';
-        const yearsToGo = peakAge - age;
-        const potentialGap = player.potential - player.overall;
-        projection = `+${Math.round(potentialGap / yearsToGo)} OVR/yr until peak at age ${peakAge}`;
-      } else if (age <= peakAge + 3) {
-        phase = 'peak';
-        projection = `In prime years (peak age ${peakAge})`;
-      } else {
-        phase = 'decline';
-        const yearsPastPeak = age - (peakAge + 3);
-        projection = `Declining (${yearsPastPeak} years past prime)`;
-      }
+      const { phase, projection } = calculateDevelopmentPhase(player.age, peakAge, player.overall, player.potential);
 
       return {
         ...player,
         phase,
         peak_age: peakAge,
-        years_to_peak: Math.max(0, peakAge - age),
+        years_to_peak: Math.max(0, peakAge - player.age),
         projection
       };
     });

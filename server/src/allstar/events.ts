@@ -1,6 +1,3 @@
-// All-Star Event Simulation Logic
-// Handles Rising Stars, Skills Challenge, 3PT Contest, Dunk Contest, and All-Star Game
-
 import { pool } from '../db/pool';
 
 export interface EventResult {
@@ -17,9 +14,66 @@ export interface EventResult {
   details: any;
 }
 
-// Rising Stars Challenge: Rookies vs Sophomores
+interface Player {
+  id: string;
+  first_name: string;
+  last_name: string;
+  overall: number;
+  [key: string]: any;
+}
+
+function getFullName(player: Player): string {
+  return `${player.first_name} ${player.last_name}`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.round(Math.max(min, Math.min(max, value)));
+}
+
+function randomVariance(base: number, variance: number): number {
+  return base + Math.floor(Math.random() * variance) - Math.floor(variance / 2);
+}
+
+function calculateTeamStrength(players: Player[], defaultOverall = 75): number {
+  if (players.length === 0) return defaultOverall;
+  return players.reduce((sum, p) => sum + (p.overall || defaultOverall), 0) / players.length;
+}
+
+function generateBoxScore(roster: Player[], totalScore: number, playerIdKey = 'id'): any[] {
+  const scores: any[] = [];
+  let remaining = totalScore;
+
+  roster.forEach((player, idx) => {
+    let share: number;
+    if (idx === 0) {
+      share = 0.2;
+    } else if (idx < 3) {
+      share = 0.15;
+    } else if (idx < 5) {
+      share = 0.12 + Math.random() * 0.08;
+    } else {
+      share = 0.04 + Math.random() * 0.04;
+    }
+
+    const pts = Math.floor(remaining * share * (0.8 + Math.random() * 0.4));
+    scores.push({
+      player_id: player[playerIdKey],
+      name: getFullName(player),
+      points: Math.min(pts, Math.max(remaining, 0)),
+      rebounds: Math.floor(3 + Math.random() * 8),
+      assists: Math.floor(2 + Math.random() * 6),
+    });
+    remaining = Math.max(0, remaining - scores[scores.length - 1].points);
+  });
+
+  if (remaining > 0 && scores.length > 0) {
+    scores[0].points += remaining;
+  }
+
+  return scores;
+}
+
 export async function simulateRisingStars(seasonId: string): Promise<EventResult> {
-  // Get rookies and sophomores
   const result = await pool.query(
     `SELECT
       p.id, p.first_name, p.last_name, p.overall, p.years_pro,
@@ -35,108 +89,68 @@ export async function simulateRisingStars(seasonId: string): Promise<EventResult
   const rookies = result.rows.filter((r: any) => r.years_pro === 0).slice(0, 10);
   const sophomores = result.rows.filter((r: any) => r.years_pro === 1).slice(0, 10);
 
-  // Verify we have enough players
   if (rookies.length === 0 || sophomores.length === 0) {
     throw new Error('Not enough rookies or sophomores for Rising Stars Challenge');
   }
 
-  // Calculate team strength
-  const rookieStrength = rookies.reduce((sum: number, p: any) => sum + p.overall, 0) / rookies.length;
-  const sophStrength = sophomores.reduce((sum: number, p: any) => sum + p.overall, 0) / sophomores.length;
+  const rookieStrength = calculateTeamStrength(rookies);
+  const sophStrength = calculateTeamStrength(sophomores);
 
-  // Simulate game (simplified)
   const baseScore = 150;
   const variance = 30;
 
-  let rookieScore = baseScore + Math.floor((rookieStrength - 70) * 2) + Math.floor(Math.random() * variance) - Math.floor(variance/2);
-  let sophScore = baseScore + Math.floor((sophStrength - 70) * 2) + Math.floor(Math.random() * variance) - Math.floor(variance/2);
+  const rookieScore = clamp(
+    baseScore + Math.floor((rookieStrength - 70) * 2) + randomVariance(0, variance),
+    120, 180
+  );
+  const sophScore = clamp(
+    baseScore + Math.floor((sophStrength - 70) * 2) + randomVariance(0, variance),
+    120, 180
+  );
 
-  // Ensure valid scores (round to integers for database)
-  rookieScore = Math.round(Math.max(120, Math.min(180, rookieScore)));
-  sophScore = Math.round(Math.max(120, Math.min(180, sophScore)));
+  const rookiesWon = rookieScore > sophScore;
+  const winningTeam = rookiesWon ? 'rookies' : 'sophomores';
+  const winningRoster = rookiesWon ? rookies : sophomores;
 
-  // Determine winner and MVP
-  const winningTeam = rookieScore > sophScore ? 'rookies' : 'sophomores';
-  const winningRoster = winningTeam === 'rookies' ? rookies : sophomores;
-  const losingRoster = winningTeam === 'rookies' ? sophomores : rookies;
-
-  // MVP is best player on winning team (with some randomness)
   const mvpCandidates = winningRoster.slice(0, 3);
   const mvp = mvpCandidates[Math.floor(Math.random() * mvpCandidates.length)];
-
-  // Generate box scores
-  const generateBoxScore = (roster: any[], totalScore: number) => {
-    const scores: any[] = [];
-    let remaining = totalScore;
-
-    roster.forEach((p: any, idx: number) => {
-      // Top player gets 20%, next 2 get 15% each, rest get 10%
-      let share: number;
-      if (idx === 0) {
-        share = 0.2;
-      } else if (idx < 3) {
-        share = 0.15;
-      } else {
-        share = 0.1;
-      }
-      const pts = Math.floor(remaining * share * (0.8 + Math.random() * 0.4));
-      scores.push({
-        player_id: p.id,
-        name: `${p.first_name} ${p.last_name}`,
-        points: Math.min(pts, remaining),
-        rebounds: Math.floor(3 + Math.random() * 8),
-        assists: Math.floor(2 + Math.random() * 6),
-      });
-      remaining -= scores[scores.length - 1].points;
-    });
-
-    // Distribute remaining
-    if (remaining > 0 && scores.length > 0) {
-      scores[0].points += remaining;
-    }
-
-    return scores;
-  };
 
   const details = {
     rookies: generateBoxScore(rookies, rookieScore),
     sophomores: generateBoxScore(sophomores, sophScore),
     mvp_stats: {
       player_id: mvp.id,
-      name: `${mvp.first_name} ${mvp.last_name}`,
+      name: getFullName(mvp),
       points: Math.floor(25 + Math.random() * 15),
       rebounds: Math.floor(5 + Math.random() * 5),
       assists: Math.floor(4 + Math.random() * 6),
     }
   };
 
-  // Save to database
+  const winningScore = rookiesWon ? rookieScore : sophScore;
+  const losingScore = rookiesWon ? sophScore : rookieScore;
+
   await pool.query(
     `INSERT INTO all_star_events
      (season_id, event_type, mvp_id, winning_team, winning_score, losing_score, details)
      VALUES ($1, 'rising_stars', $2, $3, $4, $5, $6)
      ON CONFLICT (season_id, event_type) DO UPDATE
      SET mvp_id = $2, winning_team = $3, winning_score = $4, losing_score = $5, details = $6`,
-    [seasonId, mvp.id, winningTeam,
-     winningTeam === 'rookies' ? rookieScore : sophScore,
-     winningTeam === 'rookies' ? sophScore : rookieScore,
-     JSON.stringify(details)]
+    [seasonId, mvp.id, winningTeam, winningScore, losingScore, JSON.stringify(details)]
   );
 
   return {
     event_type: 'rising_stars',
     mvp_id: mvp.id,
-    mvp_name: `${mvp.first_name} ${mvp.last_name}`,
+    mvp_name: getFullName(mvp),
     winning_team: winningTeam,
-    winning_score: winningTeam === 'rookies' ? rookieScore : sophScore,
-    losing_score: winningTeam === 'rookies' ? sophScore : rookieScore,
+    winning_score: winningScore,
+    losing_score: losingScore,
     details
   };
 }
 
-// Skills Challenge
 export async function simulateSkillsChallenge(seasonId: string): Promise<EventResult> {
-  // Get 8 best ball-handlers (guards)
   const result = await pool.query(
     `SELECT p.id, p.first_name, p.last_name, p.position, p.overall,
             pa.ball_handling, pa.passing_accuracy, pa.three_point, pa.speed
@@ -157,8 +171,7 @@ export async function simulateSkillsChallenge(seasonId: string): Promise<EventRe
     skill_score: (p.ball_handling + p.passing_accuracy + p.three_point + p.speed) / 4,
   }));
 
-  // Bracket simulation
-  const simulateRound = (matchups: any[]): any[] => {
+  function simulateRound(matchups: any[]): any[] {
     const winners: any[] = [];
     for (let i = 0; i < matchups.length; i += 2) {
       const p1 = matchups[i];
@@ -168,31 +181,24 @@ export async function simulateSkillsChallenge(seasonId: string): Promise<EventRe
         continue;
       }
 
-      // Time-based: lower is better
-      const p1Time = 30 - (p1.skill_score - 70) * 0.3 + (Math.random() * 6 - 3);
-      const p2Time = 30 - (p2.skill_score - 70) * 0.3 + (Math.random() * 6 - 3);
-
-      p1.time = Math.max(20, Math.min(40, p1Time));
-      p2.time = Math.max(20, Math.min(40, p2Time));
+      p1.time = clamp(30 - (p1.skill_score - 70) * 0.3 + (Math.random() * 6 - 3), 20, 40);
+      p2.time = clamp(30 - (p2.skill_score - 70) * 0.3 + (Math.random() * 6 - 3), 20, 40);
 
       winners.push(p1.time < p2.time ? p1 : p2);
     }
     return winners;
-  };
+  }
 
-  // Quarter-finals, Semi-finals, Finals
   const quarterFinals = [...participants];
   const semiFinals = simulateRound(quarterFinals);
   const finals = simulateRound(semiFinals);
   const winner = simulateRound(finals)[0];
-
-  // Determine runner-up
   const runnerUp = finals.find((p: any) => p.id !== winner.id);
 
   const details = {
     participants: participants.map((p: any) => ({
       player_id: p.id,
-      name: `${p.first_name} ${p.last_name}`,
+      name: getFullName(p),
       time: p.time?.toFixed(2) || null,
     })),
     bracket: {
@@ -215,16 +221,14 @@ export async function simulateSkillsChallenge(seasonId: string): Promise<EventRe
   return {
     event_type: 'skills',
     winner_id: winner.id,
-    winner_name: `${winner.first_name} ${winner.last_name}`,
+    winner_name: getFullName(winner),
     runner_up_id: runnerUp?.id,
-    runner_up_name: runnerUp ? `${runnerUp.first_name} ${runnerUp.last_name}` : undefined,
+    runner_up_name: runnerUp ? getFullName(runnerUp) : undefined,
     details
   };
 }
 
-// Three-Point Contest
 export async function simulateThreePointContest(seasonId: string): Promise<EventResult> {
-  // Get 8 best 3PT shooters
   const result = await pool.query(
     `SELECT p.id, p.first_name, p.last_name, p.overall,
             pa.three_point, pa.shot_iq, pa.clutch
@@ -241,45 +245,38 @@ export async function simulateThreePointContest(seasonId: string): Promise<Event
 
   const participants = result.rows.map((p: any) => ({
     ...p,
-    shooting_ability: (p.three_point * 0.7 + p.shot_iq * 0.2 + p.clutch * 0.1),
+    shooting_ability: p.three_point * 0.7 + p.shot_iq * 0.2 + p.clutch * 0.1,
   }));
 
-  // Round 1: 5 racks, 5 balls each = 25 balls, max 34 points (moneyball rack)
-  const simulateRound = (shooters: any[], isFinal: boolean = false) => {
+  function simulateRound(shooters: any[]): any[] {
     return shooters.map((p: any) => {
       const baseAccuracy = p.shooting_ability / 100;
-      const rounds = isFinal ? 1 : 1;
       let totalScore = 0;
       const racks: number[] = [];
 
-      for (let round = 0; round < rounds; round++) {
-        for (let rack = 0; rack < 5; rack++) {
-          let rackScore = 0;
-          const isMoneyRack = rack === 4; // Last rack is money rack
+      for (let rack = 0; rack < 5; rack++) {
+        let rackScore = 0;
+        const isMoneyRack = rack === 4;
 
-          for (let ball = 0; ball < 5; ball++) {
-            const isMoneyBall = ball === 4 || isMoneyRack;
-            const makeChance = baseAccuracy * (0.7 + Math.random() * 0.3);
+        for (let ball = 0; ball < 5; ball++) {
+          const isMoneyBall = ball === 4 || isMoneyRack;
+          const makeChance = baseAccuracy * (0.7 + Math.random() * 0.3);
 
-            if (Math.random() < makeChance) {
-              rackScore += isMoneyBall ? 2 : 1;
-            }
+          if (Math.random() < makeChance) {
+            rackScore += isMoneyBall ? 2 : 1;
           }
-          racks.push(rackScore);
-          totalScore += rackScore;
         }
+        racks.push(rackScore);
+        totalScore += rackScore;
       }
 
       return { ...p, score: totalScore, racks };
-    }).sort((a: any, b: any) => b.score - a.score);
-  };
+    }).sort((a, b) => b.score - a.score);
+  }
 
-  // First round - all 8
   const round1Results = simulateRound(participants);
-
-  // Finals - top 3
   const finalists = round1Results.slice(0, 3);
-  const finalResults = simulateRound(finalists, true);
+  const finalResults = simulateRound(finalists);
 
   const winner = finalResults[0];
   const runnerUp = finalResults[1];
@@ -287,13 +284,13 @@ export async function simulateThreePointContest(seasonId: string): Promise<Event
   const details = {
     round1: round1Results.map((p: any) => ({
       player_id: p.id,
-      name: `${p.first_name} ${p.last_name}`,
+      name: getFullName(p),
       score: p.score,
       racks: p.racks,
     })),
     finals: finalResults.map((p: any) => ({
       player_id: p.id,
-      name: `${p.first_name} ${p.last_name}`,
+      name: getFullName(p),
       score: p.score,
       racks: p.racks,
     })),
@@ -311,16 +308,25 @@ export async function simulateThreePointContest(seasonId: string): Promise<Event
   return {
     event_type: 'three_point',
     winner_id: winner.id,
-    winner_name: `${winner.first_name} ${winner.last_name}`,
+    winner_name: getFullName(winner),
     runner_up_id: runnerUp.id,
-    runner_up_name: `${runnerUp.first_name} ${runnerUp.last_name}`,
+    runner_up_name: getFullName(runnerUp),
     details
   };
 }
 
-// Slam Dunk Contest
+const DUNK_DESCRIPTIONS = [
+  'Windmill from the free-throw line',
+  '360 between-the-legs',
+  'Double-pump reverse',
+  'One-handed tomahawk',
+  'Behind-the-back slam',
+  'Eastbay (between the legs)',
+  'Alley-oop off the backboard',
+  'Honey dip (elbow in rim)',
+];
+
 export async function simulateDunkContest(seasonId: string): Promise<EventResult> {
-  // Get 4 best dunkers (athleticism + dunking)
   const result = await pool.query(
     `SELECT p.id, p.first_name, p.last_name, p.overall,
             pa.driving_dunk, pa.standing_dunk, pa.vertical, pa.speed, pa.acceleration
@@ -337,46 +343,27 @@ export async function simulateDunkContest(seasonId: string): Promise<EventResult
 
   const participants = result.rows.map((p: any) => ({
     ...p,
-    dunk_ability: (p.driving_dunk * 0.4 + p.standing_dunk * 0.3 + p.vertical * 0.2 + p.speed * 0.1),
+    dunk_ability: p.driving_dunk * 0.4 + p.standing_dunk * 0.3 + p.vertical * 0.2 + p.speed * 0.1,
   }));
 
-  // Two rounds, 2 dunks each
-  // Judges score 6-10 each, 3 judges = 18-30 per dunk
-  const simulateDunk = (dunker: any) => {
+  function simulateDunk(dunker: any) {
     const baseQuality = dunker.dunk_ability / 100;
-    const creativity = Math.random() * 0.3; // Random creativity bonus
-    const execution = Math.random() * 0.2; // Execution variance
-
+    const creativity = Math.random() * 0.3;
+    const execution = Math.random() * 0.2;
     const dunkScore = (baseQuality + creativity) * (0.8 + execution);
 
-    // Convert to judge scores (6-10)
     const judgeScores = [1, 2, 3].map(() => {
       const score = 6 + Math.floor(dunkScore * 4 + Math.random() * 2);
-      return Math.min(10, Math.max(6, score));
+      return clamp(score, 6, 10);
     });
 
     return {
       judges: judgeScores,
       total: judgeScores.reduce((a, b) => a + b, 0),
-      description: generateDunkDescription(),
+      description: DUNK_DESCRIPTIONS[Math.floor(Math.random() * DUNK_DESCRIPTIONS.length)],
     };
-  };
+  }
 
-  const generateDunkDescription = () => {
-    const dunks = [
-      'Windmill from the free-throw line',
-      '360 between-the-legs',
-      'Double-pump reverse',
-      'One-handed tomahawk',
-      'Behind-the-back slam',
-      'Eastbay (between the legs)',
-      'Alley-oop off the backboard',
-      'Honey dip (elbow in rim)',
-    ];
-    return dunks[Math.floor(Math.random() * dunks.length)];
-  };
-
-  // Round 1
   const round1 = participants.map((p: any) => {
     const dunk1 = simulateDunk(p);
     const dunk2 = simulateDunk(p);
@@ -385,9 +372,8 @@ export async function simulateDunkContest(seasonId: string): Promise<EventResult
       round1_dunks: [dunk1, dunk2],
       round1_total: dunk1.total + dunk2.total,
     };
-  }).sort((a: any, b: any) => b.round1_total - a.round1_total);
+  }).sort((a, b) => b.round1_total - a.round1_total);
 
-  // Finals (top 2)
   const finalists = round1.slice(0, 2).map((p: any) => {
     const dunk1 = simulateDunk(p);
     const dunk2 = simulateDunk(p);
@@ -397,7 +383,7 @@ export async function simulateDunkContest(seasonId: string): Promise<EventResult
       finals_total: dunk1.total + dunk2.total,
       grand_total: p.round1_total + dunk1.total + dunk2.total,
     };
-  }).sort((a: any, b: any) => b.finals_total - a.finals_total);
+  }).sort((a, b) => b.finals_total - a.finals_total);
 
   const winner = finalists[0];
   const runnerUp = finalists[1];
@@ -405,13 +391,13 @@ export async function simulateDunkContest(seasonId: string): Promise<EventResult
   const details = {
     round1: round1.map((p: any) => ({
       player_id: p.id,
-      name: `${p.first_name} ${p.last_name}`,
+      name: getFullName(p),
       dunks: p.round1_dunks,
       total: p.round1_total,
     })),
     finals: finalists.map((p: any) => ({
       player_id: p.id,
-      name: `${p.first_name} ${p.last_name}`,
+      name: getFullName(p),
       dunks: p.finals_dunks,
       round1_total: p.round1_total,
       finals_total: p.finals_total,
@@ -430,16 +416,14 @@ export async function simulateDunkContest(seasonId: string): Promise<EventResult
   return {
     event_type: 'dunk',
     winner_id: winner.id,
-    winner_name: `${winner.first_name} ${winner.last_name}`,
+    winner_name: getFullName(winner),
     runner_up_id: runnerUp.id,
-    runner_up_name: `${runnerUp.first_name} ${runnerUp.last_name}`,
+    runner_up_name: getFullName(runnerUp),
     details
   };
 }
 
-// All-Star Game
 export async function simulateAllStarGame(seasonId: string): Promise<EventResult> {
-  // Get All-Star selections
   const result = await pool.query(
     `SELECT
       ass.*, p.first_name, p.last_name, p.overall, p.position,
@@ -455,49 +439,46 @@ export async function simulateAllStarGame(seasonId: string): Promise<EventResult
   const eastTeam = result.rows.filter((r: any) => r.conference === 'east' || r.conference === 'Eastern');
   const westTeam = result.rows.filter((r: any) => r.conference === 'west' || r.conference === 'Western');
 
-  // Verify we have All-Stars selected
   if (eastTeam.length === 0 || westTeam.length === 0) {
     throw new Error('All-Star selections must be made before simulating the game');
   }
 
-  // Calculate team strengths (default to 75 if overall is null)
-  const eastStrength = eastTeam.reduce((sum: number, p: any) => sum + (p.overall || 75), 0) / eastTeam.length;
-  const westStrength = westTeam.reduce((sum: number, p: any) => sum + (p.overall || 75), 0) / westTeam.length;
+  const eastStrength = calculateTeamStrength(eastTeam, 80);
+  const westStrength = calculateTeamStrength(westTeam, 80);
 
-  // All-Star game is high-scoring
   const baseScore = 170;
   const variance = 25;
 
-  let eastScore = baseScore + Math.floor((eastStrength - 80) * 3) + Math.floor(Math.random() * variance) - Math.floor(variance/2);
-  let westScore = baseScore + Math.floor((westStrength - 80) * 3) + Math.floor(Math.random() * variance) - Math.floor(variance/2);
+  const eastScore = clamp(
+    baseScore + Math.floor((eastStrength - 80) * 3) + randomVariance(0, variance),
+    150, 200
+  );
+  const westScore = clamp(
+    baseScore + Math.floor((westStrength - 80) * 3) + randomVariance(0, variance),
+    150, 200
+  );
 
-  // Ensure valid scores (round to integers)
-  eastScore = Math.round(Math.max(150, Math.min(200, eastScore)));
-  westScore = Math.round(Math.max(150, Math.min(200, westScore)));
+  const eastWon = eastScore > westScore;
+  const winningTeam = eastWon ? 'east' : 'west';
+  const winningRoster = eastWon ? eastTeam : westTeam;
 
-  const winningTeam = eastScore > westScore ? 'east' : 'west';
-  const winningRoster = winningTeam === 'east' ? eastTeam : westTeam;
-
-  // Validate winning roster before MVP selection
   if (winningRoster.length === 0) {
     throw new Error('Cannot select All-Star Game MVP - winning roster is empty');
   }
 
-  // Select MVP from winning team
-  const mvpCandidates = winningRoster.slice(0, Math.min(5, winningRoster.length)); // Top starters
+  const mvpCandidates = winningRoster.slice(0, Math.min(5, winningRoster.length));
   const mvp = mvpCandidates[Math.floor(Math.random() * Math.min(3, mvpCandidates.length))];
 
-  // Generate stats
-  const generateTeamStats = (roster: any[], totalScore: number) => {
+  function generateAllStarBoxScore(roster: any[], totalScore: number): any[] {
     const stats: any[] = [];
     let remaining = totalScore;
 
-    roster.forEach((p: any, idx: number) => {
+    roster.forEach((p, idx) => {
       const share = idx < 5 ? (0.12 + Math.random() * 0.08) : (0.04 + Math.random() * 0.04);
       const pts = Math.floor(remaining * share);
       stats.push({
         player_id: p.player_id,
-        name: `${p.first_name} ${p.last_name}`,
+        name: getFullName(p),
         points: Math.min(pts, Math.max(remaining, 0)),
         rebounds: Math.floor(3 + Math.random() * 10),
         assists: Math.floor(2 + Math.random() * 10),
@@ -507,18 +488,16 @@ export async function simulateAllStarGame(seasonId: string): Promise<EventResult
       remaining = Math.max(0, remaining - stats[stats.length - 1].points);
     });
 
-    // Distribute any remaining
     if (remaining > 0 && stats.length > 0) {
       stats[0].points += remaining;
     }
 
     return stats;
-  };
+  }
 
-  // MVP gets big stats
   const mvpStats = {
     player_id: mvp.player_id,
-    name: `${mvp.first_name} ${mvp.last_name}`,
+    name: getFullName(mvp),
     points: Math.floor(30 + Math.random() * 20),
     rebounds: Math.floor(8 + Math.random() * 8),
     assists: Math.floor(6 + Math.random() * 8),
@@ -527,8 +506,8 @@ export async function simulateAllStarGame(seasonId: string): Promise<EventResult
   };
 
   const details = {
-    east: generateTeamStats(eastTeam, eastScore),
-    west: generateTeamStats(westTeam, westScore),
+    east: generateAllStarBoxScore(eastTeam, eastScore),
+    west: generateAllStarBoxScore(westTeam, westScore),
     quarters: [
       { east: Math.floor(eastScore * 0.25), west: Math.floor(westScore * 0.25) },
       { east: Math.floor(eastScore * 0.25), west: Math.floor(westScore * 0.25) },
@@ -538,31 +517,30 @@ export async function simulateAllStarGame(seasonId: string): Promise<EventResult
     mvp_stats: mvpStats,
   };
 
+  const winningScore = eastWon ? eastScore : westScore;
+  const losingScore = eastWon ? westScore : eastScore;
+
   await pool.query(
     `INSERT INTO all_star_events
      (season_id, event_type, mvp_id, winning_team, winning_score, losing_score, details)
      VALUES ($1, 'game', $2, $3, $4, $5, $6)
      ON CONFLICT (season_id, event_type) DO UPDATE
      SET mvp_id = $2, winning_team = $3, winning_score = $4, losing_score = $5, details = $6`,
-    [seasonId, mvp.player_id, winningTeam,
-     winningTeam === 'east' ? eastScore : westScore,
-     winningTeam === 'east' ? westScore : eastScore,
-     JSON.stringify(details)]
+    [seasonId, mvp.player_id, winningTeam, winningScore, losingScore, JSON.stringify(details)]
   );
 
   return {
     event_type: 'game',
     mvp_id: mvp.player_id,
-    mvp_name: `${mvp.first_name} ${mvp.last_name}`,
+    mvp_name: getFullName(mvp),
     winning_team: winningTeam,
-    winning_score: winningTeam === 'east' ? eastScore : westScore,
-    losing_score: winningTeam === 'east' ? westScore : eastScore,
+    winning_score: winningScore,
+    losing_score: losingScore,
     details
   };
 }
 
-// Get event results
-export async function getEventResults(seasonId: string) {
+export async function getEventResults(seasonId: string): Promise<EventResult[]> {
   const result = await pool.query(
     `SELECT
       ase.*,

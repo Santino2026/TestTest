@@ -226,6 +226,8 @@ export function generatePlayer(teamId: string | null, position: Position, isPrem
   const yearsExperience = Math.max(0, age - 19);
   const yearsInLeague = Math.min(yearsExperience, random(0, yearsExperience));
   const hiddenAttrs = generateHiddenAttributes(age, overall);
+  const attributes = generateAttributes(archetype, overall);
+  const traits = assignTraits(attributes, hiddenAttrs, overall, isPremium);
 
   return {
     player: {
@@ -252,8 +254,119 @@ export function generatePlayer(teamId: string | null, position: Position, isPrem
       leadership: hiddenAttrs.leadership,
       motor: hiddenAttrs.motor,
     },
-    attributes: generateAttributes(archetype, overall),
+    attributes,
+    traits,
   };
+}
+
+// Trait assignment based on player attributes
+const traitRequirements: Record<string, { attrs: Record<string, number>; category: string }> = {
+  // Scoring traits
+  deadeye: { attrs: { three_point: 75, shot_iq: 70 }, category: 'scoring' },
+  catch_and_shoot: { attrs: { three_point: 70 }, category: 'scoring' },
+  difficult_shots: { attrs: { mid_range: 78, shot_iq: 75 }, category: 'scoring' },
+  volume_shooter: { attrs: { three_point: 75, offensive_consistency: 70 }, category: 'scoring' },
+  clutch_shooter: { attrs: { three_point: 80, clutch: 80 }, category: 'scoring' },
+  green_machine: { attrs: { three_point: 82, consistency: 75 }, category: 'scoring' },
+  limitless_range: { attrs: { three_point: 88 }, category: 'scoring' },
+  posterizer: { attrs: { driving_dunk: 80, vertical: 78 }, category: 'scoring' },
+  contact_finisher: { attrs: { layup: 80, strength: 70 }, category: 'scoring' },
+  pro_touch: { attrs: { layup: 75, close_shot: 72 }, category: 'scoring' },
+  slithery_finisher: { attrs: { layup: 78, ball_handling: 70 }, category: 'scoring' },
+  // Playmaking traits
+  dimer: { attrs: { passing_accuracy: 78, passing_vision: 75 }, category: 'playmaking' },
+  floor_general: { attrs: { basketball_iq: 82, passing_vision: 80 }, category: 'playmaking' },
+  needle_threader: { attrs: { passing_accuracy: 80, passing_iq: 78 }, category: 'playmaking' },
+  bailout: { attrs: { passing_accuracy: 72 }, category: 'playmaking' },
+  break_starter: { attrs: { passing_accuracy: 70, defensive_rebound: 70 }, category: 'playmaking' },
+  handles_for_days: { attrs: { ball_handling: 78, stamina: 75 }, category: 'playmaking' },
+  ankle_breaker: { attrs: { ball_handling: 85, speed_with_ball: 80 }, category: 'playmaking' },
+  quick_first_step: { attrs: { acceleration: 80, speed: 78 }, category: 'playmaking' },
+  space_creator: { attrs: { ball_handling: 80, mid_range: 75 }, category: 'playmaking' },
+  // Defense traits
+  clamps: { attrs: { perimeter_defense: 78, lateral_quickness: 75 }, category: 'defense' },
+  intimidator: { attrs: { interior_defense: 80, block: 75 }, category: 'defense' },
+  pick_pocket: { attrs: { steal: 78 }, category: 'defense' },
+  pick_dodger: { attrs: { perimeter_defense: 72, lateral_quickness: 70 }, category: 'defense' },
+  chase_down_artist: { attrs: { block: 75, speed: 78 }, category: 'defense' },
+  rim_protector: { attrs: { block: 82, interior_defense: 80 }, category: 'defense' },
+  pogo_stick: { attrs: { block: 70, vertical: 72 }, category: 'defense' },
+  interceptor: { attrs: { steal: 75, defensive_iq: 78 }, category: 'defense' },
+  defensive_leader: { attrs: { defensive_iq: 82, basketball_iq: 80 }, category: 'defense' },
+  // Rebounding traits
+  rebound_chaser: { attrs: { defensive_rebound: 75 }, category: 'rebounding' },
+  box_out: { attrs: { box_out: 75, strength: 72 }, category: 'rebounding' },
+  worm: { attrs: { offensive_rebound: 78 }, category: 'rebounding' },
+  putback_boss: { attrs: { offensive_rebound: 80, layup: 75 }, category: 'rebounding' },
+  // Mental traits
+  clutch_performer: { attrs: { clutch: 82 }, category: 'mental' },
+  ice_in_veins: { attrs: { composure: 82, clutch: 78 }, category: 'mental' },
+  microwave: { attrs: { streakiness: 70 }, category: 'mental' },
+  comeback_kid: { attrs: { clutch: 75, hustle: 78 }, category: 'mental' },
+  alpha_dog: { attrs: { leadership: 85, clutch: 82 }, category: 'mental' },
+  playoff_performer: { attrs: { clutch: 85, composure: 82 }, category: 'mental' },
+  // Physical traits
+  tireless_defender: { attrs: { stamina: 80, hustle: 78 }, category: 'physical' },
+  tireless_scorer: { attrs: { stamina: 78, offensive_consistency: 75 }, category: 'physical' },
+  relentless_finisher: { attrs: { layup: 78, stamina: 75 }, category: 'physical' },
+  // Negative traits (assigned based on low attributes)
+  turnover_prone: { attrs: { ball_handling: 55, passing_iq: 55 }, category: 'negative' },
+  cold_streak: { attrs: { consistency: 50, streakiness: 75 }, category: 'negative' },
+  foul_trouble: { attrs: { defensive_iq: 55 }, category: 'negative' },
+  pressure_choker: { attrs: { clutch: 50, composure: 50 }, category: 'negative' },
+  injury_prone: { attrs: { durability: 55 }, category: 'negative' },
+};
+
+export function assignTraits(
+  attributes: Record<string, number>,
+  hiddenAttrs: Record<string, number>,
+  overall: number,
+  isPremium: boolean
+): Array<{ traitId: string; tier: string }> {
+  const assignedTraits: Array<{ traitId: string; tier: string }> = [];
+  const tiers = ['bronze', 'silver', 'gold', 'hall_of_fame'];
+
+  // Determine tier based on overall
+  function getTier(overall: number): string {
+    if (overall >= 88) return pickRandom(['gold', 'hall_of_fame']);
+    if (overall >= 80) return pickRandom(['silver', 'gold']);
+    if (overall >= 70) return pickRandom(['bronze', 'silver']);
+    return 'bronze';
+  }
+
+  // Check positive traits
+  const positiveTraits = Object.entries(traitRequirements)
+    .filter(([_, req]) => req.category !== 'negative');
+
+  for (const [traitId, requirement] of positiveTraits) {
+    const meetsRequirements = Object.entries(requirement.attrs).every(([attr, minValue]) => {
+      const playerValue = attributes[attr] ?? hiddenAttrs[attr] ?? 50;
+      return playerValue >= minValue;
+    });
+
+    if (meetsRequirements && Math.random() < 0.4) { // 40% chance if meets requirements
+      assignedTraits.push({ traitId, tier: getTier(overall) });
+    }
+  }
+
+  // Check negative traits (based on LOW attributes)
+  const negativeTraits = Object.entries(traitRequirements)
+    .filter(([_, req]) => req.category === 'negative');
+
+  for (const [traitId, requirement] of negativeTraits) {
+    const meetsNegativeRequirements = Object.entries(requirement.attrs).every(([attr, maxValue]) => {
+      const playerValue = attributes[attr] ?? hiddenAttrs[attr] ?? 50;
+      return playerValue <= maxValue; // Note: <= for negative traits
+    });
+
+    if (meetsNegativeRequirements && Math.random() < 0.25) { // 25% chance
+      assignedTraits.push({ traitId, tier: 'bronze' }); // Negative traits always bronze
+    }
+  }
+
+  // Limit traits: stars get 2-4, regular players get 0-3
+  const maxTraits = isPremium ? random(2, 4) : random(0, 3);
+  return assignedTraits.slice(0, maxTraits);
 }
 
 export function generateRoster(teamId: string): ReturnType<typeof generatePlayer>[] {

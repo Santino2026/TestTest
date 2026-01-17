@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db/pool';
@@ -32,17 +33,14 @@ export interface AuthResult {
   refresh_token: string;
 }
 
-// Hash password
-async function hashPassword(password: string): Promise<string> {
+function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
 }
 
-// Verify password
-async function verifyPassword(password: string, hash: string): Promise<boolean> {
+function verifyPassword(password: string, hash: string): Promise<boolean> {
   return bcrypt.compare(password, hash);
 }
 
-// Generate access token
 function generateAccessToken(user: User): string {
   const payload: TokenPayload = {
     userId: user.id,
@@ -52,12 +50,24 @@ function generateAccessToken(user: User): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
 
-// Generate refresh token
 function generateRefreshToken(): string {
-  return require('crypto').randomBytes(40).toString('hex');
+  return crypto.randomBytes(40).toString('hex');
 }
 
-// Verify access token
+function getRefreshTokenExpiry(): Date {
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_EXPIRES_DAYS);
+  return expiresAt;
+}
+
+async function storeRefreshToken(userId: string, refreshToken: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO sessions (user_id, refresh_token, expires_at)
+     VALUES ($1, $2, $3)`,
+    [userId, refreshToken, getRefreshTokenExpiry()]
+  );
+}
+
 export function verifyAccessToken(token: string): TokenPayload | null {
   try {
     return jwt.verify(token, JWT_SECRET) as TokenPayload;
@@ -66,13 +76,11 @@ export function verifyAccessToken(token: string): TokenPayload | null {
   }
 }
 
-// Create new user
 export async function signup(
   email: string,
   password: string,
   name?: string
 ): Promise<AuthResult> {
-  // Hash password and create user atomically with ON CONFLICT to prevent race condition
   const passwordHash = await hashPassword(password);
   const result = await pool.query(
     `INSERT INTO users (email, password_hash, name)
@@ -82,36 +90,23 @@ export async function signup(
     [email.toLowerCase(), passwordHash, name || null]
   );
 
-  // If no row returned, email already exists
   if (result.rows.length === 0) {
     throw new Error('Email already registered');
   }
 
   const user = result.rows[0];
-
-  // Generate tokens
   const accessToken = generateAccessToken(user);
   const refreshToken = generateRefreshToken();
 
-  // Store refresh token
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_EXPIRES_DAYS);
-
-  await pool.query(
-    `INSERT INTO sessions (user_id, refresh_token, expires_at)
-     VALUES ($1, $2, $3)`,
-    [user.id, refreshToken, expiresAt]
-  );
+  await storeRefreshToken(user.id, refreshToken);
 
   return { user, access_token: accessToken, refresh_token: refreshToken };
 }
 
-// Login existing user
 export async function login(
   email: string,
   password: string
 ): Promise<AuthResult> {
-  // Find user
   const result = await pool.query(
     `SELECT id, email, name, password_hash, has_purchased, purchased_at, is_active, created_at
      FROM users
@@ -124,40 +119,27 @@ export async function login(
   }
 
   const user = result.rows[0];
-
-  // Verify password
   const valid = await verifyPassword(password, user.password_hash);
+
   if (!valid) {
     throw new Error('Invalid email or password');
   }
 
-  // Update last login
   await pool.query(
     'UPDATE users SET last_login_at = NOW() WHERE id = $1',
     [user.id]
   );
 
-  // Generate tokens
   const accessToken = generateAccessToken(user);
   const refreshToken = generateRefreshToken();
 
-  // Store refresh token
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_EXPIRES_DAYS);
+  await storeRefreshToken(user.id, refreshToken);
 
-  await pool.query(
-    `INSERT INTO sessions (user_id, refresh_token, expires_at)
-     VALUES ($1, $2, $3)`,
-    [user.id, refreshToken, expiresAt]
-  );
-
-  // Remove password hash from response
   delete user.password_hash;
 
   return { user, access_token: accessToken, refresh_token: refreshToken };
 }
 
-// Refresh access token
 export async function refreshAccessToken(
   refreshToken: string
 ): Promise<{ access_token: string; refresh_token: string }> {
@@ -165,7 +147,6 @@ export async function refreshAccessToken(
   try {
     await client.query('BEGIN');
 
-    // Find and lock session row to prevent race condition
     const result = await client.query(
       `SELECT s.*, u.id as user_id, u.email, u.name, u.has_purchased, u.purchased_at, u.is_active, u.created_at
        FROM sessions s
@@ -181,7 +162,7 @@ export async function refreshAccessToken(
     }
 
     const session = result.rows[0];
-    const user = {
+    const user: User = {
       id: session.user_id,
       email: session.email,
       name: session.name,
@@ -191,22 +172,16 @@ export async function refreshAccessToken(
       created_at: session.created_at,
     };
 
-    // Generate new tokens
     const newAccessToken = generateAccessToken(user);
     const newRefreshToken = generateRefreshToken();
 
-    // Update session with new refresh token
-    const newExpiresAt = new Date();
-    newExpiresAt.setDate(newExpiresAt.getDate() + REFRESH_TOKEN_EXPIRES_DAYS);
-
     await client.query(
       `UPDATE sessions SET refresh_token = $1, expires_at = $2 WHERE id = $3`,
-      [newRefreshToken, newExpiresAt, session.id]
+      [newRefreshToken, getRefreshTokenExpiry(), session.id]
     );
 
     await client.query('COMMIT');
 
-    // Return snake_case to match client expectations
     return { access_token: newAccessToken, refresh_token: newRefreshToken };
   } catch (error) {
     await client.query('ROLLBACK');
@@ -216,7 +191,6 @@ export async function refreshAccessToken(
   }
 }
 
-// Logout (invalidate refresh token)
 export async function logout(refreshToken: string): Promise<void> {
   await pool.query(
     'DELETE FROM sessions WHERE refresh_token = $1',
@@ -224,7 +198,6 @@ export async function logout(refreshToken: string): Promise<void> {
   );
 }
 
-// Get user by ID
 export async function getUserById(userId: string): Promise<User | null> {
   const result = await pool.query(
     `SELECT id, email, name, has_purchased, purchased_at, is_active, created_at
@@ -236,13 +209,11 @@ export async function getUserById(userId: string): Promise<User | null> {
   return result.rows[0] || null;
 }
 
-// Mark user as purchased (idempotent - safe to call multiple times)
 export async function markUserPurchased(
   userId: string,
   stripeCustomerId: string,
   stripePaymentId: string
 ): Promise<boolean> {
-  // Only update if not already purchased - prevents race condition from duplicate webhooks
   const result = await pool.query(
     `UPDATE users
      SET has_purchased = true, purchased_at = NOW(),
@@ -254,7 +225,6 @@ export async function markUserPurchased(
   return result.rows.length > 0;
 }
 
-// Express middleware for auth
 export function authMiddleware(requirePurchase = false) {
   return async (req: any, res: any, next: any) => {
     const authHeader = req.headers.authorization;
@@ -270,12 +240,10 @@ export function authMiddleware(requirePurchase = false) {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
-    // Check purchase if required
     if (requirePurchase && !payload.hasPurchased) {
       return res.status(403).json({ error: 'Purchase required to access this resource' });
     }
 
-    // Attach user info to request
     req.user = payload;
     next();
   };

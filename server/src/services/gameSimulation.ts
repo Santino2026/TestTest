@@ -1,4 +1,3 @@
-// Game simulation helpers for season advancement
 import { pool } from '../db/pool';
 import { simulateGame } from '../simulation';
 import { loadTeamForSimulation } from './simulation';
@@ -38,157 +37,41 @@ interface FranchiseContext {
   current_day: number;
 }
 
-/**
- * Simulate a single day's games (regular season)
- * Updates standings after each game
- */
-export async function simulateDayGames(franchise: FranchiseContext): Promise<SimulationResult> {
-  const seasonId = franchise.season_id;
-  const currentDay = franchise.current_day;
-
-  // Calculate the game date for this day
-  const seasonStart = new Date(SEASON_START_DATE);
-  const gameDate = new Date(seasonStart);
-  gameDate.setDate(gameDate.getDate() + currentDay);
-  const gameDateStr = gameDate.toISOString().split('T')[0];
-
-  // Get all regular season games scheduled for this day
-  const gamesResult = await pool.query(
-    `SELECT s.*,
-            ht.name as home_team_name, at.name as away_team_name
-     FROM schedule s
-     JOIN teams ht ON s.home_team_id = ht.id
-     JOIN teams at ON s.away_team_id = at.id
-     WHERE s.season_id = $1 AND s.game_date = $2 AND s.status = 'scheduled' AND s.is_preseason = FALSE`,
-    [seasonId, gameDateStr]
-  );
-
-  const results: GameSimResult[] = [];
-  let userGameResult: UserGameResult | null = null;
-
-  for (const scheduledGame of gamesResult.rows) {
-    // Atomically claim the game to prevent double-simulation from concurrent requests
-    const claimResult = await pool.query(
-      `UPDATE schedule SET status = 'simulating'
-       WHERE id = $1 AND status = 'scheduled'
-       RETURNING *`,
-      [scheduledGame.id]
-    );
-
-    // Skip if already claimed by another request
-    if (claimResult.rows.length === 0) {
-      continue;
-    }
-
-    const isUserGame = scheduledGame.home_team_id === franchise.team_id ||
-                       scheduledGame.away_team_id === franchise.team_id;
-
-    // Simulate the game
-    const homeTeam = await loadTeamForSimulation(scheduledGame.home_team_id);
-    const awayTeam = await loadTeamForSimulation(scheduledGame.away_team_id);
-    const simResult = simulateGame(homeTeam, awayTeam);
-
-    // Convert to GameResult format
-    const gameResult: GameResult = {
-      id: simResult.id,
-      home_team_id: simResult.home_team_id,
-      away_team_id: simResult.away_team_id,
-      home_score: simResult.home_score,
-      away_score: simResult.away_score,
-      winner_id: simResult.winner_id,
-      is_overtime: simResult.is_overtime,
-      overtime_periods: simResult.overtime_periods,
-      quarters: simResult.quarters,
-      home_stats: simResult.home_stats,
-      away_stats: simResult.away_stats,
-      home_player_stats: simResult.home_player_stats.map((ps: any) => ({
-        ...ps,
-        player_id: ps.player_id
-      })),
-      away_player_stats: simResult.away_player_stats.map((ps: any) => ({
-        ...ps,
-        player_id: ps.player_id
-      }))
-    };
-
-    // Save complete game result with standings and advanced stats
-    await saveCompleteGameResult(
-      gameResult,
-      seasonId,
-      { id: homeTeam.id, starters: homeTeam.starters },
-      { id: awayTeam.id, starters: awayTeam.starters },
-      true // Update standings for regular season
-    );
-
-    // Mark game as completed
-    await pool.query(
-      `UPDATE schedule SET status = 'completed', game_id = $1, is_user_game = $2
-       WHERE id = $3`,
-      [simResult.id, isUserGame, scheduledGame.id]
-    );
-
-    // Track user's game result
-    if (isUserGame) {
-      const userIsHome = scheduledGame.home_team_id === franchise.team_id;
-      const userWon = simResult.winner_id === franchise.team_id;
-      const userScore = userIsHome ? simResult.home_score : simResult.away_score;
-      const opponentScore = userIsHome ? simResult.away_score : simResult.home_score;
-      const opponentName = userIsHome ? scheduledGame.away_team_name : scheduledGame.home_team_name;
-
-      userGameResult = {
-        game_id: simResult.id,
-        won: userWon,
-        user_score: userScore,
-        opponent_score: opponentScore,
-        opponent_name: opponentName,
-        is_overtime: simResult.is_overtime,
-        overtime_periods: simResult.overtime_periods
-      };
-    }
-
-    results.push({
-      game_id: simResult.id,
-      home_team: scheduledGame.home_team_name,
-      away_team: scheduledGame.away_team_name,
-      home_score: simResult.home_score,
-      away_score: simResult.away_score,
-      is_user_game: isUserGame
-    });
-  }
-
-  return { gameDateStr, results, userGameResult };
+interface SimulateOptions {
+  isPreseason: boolean;
+  updateStandings: boolean;
 }
 
-/**
- * Simulate preseason games (no standings updates)
- * Updates franchise preseason record for user games
- */
+export async function simulateDayGames(franchise: FranchiseContext): Promise<SimulationResult> {
+  return simulateGamesForDay(franchise, { isPreseason: false, updateStandings: true });
+}
+
 export async function simulatePreseasonDayGames(franchise: FranchiseContext): Promise<SimulationResult> {
-  const seasonId = franchise.season_id;
-  const currentDay = franchise.current_day; // -7 to 0 for preseason
+  return simulateGamesForDay(franchise, { isPreseason: true, updateStandings: false });
+}
 
-  // Calculate the game date for this day
-  const seasonStart = new Date(SEASON_START_DATE);
-  const gameDate = new Date(seasonStart);
-  gameDate.setDate(gameDate.getDate() + currentDay);
-  const gameDateStr = gameDate.toISOString().split('T')[0];
+async function simulateGamesForDay(
+  franchise: FranchiseContext,
+  options: SimulateOptions
+): Promise<SimulationResult> {
+  const { season_id: seasonId, current_day: currentDay, team_id: userTeamId } = franchise;
+  const { isPreseason, updateStandings } = options;
 
-  // Get all preseason games scheduled for this day
+  const gameDateStr = calculateGameDate(currentDay);
+
   const gamesResult = await pool.query(
-    `SELECT s.*,
-            ht.name as home_team_name, at.name as away_team_name
+    `SELECT s.*, ht.name as home_team_name, at.name as away_team_name
      FROM schedule s
      JOIN teams ht ON s.home_team_id = ht.id
      JOIN teams at ON s.away_team_id = at.id
-     WHERE s.season_id = $1 AND s.game_date = $2 AND s.status = 'scheduled' AND s.is_preseason = TRUE`,
-    [seasonId, gameDateStr]
+     WHERE s.season_id = $1 AND s.game_date = $2 AND s.status = 'scheduled' AND s.is_preseason = $3`,
+    [seasonId, gameDateStr, isPreseason]
   );
 
   const results: GameSimResult[] = [];
   let userGameResult: UserGameResult | null = null;
 
   for (const scheduledGame of gamesResult.rows) {
-    // Atomically claim the game to prevent double-simulation from concurrent requests
     const claimResult = await pool.query(
       `UPDATE schedule SET status = 'simulating'
        WHERE id = $1 AND status = 'scheduled'
@@ -196,88 +79,39 @@ export async function simulatePreseasonDayGames(franchise: FranchiseContext): Pr
       [scheduledGame.id]
     );
 
-    // Skip if already claimed by another request
     if (claimResult.rows.length === 0) {
       continue;
     }
 
-    const isUserGame = scheduledGame.home_team_id === franchise.team_id ||
-                       scheduledGame.away_team_id === franchise.team_id;
+    const isUserGame = scheduledGame.home_team_id === userTeamId ||
+                       scheduledGame.away_team_id === userTeamId;
 
-    // Simulate the game
     const homeTeam = await loadTeamForSimulation(scheduledGame.home_team_id);
     const awayTeam = await loadTeamForSimulation(scheduledGame.away_team_id);
     const simResult = simulateGame(homeTeam, awayTeam);
 
-    // Convert to GameResult format
-    const gameResult: GameResult = {
-      id: simResult.id,
-      home_team_id: simResult.home_team_id,
-      away_team_id: simResult.away_team_id,
-      home_score: simResult.home_score,
-      away_score: simResult.away_score,
-      winner_id: simResult.winner_id,
-      is_overtime: simResult.is_overtime,
-      overtime_periods: simResult.overtime_periods,
-      quarters: simResult.quarters,
-      home_stats: simResult.home_stats,
-      away_stats: simResult.away_stats,
-      home_player_stats: simResult.home_player_stats.map((ps: any) => ({
-        ...ps,
-        player_id: ps.player_id
-      })),
-      away_player_stats: simResult.away_player_stats.map((ps: any) => ({
-        ...ps,
-        player_id: ps.player_id
-      }))
-    };
+    const gameResult = buildGameResult(simResult);
 
-    // Save complete game result WITHOUT standings (preseason)
     await saveCompleteGameResult(
       gameResult,
       seasonId,
       { id: homeTeam.id, starters: homeTeam.starters },
       { id: awayTeam.id, starters: awayTeam.starters },
-      false // Don't update standings for preseason
+      updateStandings
     );
 
-    // Update schedule entry
     await pool.query(
       `UPDATE schedule SET status = 'completed', game_id = $1, is_user_game = $2
        WHERE id = $3`,
       [simResult.id, isUserGame, scheduledGame.id]
     );
 
-    // Track user's preseason record
     if (isUserGame) {
-      const userIsHome = scheduledGame.home_team_id === franchise.team_id;
-      const userWon = simResult.winner_id === franchise.team_id;
-      const userScore = userIsHome ? simResult.home_score : simResult.away_score;
-      const opponentScore = userIsHome ? simResult.away_score : simResult.home_score;
-      const opponentName = userIsHome ? scheduledGame.away_team_name : scheduledGame.home_team_name;
+      userGameResult = buildUserGameResult(simResult, scheduledGame, userTeamId);
 
-      // Update franchise preseason record
-      if (userWon) {
-        await pool.query(
-          `UPDATE franchises SET preseason_wins = COALESCE(preseason_wins, 0) + 1 WHERE id = $1`,
-          [franchise.id]
-        );
-      } else {
-        await pool.query(
-          `UPDATE franchises SET preseason_losses = COALESCE(preseason_losses, 0) + 1 WHERE id = $1`,
-          [franchise.id]
-        );
+      if (isPreseason) {
+        await updatePreseasonRecord(franchise.id, simResult.winner_id === userTeamId);
       }
-
-      userGameResult = {
-        game_id: simResult.id,
-        won: userWon,
-        user_score: userScore,
-        opponent_score: opponentScore,
-        opponent_name: opponentName,
-        is_overtime: simResult.is_overtime,
-        overtime_periods: simResult.overtime_periods
-      };
     }
 
     results.push({
@@ -287,9 +121,65 @@ export async function simulatePreseasonDayGames(franchise: FranchiseContext): Pr
       home_score: simResult.home_score,
       away_score: simResult.away_score,
       is_user_game: isUserGame,
-      is_preseason: true
+      is_preseason: isPreseason || undefined
     });
   }
 
   return { gameDateStr, results, userGameResult };
+}
+
+function calculateGameDate(currentDay: number): string {
+  const seasonStart = new Date(SEASON_START_DATE);
+  const gameDate = new Date(seasonStart);
+  gameDate.setDate(gameDate.getDate() + currentDay);
+  return gameDate.toISOString().split('T')[0];
+}
+
+function buildGameResult(simResult: any): GameResult {
+  return {
+    id: simResult.id,
+    home_team_id: simResult.home_team_id,
+    away_team_id: simResult.away_team_id,
+    home_score: simResult.home_score,
+    away_score: simResult.away_score,
+    winner_id: simResult.winner_id,
+    is_overtime: simResult.is_overtime,
+    overtime_periods: simResult.overtime_periods,
+    quarters: simResult.quarters,
+    home_stats: simResult.home_stats,
+    away_stats: simResult.away_stats,
+    home_player_stats: simResult.home_player_stats.map((ps: any) => ({
+      ...ps,
+      player_id: ps.player_id
+    })),
+    away_player_stats: simResult.away_player_stats.map((ps: any) => ({
+      ...ps,
+      player_id: ps.player_id
+    }))
+  };
+}
+
+function buildUserGameResult(
+  simResult: any,
+  scheduledGame: any,
+  userTeamId: string
+): UserGameResult {
+  const userIsHome = scheduledGame.home_team_id === userTeamId;
+  return {
+    game_id: simResult.id,
+    won: simResult.winner_id === userTeamId,
+    user_score: userIsHome ? simResult.home_score : simResult.away_score,
+    opponent_score: userIsHome ? simResult.away_score : simResult.home_score,
+    opponent_name: userIsHome ? scheduledGame.away_team_name : scheduledGame.home_team_name,
+    is_overtime: simResult.is_overtime,
+    overtime_periods: simResult.overtime_periods
+  };
+}
+
+async function updatePreseasonRecord(franchiseId: string, won: boolean): Promise<void> {
+  const column = won ? 'preseason_wins' : 'preseason_losses';
+  await pool.query(
+    `UPDATE franchises SET ${column} = COALESCE(${column}, 0) + 1 WHERE id = $1`,
+    [franchiseId]
+  );
 }

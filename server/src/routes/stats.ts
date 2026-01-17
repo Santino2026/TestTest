@@ -1,4 +1,3 @@
-// Statistics API Routes
 import { Router } from 'express';
 import { pool } from '../db/pool';
 import { getLatestSeasonId } from '../db/queries';
@@ -13,89 +12,78 @@ import {
 
 const router = Router();
 
-// Get league leaders for various categories
+const STAT_MAP: Record<string, { column: string; isComputed: boolean; minAttempts?: string }> = {
+  points: { column: 'ppg', isComputed: false },
+  ppg: { column: 'ppg', isComputed: false },
+  rebounds: { column: 'rpg', isComputed: false },
+  rpg: { column: 'rpg', isComputed: false },
+  assists: { column: 'apg', isComputed: false },
+  apg: { column: 'apg', isComputed: false },
+  steals: { column: 'spg', isComputed: false },
+  spg: { column: 'spg', isComputed: false },
+  blocks: { column: 'bpg', isComputed: false },
+  bpg: { column: 'bpg', isComputed: false },
+  fg_pct: { column: 'CASE WHEN pss.fga > 0 THEN pss.fgm::float / pss.fga ELSE 0 END', isComputed: true, minAttempts: 'fga >= 50' },
+  three_pct: { column: 'CASE WHEN pss.three_pa > 0 THEN pss.three_pm::float / pss.three_pa ELSE 0 END', isComputed: true, minAttempts: 'three_pa >= 30' },
+  ft_pct: { column: 'CASE WHEN pss.fta > 0 THEN pss.ftm::float / pss.fta ELSE 0 END', isComputed: true, minAttempts: 'fta >= 25' },
+  per: { column: 'per', isComputed: false },
+  true_shooting: { column: 'true_shooting_pct', isComputed: false },
+  ts_pct: { column: 'true_shooting_pct', isComputed: false },
+  effective_fg: { column: 'effective_fg_pct', isComputed: false },
+  efg_pct: { column: 'effective_fg_pct', isComputed: false },
+  usage: { column: 'usage_rate', isComputed: false },
+  usage_rate: { column: 'usage_rate', isComputed: false },
+  offensive_rating: { column: 'offensive_rating', isComputed: false },
+  defensive_rating: { column: 'defensive_rating', isComputed: false },
+  net_rating: { column: 'net_rating', isComputed: false },
+  win_shares: { column: 'win_shares', isComputed: false },
+  bpm: { column: 'box_plus_minus', isComputed: false },
+  box_plus_minus: { column: 'box_plus_minus', isComputed: false },
+  vorp: { column: 'value_over_replacement', isComputed: false }
+};
+
+function buildLeadersQuery(statConfig: { column: string; isComputed: boolean; minAttempts?: string }): string {
+  const attemptFilter = statConfig.minAttempts ? ` AND pss.${statConfig.minAttempts}` : '';
+
+  if (statConfig.isComputed) {
+    return `
+      SELECT pss.player_id, p.first_name, p.last_name, p.position,
+             t.name as team_name, t.abbreviation as team_abbrev,
+             pss.games_played, ${statConfig.column} as stat_value
+      FROM player_season_stats pss
+      JOIN players p ON pss.player_id = p.id
+      LEFT JOIN teams t ON pss.team_id = t.id
+      WHERE pss.season_id = $1 AND pss.games_played >= 5${attemptFilter}
+      ORDER BY ${statConfig.column} DESC NULLS LAST
+      LIMIT $2`;
+  }
+
+  return `
+    SELECT pss.player_id, p.first_name, p.last_name, p.position,
+           t.name as team_name, t.abbreviation as team_abbrev,
+           pss.games_played, COALESCE(pss.${statConfig.column}, 0) as stat_value
+    FROM player_season_stats pss
+    JOIN players p ON pss.player_id = p.id
+    LEFT JOIN teams t ON pss.team_id = t.id
+    WHERE pss.season_id = $1 AND pss.games_played >= 5
+    ORDER BY COALESCE(pss.${statConfig.column}, 0) DESC
+    LIMIT $2`;
+}
+
 router.get('/leaders', async (req, res) => {
   try {
-    // Support both 'stat' (from client) and 'category' (legacy) parameters
     const stat = (req.query.stat as string) || (req.query.category as string) || 'points';
     const limit = parseInt(req.query.limit as string) || 20;
 
     const seasonId = await getLatestSeasonId();
-
     if (!seasonId) {
       return res.json([]);
     }
 
-    // Map stat name to database column with proper NULL handling
-    // For computed percentages, use CASE. For stored stats, use COALESCE.
-    const statMap: Record<string, { column: string; isComputed: boolean; minGames?: number; minAttempts?: string }> = {
-      points: { column: 'ppg', isComputed: false },
-      ppg: { column: 'ppg', isComputed: false },
-      rebounds: { column: 'rpg', isComputed: false },
-      rpg: { column: 'rpg', isComputed: false },
-      assists: { column: 'apg', isComputed: false },
-      apg: { column: 'apg', isComputed: false },
-      steals: { column: 'spg', isComputed: false },
-      spg: { column: 'spg', isComputed: false },
-      blocks: { column: 'bpg', isComputed: false },
-      bpg: { column: 'bpg', isComputed: false },
-      fg_pct: { column: 'CASE WHEN pss.fga > 0 THEN pss.fgm::float / pss.fga ELSE 0 END', isComputed: true, minAttempts: 'fga >= 50' },
-      three_pct: { column: 'CASE WHEN pss.three_pa > 0 THEN pss.three_pm::float / pss.three_pa ELSE 0 END', isComputed: true, minAttempts: 'three_pa >= 30' },
-      ft_pct: { column: 'CASE WHEN pss.fta > 0 THEN pss.ftm::float / pss.fta ELSE 0 END', isComputed: true, minAttempts: 'fta >= 25' },
-      per: { column: 'per', isComputed: false },
-      true_shooting: { column: 'true_shooting_pct', isComputed: false },
-      ts_pct: { column: 'true_shooting_pct', isComputed: false },
-      effective_fg: { column: 'effective_fg_pct', isComputed: false },
-      efg_pct: { column: 'effective_fg_pct', isComputed: false },
-      usage: { column: 'usage_rate', isComputed: false },
-      usage_rate: { column: 'usage_rate', isComputed: false },
-      offensive_rating: { column: 'offensive_rating', isComputed: false },
-      defensive_rating: { column: 'defensive_rating', isComputed: false },
-      net_rating: { column: 'net_rating', isComputed: false },
-      win_shares: { column: 'win_shares', isComputed: false },
-      bpm: { column: 'box_plus_minus', isComputed: false },
-      box_plus_minus: { column: 'box_plus_minus', isComputed: false },
-      vorp: { column: 'value_over_replacement', isComputed: false }
-    };
-
-    const statConfig = statMap[stat] || { column: 'ppg', isComputed: false };
-
-    // Build the query based on stat type
-    let query: string;
-    if (statConfig.isComputed) {
-      // For computed stats (percentages), use the CASE expression and optional min attempts
-      const attemptFilter = statConfig.minAttempts ? ` AND pss.${statConfig.minAttempts}` : '';
-      query = `
-        SELECT pss.player_id, p.first_name, p.last_name, p.position,
-               t.name as team_name, t.abbreviation as team_abbrev,
-               pss.games_played,
-               ${statConfig.column} as stat_value
-        FROM player_season_stats pss
-        JOIN players p ON pss.player_id = p.id
-        LEFT JOIN teams t ON pss.team_id = t.id
-        WHERE pss.season_id = $1 AND pss.games_played >= 5${attemptFilter}
-        ORDER BY ${statConfig.column} DESC NULLS LAST
-        LIMIT $2
-      `;
-    } else {
-      // For stored stats, use COALESCE to handle NULL values
-      query = `
-        SELECT pss.player_id, p.first_name, p.last_name, p.position,
-               t.name as team_name, t.abbreviation as team_abbrev,
-               pss.games_played,
-               COALESCE(pss.${statConfig.column}, 0) as stat_value
-        FROM player_season_stats pss
-        JOIN players p ON pss.player_id = p.id
-        LEFT JOIN teams t ON pss.team_id = t.id
-        WHERE pss.season_id = $1 AND pss.games_played >= 5
-        ORDER BY COALESCE(pss.${statConfig.column}, 0) DESC
-        LIMIT $2
-      `;
-    }
-
+    const statConfig = STAT_MAP[stat] || { column: 'ppg', isComputed: false };
+    const query = buildLeadersQuery(statConfig);
     const result = await pool.query(query, [seasonId, limit]);
 
-    // Return array directly for client compatibility
     res.json(result.rows);
   } catch (error) {
     console.error('League leaders error:', error);
@@ -103,30 +91,27 @@ router.get('/leaders', async (req, res) => {
   }
 });
 
-// Get player season stats
 router.get('/player/:playerId', async (req, res) => {
   try {
     const { playerId } = req.params;
     const { season_id } = req.query;
-
-    let query = `
-      SELECT pss.*, p.first_name, p.last_name, p.position, t.name as team_name
-      FROM player_season_stats pss
-      JOIN players p ON pss.player_id = p.id
-      LEFT JOIN teams t ON pss.team_id = t.id
-      WHERE pss.player_id = $1
-    `;
-
     const params: any[] = [playerId];
 
+    let seasonFilter = '';
     if (season_id) {
-      query += ` AND pss.season_id = $2`;
       params.push(season_id);
+      seasonFilter = ` AND pss.season_id = $2`;
     }
 
-    query += ` ORDER BY pss.season_id DESC`;
-
-    const result = await pool.query(query, params);
+    const result = await pool.query(
+      `SELECT pss.*, p.first_name, p.last_name, p.position, t.name as team_name
+       FROM player_season_stats pss
+       JOIN players p ON pss.player_id = p.id
+       LEFT JOIN teams t ON pss.team_id = t.id
+       WHERE pss.player_id = $1${seasonFilter}
+       ORDER BY pss.season_id DESC`,
+      params
+    );
 
     res.json({ stats: result.rows });
   } catch (error) {
@@ -134,17 +119,14 @@ router.get('/player/:playerId', async (req, res) => {
   }
 });
 
-// Get player game log
 router.get('/player/:playerId/games', async (req, res) => {
   try {
     const { playerId } = req.params;
-    const { limit = 20 } = req.query;
+    const limit = req.query.limit || 20;
 
     const result = await pool.query(
-      `SELECT pgs.*,
-              g.home_team_id, g.away_team_id, g.home_score, g.away_score,
-              ht.abbreviation as home_abbrev, at.abbreviation as away_abbrev,
-              g.completed_at
+      `SELECT pgs.*, g.home_team_id, g.away_team_id, g.home_score, g.away_score,
+              ht.abbreviation as home_abbrev, at.abbreviation as away_abbrev, g.completed_at
        FROM player_game_stats pgs
        JOIN games g ON pgs.game_id = g.id
        JOIN teams ht ON g.home_team_id = ht.id
@@ -161,11 +143,9 @@ router.get('/player/:playerId/games', async (req, res) => {
   }
 });
 
-// Get team season stats
 router.get('/team/:teamId', async (req, res) => {
   try {
     const { teamId } = req.params;
-
     const seasonId = await getLatestSeasonId();
 
     const result = await pool.query(
@@ -182,11 +162,9 @@ router.get('/team/:teamId', async (req, res) => {
   }
 });
 
-// Get team rankings
 router.get('/rankings', async (req, res) => {
   try {
     const seasonId = await getLatestSeasonId();
-
     if (!seasonId) {
       return res.json([]);
     }
@@ -207,23 +185,40 @@ router.get('/rankings', async (req, res) => {
       [seasonId]
     );
 
-    // Return array directly for client compatibility
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch team rankings' });
   }
 });
 
-// Update player season stats after a game
+function toBasicStats(pgs: any): BasicStats {
+  return {
+    minutes: pgs.minutes,
+    points: pgs.points,
+    fgm: pgs.fgm,
+    fga: pgs.fga,
+    three_pm: pgs.three_pm,
+    three_pa: pgs.three_pa,
+    ftm: pgs.ftm,
+    fta: pgs.fta,
+    oreb: pgs.oreb,
+    dreb: pgs.dreb,
+    assists: pgs.assists,
+    steals: pgs.steals,
+    blocks: pgs.blocks,
+    turnovers: pgs.turnovers,
+    fouls: pgs.fouls
+  };
+}
+
 router.post('/update/game/:gameId', async (req, res) => {
   try {
     const { gameId } = req.params;
 
-    // Get game details
-    const gameResult = await pool.query(
-      `SELECT * FROM games WHERE id = $1`,
-      [gameId]
-    );
+    const [gameResult, playerStatsResult] = await Promise.all([
+      pool.query('SELECT * FROM games WHERE id = $1', [gameId]),
+      pool.query('SELECT * FROM player_game_stats WHERE game_id = $1', [gameId])
+    ]);
 
     if (gameResult.rows.length === 0) {
       return res.status(404).json({ error: 'Game not found' });
@@ -231,42 +226,14 @@ router.post('/update/game/:gameId', async (req, res) => {
 
     const game = gameResult.rows[0];
 
-    // Get all player stats from this game
-    const playerStatsResult = await pool.query(
-      `SELECT * FROM player_game_stats WHERE game_id = $1`,
-      [gameId]
-    );
-
-    // Update each player's season totals
     for (const pgs of playerStatsResult.rows) {
-      // Calculate game score
-      const stats: BasicStats = {
-        minutes: pgs.minutes,
-        points: pgs.points,
-        fgm: pgs.fgm,
-        fga: pgs.fga,
-        three_pm: pgs.three_pm,
-        three_pa: pgs.three_pa,
-        ftm: pgs.ftm,
-        fta: pgs.fta,
-        oreb: pgs.oreb,
-        dreb: pgs.dreb,
-        assists: pgs.assists,
-        steals: pgs.steals,
-        blocks: pgs.blocks,
-        turnovers: pgs.turnovers,
-        fouls: pgs.fouls
-      };
+      const gameScore = calculateGameScore(toBasicStats(pgs));
 
-      const gameScore = calculateGameScore(stats);
-
-      // Update game stats with game score
       await pool.query(
-        `UPDATE player_game_stats SET game_score = $1 WHERE id = $2`,
+        'UPDATE player_game_stats SET game_score = $1 WHERE id = $2',
         [gameScore, pgs.id]
       );
 
-      // Upsert player season stats
       await pool.query(
         `INSERT INTO player_season_stats
          (player_id, season_id, team_id, games_played, minutes, points, fgm, fga,
@@ -305,12 +272,10 @@ router.post('/update/game/:gameId', async (req, res) => {
   }
 });
 
-// Recalculate all advanced stats for a season
 router.post('/recalculate/:seasonId', async (req, res) => {
   try {
     const { seasonId } = req.params;
 
-    // Get all player season stats
     const statsResult = await pool.query(
       `SELECT pss.*, t.id as team_id
        FROM player_season_stats pss
@@ -324,33 +289,12 @@ router.post('/recalculate/:seasonId', async (req, res) => {
     for (const stats of statsResult.rows) {
       if (stats.games_played === 0) continue;
 
-      // Calculate per-game averages
-      const avgStats: BasicStats = {
-        minutes: stats.minutes,
-        points: stats.points,
-        fgm: stats.fgm,
-        fga: stats.fga,
-        three_pm: stats.three_pm,
-        three_pa: stats.three_pa,
-        ftm: stats.ftm,
-        fta: stats.fta,
-        oreb: stats.oreb,
-        dreb: stats.dreb,
-        assists: stats.assists,
-        steals: stats.steals,
-        blocks: stats.blocks,
-        turnovers: stats.turnovers,
-        fouls: stats.fouls
-      };
-
-      const perGame = calculatePerGameAverages(avgStats, stats.games_played);
-
-      // Calculate advanced stats
+      const basicStats = toBasicStats(stats);
+      const perGame = calculatePerGameAverages(basicStats, stats.games_played);
       const tsPct = calculateTrueShootingPct(stats.points, stats.fga, stats.fta);
       const efgPct = calculateEffectiveFgPct(stats.fgm, stats.three_pm, stats.fga);
 
-      // Simplified PER calculation
-      const per = calculatePER(avgStats, {
+      const per = calculatePER(basicStats, {
         minutes: stats.games_played * 48 * 5,
         fga: stats.fga * 5,
         fta: stats.fta * 5,
@@ -360,7 +304,6 @@ router.post('/recalculate/:seasonId', async (req, res) => {
         possessions: stats.games_played * 100
       }, 100);
 
-      // Update the record
       await pool.query(
         `UPDATE player_season_stats SET
            ppg = $1, rpg = $2, apg = $3, spg = $4, bpg = $5, mpg = $6,

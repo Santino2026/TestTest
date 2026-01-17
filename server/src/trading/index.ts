@@ -1,5 +1,3 @@
-// Trading Module Exports
-
 export {
   TradeAsset,
   TradeProposal,
@@ -10,5 +8,4 @@ export {
   estimatePickValue,
   validateTrade,
   evaluateTradeForTeam,
-  generateCounterOffer
-} from './evaluation';
+} from './evaluation.js';

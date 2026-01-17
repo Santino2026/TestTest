@@ -8,19 +8,18 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
   apiVersion: '2024-12-18.acacia' as any,
 });
 
-const GAME_PRICE = 1000; // $10.00 in cents
+const GAME_PRICE = 1000;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-// Create checkout session
 router.post('/checkout', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
     const token = authHeader.split(' ')[1];
     const payload = verifyAccessToken(token);
-
     if (!payload) {
       return res.status(401).json({ error: 'Invalid token' });
     }
@@ -29,7 +28,6 @@ router.post('/checkout', async (req, res) => {
       return res.status(400).json({ error: 'Already purchased' });
     }
 
-    // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
@@ -46,11 +44,9 @@ router.post('/checkout', async (req, res) => {
         },
       ],
       mode: 'payment',
-      success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/basketball?purchase=success`,
-      cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/?purchase=cancelled`,
-      metadata: {
-        userId: payload.userId,
-      },
+      success_url: `${FRONTEND_URL}/basketball?purchase=success`,
+      cancel_url: `${FRONTEND_URL}/?purchase=cancelled`,
+      metadata: { userId: payload.userId },
     });
 
     res.json({ session_id: session.id, checkout_url: session.url });
@@ -60,7 +56,6 @@ router.post('/checkout', async (req, res) => {
   }
 });
 
-// Stripe webhook - needs raw body, configured in index.ts
 router.post('/webhook', raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'] as string;
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
@@ -75,14 +70,13 @@ router.post('/webhook', raw({ type: 'application/json' }), async (req, res) => {
       if (userId) {
         const wasUpdated = await markUserPurchased(
           userId,
-          session.customer as string || '',
-          session.payment_intent as string || ''
+          (session.customer as string) || '',
+          (session.payment_intent as string) || ''
         );
-        if (wasUpdated) {
-          console.log(`User ${userId} purchase completed`);
-        } else {
-          console.log(`User ${userId} already purchased (duplicate webhook ignored)`);
-        }
+        console.log(wasUpdated
+          ? `User ${userId} purchase completed`
+          : `User ${userId} already purchased (duplicate webhook ignored)`
+        );
       }
     }
 
@@ -93,17 +87,15 @@ router.post('/webhook', raw({ type: 'application/json' }), async (req, res) => {
   }
 });
 
-// Check purchase status
 router.get('/status', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return res.json({ purchased: false });
     }
 
     const token = authHeader.split(' ')[1];
     const payload = verifyAccessToken(token);
-
     if (!payload) {
       return res.json({ purchased: false });
     }

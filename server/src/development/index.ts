@@ -1,5 +1,3 @@
-// Player Development Module Exports
-
 export {
   AttributeChanges,
   DevelopmentResult,
@@ -9,4 +7,4 @@ export {
   agePlayer,
   shouldRetire,
   processOffseasonDevelopment
-} from './progression';
+} from './progression.js';
