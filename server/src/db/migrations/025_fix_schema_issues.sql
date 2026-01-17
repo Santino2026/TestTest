@@ -226,8 +226,7 @@ CREATE INDEX IF NOT EXISTS idx_standings_season_team ON standings(season_id, tea
 -- playoff_series composite - for bracket lookups
 CREATE INDEX IF NOT EXISTS idx_playoff_series_season_round ON playoff_series(season_id, round);
 
--- schedule composite - for schedule filtering
-CREATE INDEX IF NOT EXISTS idx_schedule_season_team ON schedule(season_id, team_id);
+-- schedule already has idx_schedule_home_team, idx_schedule_away_team, idx_schedule_season
 
 -- traits.category - for trait filtering
 CREATE INDEX IF NOT EXISTS idx_traits_category ON traits(category);
