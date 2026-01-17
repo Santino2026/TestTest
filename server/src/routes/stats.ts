@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db/pool';
 import { getLatestSeasonId } from '../db/queries';
+import { authMiddleware } from '../auth';
 import {
   calculateTrueShootingPct,
   calculateEffectiveFgPct,
@@ -211,7 +212,7 @@ function toBasicStats(pgs: any): BasicStats {
   };
 }
 
-router.post('/update/game/:gameId', async (req, res) => {
+router.post('/update/game/:gameId', authMiddleware(true), async (req: any, res) => {
   try {
     const { gameId } = req.params;
 
@@ -272,7 +273,7 @@ router.post('/update/game/:gameId', async (req, res) => {
   }
 });
 
-router.post('/recalculate/:seasonId', async (req, res) => {
+router.post('/recalculate/:seasonId', authMiddleware(true), async (req: any, res) => {
   try {
     const { seasonId } = req.params;
 

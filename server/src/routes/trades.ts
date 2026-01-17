@@ -396,7 +396,7 @@ router.post('/:tradeId/accept', authMiddleware(true), async (req: any, res) => {
   }
 });
 
-router.post('/:tradeId/reject', async (req, res) => {
+router.post('/:tradeId/reject', authMiddleware(true), async (req: any, res) => {
   try {
     const { tradeId } = req.params;
     const { team_id } = req.body;
@@ -417,7 +417,7 @@ router.post('/:tradeId/reject', async (req, res) => {
   }
 });
 
-router.post('/:tradeId/cancel', async (req, res) => {
+router.post('/:tradeId/cancel', authMiddleware(true), async (req: any, res) => {
   try {
     const { tradeId } = req.params;
     const { team_id } = req.body;

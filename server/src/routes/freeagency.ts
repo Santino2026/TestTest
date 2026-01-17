@@ -403,7 +403,7 @@ async function signFreeAgentAtomic(
   }
 }
 
-router.post('/simulate', async (req, res) => {
+router.post('/simulate', authMiddleware(true), async (req: any, res) => {
   try {
     const seasonId = await getLatestSeasonId();
     if (!seasonId) {
