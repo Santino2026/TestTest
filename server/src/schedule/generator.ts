@@ -13,7 +13,7 @@ interface ScheduledGame {
   game_number_home: number;
   game_number_away: number;
   is_preseason?: boolean;
-  game_day: number;
+  game_day?: number;
 }
 
 interface ScheduleConfig {
