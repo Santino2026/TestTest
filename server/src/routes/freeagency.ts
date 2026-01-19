@@ -209,15 +209,15 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: phaseCheck.reason });
     }
 
-    const { player_id, years, salary } = req.body;
+    const { player_id, years: rawYears, salary } = req.body;
     const team_id = franchise?.team_id;
+    const years = rawYears !== undefined && rawYears !== null ? Number(rawYears) : 1;
     
-    // Validate each field with explicit checks
+    console.log('Sign request - player_id:', player_id, 'rawYears:', rawYears, 'years:', years, 'salary:', salary);
+    
+    // Validate required fields
     if (!player_id) {
       return res.status(400).json({ error: 'player_id is required' });
-    }
-    if (years === undefined || years === null) {
-      return res.status(400).json({ error: 'years is required' });
     }
     if (salary === undefined || salary === null) {
       return res.status(400).json({ error: 'salary is required' });
