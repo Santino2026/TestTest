@@ -248,10 +248,11 @@ export default function FreeAgencyPage() {
                   <div className="flex gap-2">
                     <Button
                       onClick={() => {
-                        console.log('FA Page Sign button clicked with:', { playerId: selectedPlayer.id, years: offerYears, salary: offerSalary });
+                        const yearsValue = offerYears || 1;
+                        console.log('FA Page Sign button clicked with:', { playerId: selectedPlayer.id, years: yearsValue, salary: offerSalary });
                         signPlayer.mutate({
                           playerId: selectedPlayer.id,
-                          years: offerYears,
+                          years: yearsValue,
                           salary: offerSalary,
                         });
                       }}
