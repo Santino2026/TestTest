@@ -655,6 +655,11 @@ function FreeAgencyContent() {
                       Cancel
                     </Button>
                   </div>
+                  {signPlayer.error && (
+                    <div className="mt-3 p-3 bg-red-900/30 border border-red-500/50 rounded-lg text-red-300 text-sm">
+                      {(signPlayer.error as any)?.message || 'Failed to sign player'}
+                    </div>
+                  )}
                 </div>
               </>
             ) : (

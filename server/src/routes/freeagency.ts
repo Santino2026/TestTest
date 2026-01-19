@@ -211,7 +211,7 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
     const { team_id: providedTeamId, player_id, years, salary_per_year, salary } = req.body;
     const team_id = providedTeamId || franchise?.team_id;
     const salaryAmount = salary_per_year || salary;
-    if (!player_id || !years || !salaryAmount) {
+    if (!player_id || !years || salaryAmount === undefined || salaryAmount === null) {
       return res.status(400).json({ error: 'player_id, years, and salary required' });
     }
 
