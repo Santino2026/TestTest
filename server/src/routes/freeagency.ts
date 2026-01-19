@@ -22,10 +22,15 @@ function isFreeAgencyAllowed(franchise: any): { allowed: boolean; reason?: strin
     return { allowed: false, reason: 'No active franchise' };
   }
 
-  const isRegularSeason = franchise.phase === 'regular_season';
-  const isOffseasonFA = franchise.phase === 'offseason' && franchise.offseason_phase === 'free_agency';
+  // Allow signing during regular season, preseason, and offseason (free_agency/training_camp phases)
+  const allowedPhases = ['regular_season', 'preseason'];
+  const allowedOffseasonPhases = ['free_agency', 'training_camp'];
 
-  if (isRegularSeason || isOffseasonFA) {
+  if (allowedPhases.includes(franchise.phase)) {
+    return { allowed: true };
+  }
+
+  if (franchise.phase === 'offseason' && allowedOffseasonPhases.includes(franchise.offseason_phase)) {
     return { allowed: true };
   }
 
