@@ -335,11 +335,19 @@ export function generateSchedule(
     return a.away.localeCompare(b.away);
   });
 
-  for (const matchup of allMatchups) {
+  // Schedule each matchup starting from an offset to spread games across full season
+  for (let i = 0; i < allMatchups.length; i++) {
+    const matchup = allMatchups[i];
     const { home: homeTeamId, away: awayTeamId } = matchup;
+
+    // Start searching from an offset based on matchup index (spreads games evenly)
+    const startDateIndex = Math.floor((i * seasonDays) / allMatchups.length);
     let scheduled = false;
 
-    for (const date of dates) {
+    // Try each date starting from offset, wrapping around
+    for (let j = 0; j < seasonDays; j++) {
+      const dateIndex = (startDateIndex + j) % seasonDays;
+      const date = dates[dateIndex];
       const dateKey = getDateKey(date);
       const teamsOnDate = teamGamesOnDate.get(dateKey)!;
 
