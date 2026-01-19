@@ -247,11 +247,14 @@ export default function FreeAgencyPage() {
 
                   <div className="flex gap-2">
                     <Button
-                      onClick={() => signPlayer.mutate({
-                        playerId: selectedPlayer.id,
-                        years: offerYears,
-                        salary: offerSalary,
-                      })}
+                      onClick={() => {
+                        console.log('FA Page Sign button clicked with:', { playerId: selectedPlayer.id, years: offerYears, salary: offerSalary });
+                        signPlayer.mutate({
+                          playerId: selectedPlayer.id,
+                          years: offerYears,
+                          salary: offerSalary,
+                        });
+                      }}
                       disabled={signPlayer.isPending}
                       className="flex-1"
                     >

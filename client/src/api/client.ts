@@ -1028,11 +1028,14 @@ export const api = {
     return fetchAPI<FreeAgent[]>(`/freeagency${query ? `?${query}` : ''}`);
   },
   getTeamSalary: (teamId: string) => fetchAPI<TeamSalary>(`/freeagency/team/${teamId}/salary`),
-  signFreeAgent: (playerId: string, years: number, salary: number) =>
-    fetchAPI<{ message: string }>('/freeagency/sign', {
+  signFreeAgent: (playerId: string, years: number, salary: number) => {
+    const body = { player_id: playerId, years: years, salary: salary };
+    console.log('signFreeAgent sending:', body);
+    return fetchAPI<{ message: string }>('/freeagency/sign', {
       method: 'POST',
-      body: JSON.stringify({ player_id: playerId, years, salary }),
-    }),
+      body: JSON.stringify(body),
+    });
+  },
   releasePlayer: (playerId: string) =>
     fetchAPI<{ message: string }>('/freeagency/release', {
       method: 'POST',
