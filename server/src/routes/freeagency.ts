@@ -230,25 +230,6 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
         throw { status: 400, message: 'Player is not a free agent or was already signed' };
       }
 
-      // Calculate asking salary and check if offer is acceptable
-      const marketValue = calculateMarketValue(player.overall, player.age, player.years_pro || 0, player.potential);
-      const askingSalary = Math.round(marketValue * (0.9 + (player.greed || 50) / 250)); // 90-110% based on greed
-      const offerRatio = salaryAmount / askingSalary;
-
-      // Player decision based on offer vs asking
-      // - Below 70% of asking: always reject
-      // - 70-90%: chance of rejection (higher chance the lower it is)
-      // - 90%+: accept
-      if (offerRatio < 0.7) {
-        throw { status: 400, message: `${player.first_name} ${player.last_name} declined your offer. They want at least $${Math.round(askingSalary * 0.7 / 1_000_000)}M/yr.` };
-      }
-      if (offerRatio < 0.9) {
-        const acceptChance = (offerRatio - 0.7) / 0.2; // 0% at 70%, 100% at 90%
-        if (Math.random() > acceptChance) {
-          throw { status: 400, message: `${player.first_name} ${player.last_name} declined your offer. Try offering closer to $${Math.round(askingSalary / 1_000_000)}M/yr.` };
-        }
-      }
-
       // Use FOR UPDATE to lock the roster count during this transaction
       const rosterResult = await client.query(
         `SELECT COUNT(*) FROM players WHERE team_id = $1 FOR UPDATE`,
