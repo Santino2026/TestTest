@@ -70,7 +70,19 @@ router.get('/', async (req, res) => {
        ORDER BY p.overall DESC`,
       [seasonId]
     );
-    res.json(result.rows);
+
+    // Calculate asking_salary on the fly if not set
+    const freeAgents = result.rows.map(player => {
+      if (!player.asking_salary) {
+        const marketValue = calculateMarketValue(player.overall, player.age, player.years_pro || 0, player.potential);
+        player.market_value = marketValue;
+        // Asking salary is 90-120% of market value (some randomness)
+        player.asking_salary = Math.round(marketValue * (0.9 + Math.random() * 0.3));
+      }
+      return player;
+    });
+
+    res.json(freeAgents);
   } catch (error) {
     console.error('Free agents error:', error);
     res.status(500).json({ error: 'Failed to fetch free agents' });
@@ -209,6 +221,25 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
       }
       if (player.team_id !== null) {
         throw { status: 400, message: 'Player is not a free agent or was already signed' };
+      }
+
+      // Calculate asking salary and check if offer is acceptable
+      const marketValue = calculateMarketValue(player.overall, player.age, player.years_pro || 0, player.potential);
+      const askingSalary = Math.round(marketValue * (0.9 + (player.greed || 50) / 250)); // 90-110% based on greed
+      const offerRatio = salary_per_year / askingSalary;
+
+      // Player decision based on offer vs asking
+      // - Below 70% of asking: always reject
+      // - 70-90%: chance of rejection (higher chance the lower it is)
+      // - 90%+: accept
+      if (offerRatio < 0.7) {
+        throw { status: 400, message: `${player.first_name} ${player.last_name} declined your offer. They want at least $${Math.round(askingSalary * 0.7 / 1_000_000)}M/yr.` };
+      }
+      if (offerRatio < 0.9) {
+        const acceptChance = (offerRatio - 0.7) / 0.2; // 0% at 70%, 100% at 90%
+        if (Math.random() > acceptChance) {
+          throw { status: 400, message: `${player.first_name} ${player.last_name} declined your offer. Try offering closer to $${Math.round(askingSalary / 1_000_000)}M/yr.` };
+        }
       }
 
       // Use FOR UPDATE to lock the roster count during this transaction
