@@ -489,13 +489,13 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
 
       batch.forEach((game, idx) => {
         const isUserGame = game.home_team_id === franchise.team_id || game.away_team_id === franchise.team_id;
-        const offset = idx * 7;
-        placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`);
-        values.push(newSeason.id, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame, game.is_preseason);
+        const offset = idx * 8;
+        placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`);
+        values.push(newSeason.id, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame, game.is_preseason, game.game_day);
       });
 
       await pool.query(
-        `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason)
+        `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason, game_day)
          VALUES ${placeholders.join(', ')}`,
         values
       );

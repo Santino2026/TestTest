@@ -65,9 +65,9 @@ async function simulateGamesForDay(
      FROM schedule s
      JOIN teams ht ON s.home_team_id = ht.id
      JOIN teams at ON s.away_team_id = at.id
-     WHERE s.season_id = $1 AND s.game_date = $2 AND s.status = 'scheduled'
+     WHERE s.season_id = $1 AND s.game_day = $2 AND s.status = 'scheduled'
        AND (s.is_preseason = $3 OR ($3 = FALSE AND s.is_preseason IS NULL))`,
-    [seasonId, gameDateStr, isPreseason]
+    [seasonId, currentDay, isPreseason]
   );
 
   const results: GameSimResult[] = [];

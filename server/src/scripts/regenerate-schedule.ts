@@ -55,9 +55,9 @@ async function regenerateSchedule(seasonId: number, franchiseTeamId: string) {
   for (const game of schedule) {
     const isUserGame = game.home_team_id === franchiseTeamId || game.away_team_id === franchiseTeamId;
     await pool.query(
-      `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason)
-       VALUES ($1, $2, $3, $4, $5, $6, FALSE)`,
-      [seasonId, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame]
+      `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason, game_day)
+       VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7)`,
+      [seasonId, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame, game.game_day]
     );
   }
 
@@ -71,9 +71,9 @@ async function regenerateSchedule(seasonId: number, franchiseTeamId: string) {
   for (const game of preseason) {
     const isUserGame = game.home_team_id === franchiseTeamId || game.away_team_id === franchiseTeamId;
     await pool.query(
-      `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
-      [seasonId, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame]
+      `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason, game_day)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7)`,
+      [seasonId, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame, game.game_day]
     );
   }
 

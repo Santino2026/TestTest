@@ -32,9 +32,9 @@ router.post('/generate', authMiddleware(true), async (req: any, res) => {
 
       for (const game of schedule) {
         await client.query(
-          `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date)
-           VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
-          [franchise.season_id, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date]
+          `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, game_day)
+           VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
+          [franchise.season_id, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, game.game_day]
         );
       }
     });

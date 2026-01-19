@@ -13,6 +13,7 @@ interface ScheduledGame {
   game_number_home: number;
   game_number_away: number;
   is_preseason?: boolean;
+  game_day: number;
 }
 
 interface ScheduleConfig {
@@ -379,6 +380,12 @@ export function generateSchedule(
 
   schedule.sort((a, b) => a.game_date.getTime() - b.game_date.getTime());
 
+  // Assign game_day to sequence games into ~14 games per day (2450 games / 174 days)
+  const gamesPerDay = Math.ceil(schedule.length / 174);
+  schedule.forEach((game, index) => {
+    game.game_day = Math.floor(index / gamesPerDay) + 1;
+  });
+
   return schedule;
 }
 
@@ -442,6 +449,12 @@ export function generatePreseasonSchedule(
   }
 
   preseasonGames.sort((a, b) => a.game_date.getTime() - b.game_date.getTime());
+
+  // Assign game_day for preseason: negative values from -7 to 0 (8 days of preseason)
+  const gamesPerDay = Math.ceil(preseasonGames.length / 8);
+  preseasonGames.forEach((game, index) => {
+    game.game_day = Math.floor(index / gamesPerDay) - 7;
+  });
 
   return preseasonGames;
 }
