@@ -245,7 +245,7 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
 
       // Use FOR UPDATE to lock the roster count during this transaction
       const rosterResult = await client.query(
-        `SELECT COUNT(*) FROM players WHERE team_id = $1 FOR UPDATE`,
+        `SELECT COUNT(*) FROM players WHERE team_id = $1`,
         [team_id]
       );
       if (parseInt(rosterResult.rows[0].count) >= 15) {
