@@ -143,7 +143,7 @@ async function simulateGamesForDay(
 function calculateGameDate(currentDay: number): string {
   const seasonStart = new Date(SEASON_START_DATE);
   const gameDate = new Date(seasonStart);
-  gameDate.setDate(gameDate.getDate() + currentDay);
+  gameDate.setDate(gameDate.getDate() + currentDay - 1);
   return gameDate.toISOString().split('T')[0];
 }
 
