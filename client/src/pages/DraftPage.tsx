@@ -28,7 +28,6 @@ export default function DraftPage() {
     queryFn: api.getLotteryOdds,
   });
 
-  // Draft state hooks
   const { data: draftState } = useDraftState();
   const { data: teamNeeds } = useTeamNeeds();
 
@@ -58,11 +57,21 @@ export default function DraftPage() {
     },
   });
 
-  // Check if it's user's turn to pick
+  const autoDraft = useMutation({
+    mutationFn: api.autoDraft,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['draftProspects'] });
+      queryClient.invalidateQueries({ queryKey: ['draftOrder'] });
+      queryClient.invalidateQueries({ queryKey: ['draft'] });
+    },
+  });
+
+  // Simple checks
   const currentPick = draftOrder?.find(p => !p.player_id);
   const isUserPick = currentPick?.team_id === franchise?.team_id;
+  const hasDraftOrder = Array.isArray(draftOrder) && draftOrder.length > 0;
+  const isDraftComplete = draftState?.is_draft_complete === true;
 
-  // Not offseason - show message
   if (franchise?.phase !== 'offseason') {
     return (
       <PageTemplate title="Draft" subtitle="NBA Draft prospects and selections">
@@ -70,9 +79,7 @@ export default function DraftPage() {
           <CardContent className="py-12 text-center">
             <Trophy className="w-16 h-16 mx-auto text-slate-500 mb-4" />
             <h2 className="text-xl font-semibold text-white mb-2">Draft Available in Offseason</h2>
-            <p className="text-slate-400">
-              Complete the current season to access the draft.
-            </p>
+            <p className="text-slate-400">Complete the current season to access the draft.</p>
           </CardContent>
         </Card>
       </PageTemplate>
@@ -84,32 +91,30 @@ export default function DraftPage() {
       {/* Draft Controls */}
       <div className="flex flex-wrap gap-3 mb-4 md:mb-6">
         {!prospects?.length && (
-          <Button
-            onClick={() => generateDraft.mutate()}
-            disabled={generateDraft.isPending}
-          >
+          <Button onClick={() => generateDraft.mutate()} disabled={generateDraft.isPending}>
             {generateDraft.isPending ? 'Generating...' : 'Generate Draft Class'}
           </Button>
         )}
-        {prospects && prospects.length > 0 && !draftOrder?.length && (
-          <Button
-            onClick={() => runLottery.mutate()}
-            disabled={runLottery.isPending}
-          >
+        {prospects && prospects.length > 0 && !hasDraftOrder && (
+          <Button onClick={() => runLottery.mutate()} disabled={runLottery.isPending}>
             {runLottery.isPending ? 'Running...' : 'Run Draft Lottery'}
           </Button>
         )}
-        {draftState?.is_draft_complete && (
-          <Badge variant="success" className="text-sm px-3 py-1.5">
-            Draft Complete
-          </Badge>
+        {/* Simple simulate button - shows when draft has started and not complete */}
+        {true && (
+          <Button onClick={() => autoDraft.mutate()} disabled={autoDraft.isPending} variant="secondary">
+            {autoDraft.isPending ? 'Simulating...' : 'RUN DRAFT NOW'}
+          </Button>
+        )}
+        {isDraftComplete && (
+          <Badge variant="success" className="text-sm px-3 py-1.5">Draft Complete</Badge>
         )}
       </div>
 
       {/* Error Messages */}
-      {(generateDraft.error || runLottery.error || makePick.error) && (
+      {(generateDraft.error || runLottery.error || makePick.error || autoDraft.error) && (
         <div className="mb-4 p-3 bg-red-900/30 border border-red-500/50 rounded-lg text-red-300 text-sm">
-          {generateDraft.error?.message || runLottery.error?.message || makePick.error?.message}
+          {generateDraft.error?.message || runLottery.error?.message || makePick.error?.message || autoDraft.error?.message}
         </div>
       )}
 
@@ -123,7 +128,7 @@ export default function DraftPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0 max-h-[500px] overflow-y-auto">
-            {!draftOrder?.length ? (
+            {!hasDraftOrder ? (
               <div className="p-6 text-center text-slate-400 text-sm">
                 Run the lottery to determine draft order
               </div>
@@ -138,14 +143,10 @@ export default function DraftPage() {
                       currentPick?.pick_number === pick.pick_number && !pick.player_id && 'ring-2 ring-blue-500'
                     )}
                   >
-                    <span className="w-6 text-center font-bold text-slate-400">
-                      {pick.pick_number}
-                    </span>
+                    <span className="w-6 text-center font-bold text-slate-400">{pick.pick_number}</span>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate text-white">{pick.team_name}</p>
-                      {pick.player_name && (
-                        <p className="text-xs text-green-400">{pick.player_name}</p>
-                      )}
+                      {pick.player_name && <p className="text-xs text-green-400">{pick.player_name}</p>}
                     </div>
                     {currentPick?.pick_number === pick.pick_number && !pick.player_id && (
                       <Badge variant="info">On Clock</Badge>
@@ -164,13 +165,12 @@ export default function DraftPage() {
               <CardTitle className="text-base md:text-lg">
                 {isUserPick ? 'Make Your Selection' : 'Draft Prospects'}
               </CardTitle>
-              {draftState && !draftState.is_draft_complete && (
+              {draftState && !isDraftComplete && (
                 <Badge variant="secondary" className="text-xs">
                   Round {draftState.current_round} - Pick {draftState.pick_in_round}
                 </Badge>
               )}
             </div>
-            {/* Team Needs - show when user is picking */}
             {isUserPick && teamNeeds?.needs && (
               <div className="mt-3 pt-3 border-t border-white/10">
                 <p className="text-xs font-medium text-slate-400 mb-2">Team Needs:</p>
@@ -198,9 +198,7 @@ export default function DraftPage() {
             {prospectsLoading ? (
               <div className="p-8 text-center text-slate-400">Loading prospects...</div>
             ) : !prospects?.length ? (
-              <div className="p-8 text-center text-slate-400">
-                Generate a draft class to see prospects
-              </div>
+              <div className="p-8 text-center text-slate-400">Generate a draft class to see prospects</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -263,8 +261,8 @@ export default function DraftPage() {
         </Card>
       </div>
 
-      {/* Lottery Odds (before lottery is run) */}
-      {lotteryOdds && lotteryOdds.length > 0 && !draftOrder?.length && (
+      {/* Lottery Odds */}
+      {lotteryOdds && lotteryOdds.length > 0 && !hasDraftOrder && (
         <Card className="mt-4 md:mt-6">
           <CardHeader>
             <CardTitle className="text-base md:text-lg">Lottery Odds</CardTitle>
@@ -283,10 +281,7 @@ export default function DraftPage() {
                   {lotteryOdds.map((team) => (
                     <tr
                       key={team.team_id}
-                      className={cn(
-                        'border-t border-white/5',
-                        team.team_id === franchise?.team_id && 'bg-blue-900/30'
-                      )}
+                      className={cn('border-t border-white/5', team.team_id === franchise?.team_id && 'bg-blue-900/30')}
                     >
                       <td className="px-3 py-2 font-medium text-sm text-white">{team.team_name}</td>
                       <td className="px-3 py-2 text-sm text-slate-400">{team.record}</td>

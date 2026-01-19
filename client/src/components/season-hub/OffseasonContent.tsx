@@ -231,8 +231,19 @@ function DraftContent() {
     },
   });
 
+  const autoDraft = useMutation({
+    mutationFn: api.autoDraft,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['draftProspects'] });
+      queryClient.invalidateQueries({ queryKey: ['draftOrder'] });
+      queryClient.invalidateQueries({ queryKey: ['draft'] });
+    },
+  });
+
   const currentPick = draftOrder?.find(p => !p.player_id);
   const isUserPick = currentPick?.team_id === franchise?.team_id;
+  const hasDraftOrder = Array.isArray(draftOrder) && draftOrder.length > 0;
+  const isDraftComplete = draftState?.is_draft_complete === true;
 
   return (
     <>
@@ -246,7 +257,16 @@ function DraftContent() {
             {generateDraft.isPending ? 'Generating...' : 'Generate Draft Class'}
           </Button>
         )}
-        {draftState?.is_draft_complete && (
+        {hasDraftOrder && !isDraftComplete && (
+          <Button
+            onClick={() => autoDraft.mutate()}
+            disabled={autoDraft.isPending}
+            variant="secondary"
+          >
+            {autoDraft.isPending ? 'Simulating...' : 'Simulate Draft'}
+          </Button>
+        )}
+        {isDraftComplete && (
           <>
             <Badge variant="success" className="text-sm px-3 py-1.5">Draft Complete</Badge>
             <Button
