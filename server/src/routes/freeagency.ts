@@ -203,9 +203,11 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: phaseCheck.reason });
     }
 
-    const { team_id, player_id, years, salary_per_year } = req.body;
-    if (!team_id || !player_id || !years || !salary_per_year) {
-      return res.status(400).json({ error: 'team_id, player_id, years, and salary_per_year required' });
+    const { team_id: providedTeamId, player_id, years, salary_per_year, salary } = req.body;
+    const team_id = providedTeamId || franchise?.team_id;
+    const salaryAmount = salary_per_year || salary;
+    if (!player_id || !years || !salaryAmount) {
+      return res.status(400).json({ error: 'player_id, years, and salary required' });
     }
 
     // Lock on both player and team to prevent race conditions
@@ -226,7 +228,7 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
       // Calculate asking salary and check if offer is acceptable
       const marketValue = calculateMarketValue(player.overall, player.age, player.years_pro || 0, player.potential);
       const askingSalary = Math.round(marketValue * (0.9 + (player.greed || 50) / 250)); // 90-110% based on greed
-      const offerRatio = salary_per_year / askingSalary;
+      const offerRatio = salaryAmount / askingSalary;
 
       // Player decision based on offer vs asking
       // - Below 70% of asking: always reject
@@ -251,9 +253,9 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
         throw { status: 400, message: 'Roster is full (15 players max)' };
       }
 
-      await client.query(`UPDATE players SET team_id = $1, salary = $2 WHERE id = $3`, [team_id, salary_per_year, player_id]);
+      await client.query(`UPDATE players SET team_id = $1, salary = $2 WHERE id = $3`, [team_id, salaryAmount, player_id]);
 
-      const { contractId, salaries } = await createContract(client, player_id, team_id, years, salary_per_year, seasonId);
+      const { contractId, salaries } = await createContract(client, player_id, team_id, years, salaryAmount, seasonId);
 
       await client.query(
         `UPDATE free_agents SET status = 'signed', signed_at = NOW() WHERE player_id = $1 AND season_id = $2`,
@@ -263,7 +265,7 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
       await client.query(
         `INSERT INTO transactions (season_id, transaction_type, player_id, team_id, contract_id, details)
          VALUES ($1, 'signing', $2, $3, $4, $5)`,
-        [seasonId, player_id, team_id, contractId, JSON.stringify({ years, salary: salary_per_year })]
+        [seasonId, player_id, team_id, contractId, JSON.stringify({ years, salary: salaryAmount })]
       );
 
       const teamResult = await client.query(`SELECT name FROM teams WHERE id = $1`, [team_id]);
@@ -272,7 +274,7 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
         message: 'Player signed',
         player_name: `${player.first_name} ${player.last_name}`,
         team_name: teamResult.rows[0].name,
-        contract: { id: contractId, years, salary_per_year, total_value: salaries.reduce((a, b) => a + b, 0) }
+        contract: { id: contractId, years, salaryAmount, total_value: salaries.reduce((a, b) => a + b, 0) }
       };
     });
 
