@@ -70,7 +70,7 @@ router.get('/', async (req, res) => {
        ORDER BY p.overall DESC`,
       [seasonId]
     );
-    res.json({ free_agents: result.rows });
+    res.json(result.rows);
   } catch (error) {
     console.error('Free agents error:', error);
     res.status(500).json({ error: 'Failed to fetch free agents' });
