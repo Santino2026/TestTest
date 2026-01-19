@@ -201,6 +201,7 @@ router.post('/offer', authMiddleware(true), async (req: any, res) => {
 });
 
 router.post('/sign', authMiddleware(true), async (req: any, res) => {
+  console.log('Sign request body:', req.body);
   try {
     const franchise = await getUserActiveFranchise(req.user.userId);
     const phaseCheck = isFreeAgencyAllowed(franchise);
@@ -208,12 +209,24 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: phaseCheck.reason });
     }
 
-    const { team_id: providedTeamId, player_id, years, salary_per_year, salary } = req.body;
-    const team_id = providedTeamId || franchise?.team_id;
-    const salaryAmount = salary_per_year || salary;
-    if (!player_id || !years || salaryAmount === undefined || salaryAmount === null) {
-      return res.status(400).json({ error: 'player_id, years, and salary required' });
+    const { player_id, years, salary } = req.body;
+    const team_id = franchise?.team_id;
+    
+    // Validate each field with explicit checks
+    if (!player_id) {
+      return res.status(400).json({ error: 'player_id is required' });
     }
+    if (years === undefined || years === null) {
+      return res.status(400).json({ error: 'years is required' });
+    }
+    if (salary === undefined || salary === null) {
+      return res.status(400).json({ error: 'salary is required' });
+    }
+    if (!team_id) {
+      return res.status(400).json({ error: 'No active franchise found' });
+    }
+    
+    const salaryAmount = Number(salary);
 
     // Lock on both player and team to prevent race conditions
     const result = await withAdvisoryLock(`sign-team-${team_id}`, async (client) => {
