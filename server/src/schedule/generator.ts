@@ -337,13 +337,17 @@ export function generateSchedule(
     [allMatchups[i], allMatchups[j]] = [allMatchups[j], allMatchups[i]];
   }
 
-  // Schedule each matchup starting from an offset to spread games across full season
+  // Schedule each matchup, using team game counts to determine start date
+  // Teams with more games already scheduled get pushed to later dates
   for (let i = 0; i < allMatchups.length; i++) {
     const matchup = allMatchups[i];
     const { home: homeTeamId, away: awayTeamId } = matchup;
 
-    // Start searching from an offset based on matchup index (spreads games evenly)
-    const startDateIndex = Math.floor((i * seasonDays) / allMatchups.length);
+    // Use team game counts to determine start date (balances distribution)
+    const homeGames = gameCountByTeam.get(homeTeamId)!;
+    const awayGames = gameCountByTeam.get(awayTeamId)!;
+    const maxGames = Math.max(homeGames, awayGames);
+    const startDateIndex = Math.floor((maxGames / 82) * seasonDays);
     let scheduled = false;
 
     // Try each date starting from offset, wrapping around
