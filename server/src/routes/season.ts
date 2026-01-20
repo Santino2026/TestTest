@@ -216,6 +216,24 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
       if (newDay > REGULAR_SEASON_END_DAY) break;
     }
 
+    // Simulate any remaining scheduled games (in case some days were skipped due to errors)
+    const remainingDays = await pool.query(
+      `SELECT DISTINCT game_day FROM schedule
+       WHERE season_id = $1 AND status = 'scheduled'
+         AND (is_preseason = FALSE OR is_preseason IS NULL)
+       ORDER BY game_day`,
+      [franchise.season_id]
+    );
+
+    for (const row of remainingDays.rows) {
+      try {
+        const { results } = await simulateDayGames({ ...franchise, current_day: row.game_day });
+        userResults.push(...results.filter((r: any) => r.is_user_game));
+      } catch (simError) {
+        console.error(`Failed to simulate remaining day ${row.game_day}:`, simError);
+      }
+    }
+
     await pool.query(
       `UPDATE franchises SET current_day = $1, phase = 'awards', all_star_complete = $2, last_played_at = NOW() WHERE id = $3`,
       [currentDay, allStarComplete, franchise.id]
