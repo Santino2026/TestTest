@@ -330,33 +330,32 @@ export function generateSchedule(
     teamGamesOnDate.set(getDateKey(date), new Set());
   }
 
-  // Shuffle matchups to distribute games evenly across all teams throughout the season
-  // Without shuffling, games would cluster by team (alphabetically) causing huge imbalances
-  for (let i = allMatchups.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [allMatchups[i], allMatchups[j]] = [allMatchups[j], allMatchups[i]];
-  }
+  // Schedule games day-by-day, prioritizing teams with fewest games
+  // This ensures all teams stay within 1-2 games of each other throughout the season
+  const unscheduledMatchups = [...allMatchups];
+  const gamesPerDay = Math.ceil(allMatchups.length / seasonDays); // ~7 games per day
 
-  // Schedule each matchup, using team game counts to determine start date
-  // Teams with more games already scheduled get pushed to later dates
-  for (let i = 0; i < allMatchups.length; i++) {
-    const matchup = allMatchups[i];
-    const { home: homeTeamId, away: awayTeamId } = matchup;
+  for (let dayIndex = 0; dayIndex < seasonDays && unscheduledMatchups.length > 0; dayIndex++) {
+    const date = dates[dayIndex];
+    const dateKey = getDateKey(date);
+    const teamsOnDate = teamGamesOnDate.get(dateKey)!;
 
-    // Use team game counts to determine start date (balances distribution)
-    const homeGames = gameCountByTeam.get(homeTeamId)!;
-    const awayGames = gameCountByTeam.get(awayTeamId)!;
-    const maxGames = Math.max(homeGames, awayGames);
-    const startDateIndex = Math.floor((maxGames / 82) * seasonDays);
-    let scheduled = false;
+    // Sort unscheduled matchups by priority: teams with fewer games first
+    unscheduledMatchups.sort((a, b) => {
+      const aTotal = gameCountByTeam.get(a.home)! + gameCountByTeam.get(a.away)!;
+      const bTotal = gameCountByTeam.get(b.home)! + gameCountByTeam.get(b.away)!;
+      return aTotal - bTotal;
+    });
 
-    // Try each date starting from offset, wrapping around
-    for (let j = 0; j < seasonDays; j++) {
-      const dateIndex = (startDateIndex + j) % seasonDays;
-      const date = dates[dateIndex];
-      const dateKey = getDateKey(date);
-      const teamsOnDate = teamGamesOnDate.get(dateKey)!;
+    // Schedule up to gamesPerDay games for this day
+    let gamesScheduledToday = 0;
+    const matchupsToRemove: number[] = [];
 
+    for (let i = 0; i < unscheduledMatchups.length && gamesScheduledToday < gamesPerDay; i++) {
+      const matchup = unscheduledMatchups[i];
+      const { home: homeTeamId, away: awayTeamId } = matchup;
+
+      // Check if both teams are available
       if (!teamsOnDate.has(homeTeamId) && !teamsOnDate.has(awayTeamId)) {
         const homeGameNum = gameCountByTeam.get(homeTeamId)! + 1;
         const awayGameNum = gameCountByTeam.get(awayTeamId)! + 1;
@@ -373,14 +372,20 @@ export function generateSchedule(
         teamsOnDate.add(awayTeamId);
         gameCountByTeam.set(homeTeamId, homeGameNum);
         gameCountByTeam.set(awayTeamId, awayGameNum);
-        scheduled = true;
-        break;
+        matchupsToRemove.push(i);
+        gamesScheduledToday++;
       }
     }
 
-    if (!scheduled) {
-      throw new Error(`Failed to schedule game: ${homeTeamId} vs ${awayTeamId} - no available dates`);
+    // Remove scheduled matchups (in reverse order to preserve indices)
+    for (let i = matchupsToRemove.length - 1; i >= 0; i--) {
+      unscheduledMatchups.splice(matchupsToRemove[i], 1);
     }
+  }
+
+  // Handle any remaining matchups (shouldn't happen with 174 days)
+  if (unscheduledMatchups.length > 0) {
+    throw new Error(`Failed to schedule ${unscheduledMatchups.length} games - not enough days`);
   }
 
   schedule.sort((a, b) => a.game_date.getTime() - b.game_date.getTime());
