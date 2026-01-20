@@ -28,6 +28,7 @@ export function simulatePossession(context: PossessionContext): PossessionResult
   let shotClock = context.shot_clock;
   let ballHandler = selectBallHandler(context.players_on_court);
   let passCount = 0;
+  let lastPasser: SimPlayer | null = null; // Track passer for assists
 
   while (shotClock > 0) {
     if (!ballHandler || !ballHandler.id || !ballHandler.attributes) {
@@ -90,6 +91,7 @@ export function simulatePossession(context: PossessionContext): PossessionResult
           game_clock: context.game_clock - timeUsed,
           shot_clock: shotClock,
           primary_player_id: ballHandler.id,
+          secondary_player_id: shotResult.made && passCount > 0 ? lastPasser?.id : undefined,
           team_id: context.team.id,
           points: shotResult.points,
           home_score: 0,
@@ -170,6 +172,7 @@ export function simulatePossession(context: PossessionContext): PossessionResult
           return { plays, points_scored: 0, time_elapsed: timeUsed + 1, possession_ended: true, ending: 'turnover' };
         }
 
+        lastPasser = ballHandler; // Track passer for potential assist
         ballHandler = receiver;
         passCount++;
         shotClock -= Math.floor(Math.random() * 3) + 1;
@@ -234,6 +237,7 @@ export function simulatePossession(context: PossessionContext): PossessionResult
           game_clock: context.game_clock - timeUsed - 2,
           shot_clock: shotClock - 2,
           primary_player_id: ballHandler.id,
+          secondary_player_id: shotResult.made && passCount > 0 ? lastPasser?.id : undefined,
           team_id: context.team.id,
           points: shotResult.points,
           home_score: 0,
