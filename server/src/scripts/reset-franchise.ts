@@ -1,4 +1,7 @@
 // Reset franchise to preseason for testing
+import dotenv from 'dotenv';
+dotenv.config();
+
 import { pool } from '../db/pool';
 
 async function resetFranchise() {

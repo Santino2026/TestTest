@@ -1,4 +1,7 @@
 // One-off script to regenerate schedule for a specific season
+import dotenv from 'dotenv';
+dotenv.config();
+
 import { pool } from '../db/pool';
 import { generateSchedule, generatePreseasonSchedule, validateSchedule } from '../schedule/generator';
 
