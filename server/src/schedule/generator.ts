@@ -333,12 +333,15 @@ export function generateSchedule(
   // Schedule games day-by-day, prioritizing teams with fewest games
   // This ensures all teams stay within 1-2 games of each other throughout the season
   const unscheduledMatchups = [...allMatchups];
-  const gamesPerDay = Math.ceil(allMatchups.length / seasonDays); // ~7 games per day
 
   for (let dayIndex = 0; dayIndex < seasonDays && unscheduledMatchups.length > 0; dayIndex++) {
     const date = dates[dayIndex];
     const dateKey = getDateKey(date);
     const teamsOnDate = teamGamesOnDate.get(dateKey)!;
+
+    // Calculate games per day dynamically to spread across full 174 days
+    const remainingDays = seasonDays - dayIndex;
+    const gamesPerDay = Math.ceil(unscheduledMatchups.length / remainingDays);
 
     // Sort unscheduled matchups by priority: teams with fewer games first
     unscheduledMatchups.sort((a, b) => {
