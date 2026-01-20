@@ -380,10 +380,16 @@ export function generateSchedule(
 
   schedule.sort((a, b) => a.game_date.getTime() - b.game_date.getTime());
 
-  // Assign game_day to sequence games into ~14 games per day (2450 games / 174 days)
-  const gamesPerDay = Math.ceil(schedule.length / 174);
-  schedule.forEach((game, index) => {
-    game.game_day = Math.floor(index / gamesPerDay) + 1;
+  // Assign game_day based on actual calendar date (all games on same date = same game_day)
+  // This ensures all teams have proportional games played at any point in the season
+  const uniqueDates = [...new Set(schedule.map(g => getDateKey(g.game_date)))].sort();
+  const dateToGameDay = new Map<string, number>();
+  uniqueDates.forEach((dateKey, index) => {
+    dateToGameDay.set(dateKey, index + 1);
+  });
+
+  schedule.forEach((game) => {
+    game.game_day = dateToGameDay.get(getDateKey(game.game_date))!;
   });
 
   return schedule;
@@ -450,10 +456,17 @@ export function generatePreseasonSchedule(
 
   preseasonGames.sort((a, b) => a.game_date.getTime() - b.game_date.getTime());
 
-  // Assign game_day for preseason: negative values from -7 to 0 (8 days of preseason)
-  const gamesPerDay = Math.ceil(preseasonGames.length / 8);
-  preseasonGames.forEach((game, index) => {
-    game.game_day = Math.floor(index / gamesPerDay) - 7;
+  // Assign game_day for preseason: negative values based on actual calendar date
+  // -8 for first day, -7 for second day, ..., -1 for last day before regular season
+  const uniqueDates = [...new Set(preseasonGames.map(g => getDateKey(g.game_date)))].sort();
+  const dateToGameDay = new Map<string, number>();
+  uniqueDates.forEach((dateKey, index) => {
+    // Days count from -8 to -1 (8 preseason days before day 1 of regular season)
+    dateToGameDay.set(dateKey, index - uniqueDates.length);
+  });
+
+  preseasonGames.forEach((game) => {
+    game.game_day = dateToGameDay.get(getDateKey(game.game_date))!;
   });
 
   return preseasonGames;
