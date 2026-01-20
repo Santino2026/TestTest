@@ -8,12 +8,12 @@ import { generateSchedule, generatePreseasonSchedule, validateSchedule } from '.
 async function regenerateSchedule(seasonId: number, franchiseTeamId: string) {
   console.log(`Regenerating schedule for season ${seasonId}...`);
 
-  // Delete existing unplayed games for this season
+  // Delete ALL existing games for this season (both played and scheduled)
   const deleteResult = await pool.query(
-    `DELETE FROM schedule WHERE season_id = $1 AND status = 'scheduled'`,
+    `DELETE FROM schedule WHERE season_id = $1`,
     [seasonId]
   );
-  console.log(`Deleted ${deleteResult.rowCount} existing scheduled games`);
+  console.log(`Deleted ${deleteResult.rowCount} existing games`);
 
   // Get all teams
   const teamsResult = await pool.query(
