@@ -1,5 +1,8 @@
 // Fix game_day values for existing schedules
 // This updates game_day to be based on actual calendar dates instead of sequential index
+import dotenv from 'dotenv';
+dotenv.config();
+
 import { pool } from '../db/pool';
 
 async function fixGameDays(seasonId?: number) {
