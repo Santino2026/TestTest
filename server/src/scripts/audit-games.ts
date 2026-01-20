@@ -19,6 +19,29 @@ async function audit() {
   console.log('Phase:', franchise.phase);
   console.log('Season ID:', franchise.season_id);
 
+  // Check TOTAL scheduled games per team (should be exactly 82)
+  const totalGames = await pool.query(`
+    SELECT t.city, t.name, COUNT(s.id) as total_games
+    FROM teams t
+    LEFT JOIN schedule s ON (t.id = s.home_team_id OR t.id = s.away_team_id)
+      AND s.season_id = $1
+      AND (s.is_preseason = FALSE OR s.is_preseason IS NULL)
+    GROUP BY t.id, t.city, t.name
+    ORDER BY total_games
+  `, [franchise.season_id]);
+
+  console.log('\nTotal scheduled games per team (should be 82):');
+  for (const row of totalGames.rows) {
+    const status = parseInt(row.total_games) === 82 ? '✓' : '✗ WRONG';
+    console.log(`  ${row.city} ${row.name}: ${row.total_games} ${status}`);
+  }
+
+  const totalSchedule = await pool.query(`
+    SELECT COUNT(*) as cnt FROM schedule
+    WHERE season_id = $1 AND (is_preseason = FALSE OR is_preseason IS NULL)
+  `, [franchise.season_id]);
+  console.log(`\nTotal games in schedule: ${totalSchedule.rows[0].cnt} (should be 1230)`);
+
   // Check games played per team
   const games = await pool.query(`
     SELECT t.id, t.city, t.name,
