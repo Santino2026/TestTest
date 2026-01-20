@@ -330,11 +330,12 @@ export function generateSchedule(
     teamGamesOnDate.set(getDateKey(date), new Set());
   }
 
-  allMatchups.sort((a, b) => {
-    const homeCompare = a.home.localeCompare(b.home);
-    if (homeCompare !== 0) return homeCompare;
-    return a.away.localeCompare(b.away);
-  });
+  // Shuffle matchups to distribute games evenly across all teams throughout the season
+  // Without shuffling, games would cluster by team (alphabetically) causing huge imbalances
+  for (let i = allMatchups.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [allMatchups[i], allMatchups[j]] = [allMatchups[j], allMatchups[i]];
+  }
 
   // Schedule each matchup starting from an offset to spread games across full season
   for (let i = 0; i < allMatchups.length; i++) {
