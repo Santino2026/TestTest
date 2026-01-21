@@ -240,6 +240,14 @@ function DraftContent() {
     },
   });
 
+  const runLottery = useMutation({
+    mutationFn: api.runLottery,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['draftOrder'] });
+      queryClient.invalidateQueries({ queryKey: ['draft'] });
+    },
+  });
+
   const currentPick = draftOrder?.find(p => !p.player_id);
   const isUserPick = currentPick?.team_id === franchise?.team_id;
   const hasDraftOrder = Array.isArray(draftOrder) && draftOrder.length > 0;
@@ -255,6 +263,14 @@ function DraftContent() {
             disabled={generateDraft.isPending}
           >
             {generateDraft.isPending ? 'Generating...' : 'Generate Draft Class'}
+          </Button>
+        )}
+        {prospects && prospects.length > 0 && !hasDraftOrder && (
+          <Button
+            onClick={() => runLottery.mutate()}
+            disabled={runLottery.isPending}
+          >
+            {runLottery.isPending ? 'Running...' : 'Run Draft Lottery'}
           </Button>
         )}
         {hasDraftOrder && !isDraftComplete && (
