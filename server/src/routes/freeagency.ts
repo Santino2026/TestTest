@@ -8,6 +8,8 @@ import {
   generateYearlySalaries,
   calculateLuxuryTax,
   SALARY_CAP,
+  MID_LEVEL_EXCEPTION,
+  getMinSalary,
   generateFAPreferences,
   calculateAskingSalary,
   validateOffer,
@@ -98,14 +100,24 @@ router.get('/team/:teamId/salary', async (req, res) => {
   try {
     const { teamId } = req.params;
 
-    const contractsResult = await pool.query(
-      `SELECT c.*, p.first_name, p.last_name, p.position, p.overall
-       FROM contracts c
-       JOIN players p ON c.player_id = p.id
-       WHERE c.team_id = $1 AND c.status = 'active'
-       ORDER BY c.base_salary DESC`,
-      [teamId]
-    );
+    const [contractsResult, franchiseResult, rosterResult] = await Promise.all([
+      pool.query(
+        `SELECT c.*, p.first_name, p.last_name, p.position, p.overall
+         FROM contracts c
+         JOIN players p ON c.player_id = p.id
+         WHERE c.team_id = $1 AND c.status = 'active'
+         ORDER BY c.base_salary DESC`,
+        [teamId]
+      ),
+      pool.query(
+        `SELECT mle_used FROM franchises WHERE team_id = $1 AND status = 'active'`,
+        [teamId]
+      ),
+      pool.query(
+        `SELECT COUNT(*) as count FROM players WHERE team_id = $1`,
+        [teamId]
+      )
+    ]);
 
     const payroll = contractsResult.rows.reduce((sum, c) => {
       const currentYear = c.total_years - c.years_remaining + 1;
@@ -114,6 +126,8 @@ router.get('/team/:teamId/salary', async (req, res) => {
     }, 0);
 
     const capSpace = Math.max(0, SALARY_CAP.cap - payroll);
+    const mleUsed = franchiseResult.rows[0]?.mle_used ?? false;
+    const isOverCap = payroll >= SALARY_CAP.cap;
 
     res.json({
       team_id: teamId,
@@ -123,8 +137,12 @@ router.get('/team/:teamId/salary', async (req, res) => {
       cap_space: capSpace,
       luxury_tax_threshold: SALARY_CAP.luxury_tax,
       luxury_tax_owed: calculateLuxuryTax(payroll),
-      over_cap: payroll > SALARY_CAP.cap,
-      in_tax: payroll > SALARY_CAP.luxury_tax
+      over_cap: isOverCap,
+      in_tax: payroll > SALARY_CAP.luxury_tax,
+      mle_used: mleUsed,
+      mle_available: isOverCap && !mleUsed,
+      mle_amount: MID_LEVEL_EXCEPTION,
+      roster_count: parseInt(rosterResult.rows[0].count)
     });
   } catch (error) {
     console.error('Team salary error:', error);
@@ -250,6 +268,45 @@ router.post('/sign', authMiddleware(true), async (req: any, res) => {
       );
       if (parseInt(rosterResult.rows[0].count) >= 15) {
         throw { status: 400, message: 'Roster is full (15 players max)' };
+      }
+
+      // Get current team payroll
+      const payrollResult = await client.query(
+        `SELECT COALESCE(SUM(c.base_salary), 0) as payroll
+         FROM contracts c WHERE c.team_id = $1 AND c.status = 'active'`,
+        [team_id]
+      );
+      const currentPayroll = parseInt(payrollResult.rows[0].payroll);
+
+      // Check salary cap enforcement
+      const isOverCap = currentPayroll >= SALARY_CAP.cap;
+      if (isOverCap) {
+        const vetMin = getMinSalary(player.years_pro || 0);
+        const isVetMinContract = salaryAmount <= vetMin;
+
+        // Get MLE usage status from franchise
+        const franchiseResult = await client.query(
+          `SELECT mle_used FROM franchises WHERE id = $1`,
+          [franchise!.id]
+        );
+        const mleUsed = franchiseResult.rows[0]?.mle_used ?? false;
+        const canUseMLE = !mleUsed && salaryAmount <= MID_LEVEL_EXCEPTION;
+
+        if (!isVetMinContract && !canUseMLE) {
+          const mleStatus = mleUsed ? 'MLE already used this season' : `salary exceeds MLE ($${(MID_LEVEL_EXCEPTION / 1_000_000).toFixed(1)}M)`;
+          throw {
+            status: 400,
+            message: `Over salary cap. Can only sign veteran minimums ($${(vetMin / 1_000_000).toFixed(1)}M or less) or use Mid-Level Exception. ${mleStatus}.`
+          };
+        }
+
+        // If using MLE (not vet min), mark it as used
+        if (!isVetMinContract && canUseMLE) {
+          await client.query(
+            `UPDATE franchises SET mle_used = true WHERE id = $1`,
+            [franchise!.id]
+          );
+        }
       }
 
       await client.query(`UPDATE players SET team_id = $1, salary = $2 WHERE id = $3`, [team_id, salaryAmount, player_id]);

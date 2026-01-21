@@ -55,6 +55,9 @@ export const SALARY_CAP = {
   minimum: 126_000_000
 };
 
+// Mid-Level Exception amount (one signing per season when over cap)
+export const MID_LEVEL_EXCEPTION = 12_400_000;
+
 const MIN_SALARY_BY_YEARS: Record<number, number> = {
   0: 1_100_000,
   1: 1_800_000,

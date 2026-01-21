@@ -492,6 +492,19 @@ function FreeAgencyContent() {
                   <p className="text-xs text-slate-400">Roster</p>
                   <p className="text-xl font-bold text-white">{teamSalary.roster_count}/15</p>
                 </div>
+                {teamSalary.over_cap && (
+                  <div>
+                    <p className="text-xs text-slate-400">MLE</p>
+                    <p className={cn(
+                      'text-xl font-bold',
+                      teamSalary.mle_available ? 'text-yellow-400' : 'text-slate-500'
+                    )}>
+                      {teamSalary.mle_available
+                        ? `$${(teamSalary.mle_amount / 1000000).toFixed(1)}M`
+                        : 'Used'}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
             <Button
@@ -502,6 +515,12 @@ function FreeAgencyContent() {
               {advancePhase.isPending ? 'Loading...' : 'Continue to Training Camp'}
             </Button>
           </div>
+          {teamSalary?.over_cap && (
+            <div className="mt-3 p-3 bg-red-900/30 border border-red-500/50 rounded-lg text-red-300 text-sm">
+              <strong>Over Salary Cap</strong> — Can only sign veteran minimum contracts
+              {teamSalary.mle_available && ' or use the Mid-Level Exception ($12.4M max)'}
+            </div>
+          )}
         </CardContent>
       </Card>
 

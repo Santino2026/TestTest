@@ -512,7 +512,7 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
     }
 
     await pool.query(
-      `UPDATE franchises SET season_id = $1, current_day = -7, phase = 'preseason', offseason_phase = NULL, season_number = $2, last_played_at = NOW() WHERE id = $3`,
+      `UPDATE franchises SET season_id = $1, current_day = -7, phase = 'preseason', offseason_phase = NULL, season_number = $2, mle_used = false, last_played_at = NOW() WHERE id = $3`,
       [newSeason.id, newSeasonNumber, franchise.id]
     );
 

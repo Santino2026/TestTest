@@ -4,6 +4,7 @@ export {
   ContractStatus,
   ContractOffer,
   SALARY_CAP,
+  MID_LEVEL_EXCEPTION,
   getMaxSalary,
   getMinSalary,
   calculateMarketValue,
