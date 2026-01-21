@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db/pool';
-import { getLatestSeasonId } from '../db/queries';
+import { getLatestSeasonId, getUserActiveFranchise } from '../db/queries';
 import { authMiddleware } from '../auth';
 import {
   calculateTrueShootingPct,
@@ -71,12 +71,13 @@ function buildLeadersQuery(statConfig: { column: string; isComputed: boolean; mi
     LIMIT $2`;
 }
 
-router.get('/leaders', async (req, res) => {
+router.get('/leaders', authMiddleware(true), async (req: any, res) => {
   try {
     const stat = (req.query.stat as string) || (req.query.category as string) || 'points';
     const limit = parseInt(req.query.limit as string) || 20;
 
-    const seasonId = await getLatestSeasonId();
+    const franchise = await getUserActiveFranchise(req.user.userId);
+    const seasonId = franchise?.season_id || await getLatestSeasonId();
     if (!seasonId) {
       return res.json([]);
     }
