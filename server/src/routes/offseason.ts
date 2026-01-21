@@ -157,7 +157,7 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
       );
 
       const expiredContracts = await client.query(
-        `SELECT c.player_id, c.annual_salary, p.overall
+        `SELECT c.player_id, c.base_salary, p.overall
          FROM contracts c
          JOIN players p ON c.player_id = p.id
          WHERE c.status = 'expired' AND c.updated_at > NOW() - INTERVAL '1 minute'`
@@ -169,7 +169,7 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
           `INSERT INTO free_agents (player_id, previous_team_id, asking_salary, market_value, status)
            VALUES ($1, (SELECT team_id FROM contracts WHERE player_id = $1 ORDER BY created_at DESC LIMIT 1), $2, $3, 'available')
            ON CONFLICT (player_id) DO UPDATE SET status = 'available', asking_salary = $2`,
-          [row.player_id, row.annual_salary || 5000000, (row.overall || 70) * 100000]
+          [row.player_id, row.base_salary || 5000000, (row.overall || 70) * 100000]
         );
       }
 
@@ -323,7 +323,7 @@ router.post('/finalize-playoffs', authMiddleware(true), async (req: any, res) =>
       );
 
       const expiredContracts = await client.query(
-        `SELECT c.player_id, c.annual_salary, p.overall
+        `SELECT c.player_id, c.base_salary, p.overall
          FROM contracts c
          JOIN players p ON c.player_id = p.id
          WHERE c.status = 'expired' AND c.updated_at > NOW() - INTERVAL '1 minute'`
@@ -335,7 +335,7 @@ router.post('/finalize-playoffs', authMiddleware(true), async (req: any, res) =>
           `INSERT INTO free_agents (player_id, previous_team_id, asking_salary, market_value, status)
            VALUES ($1, (SELECT team_id FROM contracts WHERE player_id = $1 ORDER BY created_at DESC LIMIT 1), $2, $3, 'available')
            ON CONFLICT (player_id) DO UPDATE SET status = 'available', asking_salary = $2`,
-          [row.player_id, row.annual_salary || 5000000, (row.overall || 70) * 100000]
+          [row.player_id, row.base_salary || 5000000, (row.overall || 70) * 100000]
         );
       }
 
