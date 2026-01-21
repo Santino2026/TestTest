@@ -122,7 +122,7 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
         await client.query(
           `UPDATE players p SET
              age = v.age,
-             overall = v.overall,
+             overall = GREATEST(40, LEAST(99, v.overall)),
              years_pro = COALESCE(p.years_pro, 0) + 1
            FROM (VALUES ${updateValues}) AS v(id, age, overall)
            WHERE p.id = v.id`,
@@ -291,7 +291,7 @@ router.post('/finalize-playoffs', authMiddleware(true), async (req: any, res) =>
         await client.query(
           `UPDATE players p SET
              age = v.age,
-             overall = v.overall,
+             overall = GREATEST(40, LEAST(99, v.overall)),
              years_pro = COALESCE(p.years_pro, 0) + 1
            FROM (VALUES ${updateValues}) AS v(id, age, overall)
            WHERE p.id = v.id`,
