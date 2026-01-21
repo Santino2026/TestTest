@@ -3,12 +3,28 @@ import { v4 as uuidv4 } from 'uuid';
 import { withTransaction } from '../../db/transactions';
 import { getDraftState } from '../../draft';
 
+const ROSTER_LIMIT = 15;
+
 export async function createPlayerFromProspect(
   client: PoolClient,
   prospect: any,
   teamId: string,
   prospectId: string
 ): Promise<string> {
+  // Check roster size before drafting - release lowest OVR player if at limit
+  const rosterCount = await client.query(
+    'SELECT COUNT(*) FROM players WHERE team_id = $1',
+    [teamId]
+  );
+  if (parseInt(rosterCount.rows[0].count) >= ROSTER_LIMIT) {
+    await client.query(`
+      UPDATE players SET team_id = NULL
+      WHERE id = (
+        SELECT id FROM players WHERE team_id = $1
+        ORDER BY overall ASC LIMIT 1
+      )`, [teamId]);
+  }
+
   const playerId = uuidv4();
 
   await client.query(

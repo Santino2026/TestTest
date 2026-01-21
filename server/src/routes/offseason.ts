@@ -453,6 +453,17 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
       });
     }
 
+    // Trim all rosters to 15 players before starting new season
+    await pool.query(`
+      WITH ranked AS (
+        SELECT id, team_id,
+               ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY overall DESC) as rank
+        FROM players WHERE team_id IS NOT NULL
+      )
+      UPDATE players SET team_id = NULL
+      WHERE id IN (SELECT id FROM ranked WHERE rank > 15)
+    `);
+
     const newSeasonNumber = (franchise.season_number || 0) + 1;
 
     const newSeasonId = await pool.query(
