@@ -122,7 +122,7 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
         await client.query(
           `UPDATE players p SET
              age = v.age,
-             overall = v.overall,
+             overall = GREATEST(40, LEAST(99, v.overall)),
              years_pro = COALESCE(p.years_pro, 0) + 1
            FROM (VALUES ${updateValues}) AS v(id, age, overall)
            WHERE p.id = v.id`,
@@ -157,7 +157,7 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
       );
 
       const expiredContracts = await client.query(
-        `SELECT c.player_id, c.annual_salary, p.overall
+        `SELECT c.player_id, c.base_salary, p.overall
          FROM contracts c
          JOIN players p ON c.player_id = p.id
          WHERE c.status = 'expired' AND c.updated_at > NOW() - INTERVAL '1 minute'`
@@ -169,7 +169,7 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
           `INSERT INTO free_agents (player_id, previous_team_id, asking_salary, market_value, status)
            VALUES ($1, (SELECT team_id FROM contracts WHERE player_id = $1 ORDER BY created_at DESC LIMIT 1), $2, $3, 'available')
            ON CONFLICT (player_id) DO UPDATE SET status = 'available', asking_salary = $2`,
-          [row.player_id, row.annual_salary || 5000000, (row.overall || 70) * 100000]
+          [row.player_id, row.base_salary || 5000000, (row.overall || 70) * 100000]
         );
       }
 
@@ -229,6 +229,116 @@ router.post('/finalize-playoffs', authMiddleware(true), async (req: any, res) =>
     const userIsChampion = champion === franchise.team_id;
 
     await withTransaction(async (client) => {
+      // Process player development (age, overall, years_pro)
+      const playersResult = await client.query(
+        `SELECT p.*,
+                pa.work_ethic, pa.basketball_iq, pa.speed, pa.acceleration, pa.vertical,
+                pa.stamina, pa.strength, pa.lateral_quickness, pa.hustle,
+                pa.inside_scoring, pa.close_shot, pa.mid_range, pa.three_point, pa.free_throw,
+                pa.layup, pa.standing_dunk, pa.driving_dunk, pa.post_moves, pa.post_control,
+                pa.ball_handling, pa.passing_accuracy, pa.passing_vision, pa.steal, pa.block,
+                pa.shot_iq, pa.offensive_iq, pa.passing_iq, pa.defensive_iq,
+                pa.help_defense_iq, pa.offensive_consistency, pa.defensive_consistency,
+                pa.interior_defense, pa.perimeter_defense, pa.offensive_rebound, pa.defensive_rebound
+         FROM players p
+         LEFT JOIN player_attributes pa ON p.id = pa.player_id`
+      );
+
+      const retiringPlayerIds: string[] = [];
+      const playerUpdates: Array<{ id: string; age: number; overall: number }> = [];
+      const attrChanges: Map<string, Array<{ playerId: string; change: number }>> = new Map();
+
+      for (const player of playersResult.rows) {
+        if (shouldRetire(player.age, player.overall, player.years_pro || 0)) {
+          retiringPlayerIds.push(player.id);
+          continue;
+        }
+
+        const newAge = agePlayer(player.age);
+        const devResult = developPlayer({
+          id: player.id,
+          first_name: player.first_name,
+          last_name: player.last_name,
+          age: newAge,
+          overall: player.overall,
+          potential: player.potential,
+          peak_age: player.peak_age || 28,
+          archetype: player.archetype,
+          work_ethic: player.work_ethic || 60,
+          coachability: player.coachability || 60,
+          attributes: buildPlayerAttributes(player)
+        });
+        playerUpdates.push({ id: player.id, age: newAge, overall: devResult.new_overall });
+
+        for (const [attr, change] of Object.entries(devResult.changes)) {
+          if (change !== 0) {
+            if (!attrChanges.has(attr)) attrChanges.set(attr, []);
+            attrChanges.get(attr)!.push({ playerId: player.id, change });
+          }
+        }
+      }
+
+      if (retiringPlayerIds.length > 0) {
+        await client.query(`UPDATE players SET team_id = NULL WHERE id = ANY($1)`, [retiringPlayerIds]);
+      }
+
+      if (playerUpdates.length > 0) {
+        const updateValues = playerUpdates.map((p, i) =>
+          `($${i * 3 + 1}::uuid, $${i * 3 + 2}::integer, $${i * 3 + 3}::integer)`
+        ).join(', ');
+        const updateParams = playerUpdates.flatMap(p => [p.id, p.age, p.overall]);
+
+        await client.query(
+          `UPDATE players p SET
+             age = v.age,
+             overall = GREATEST(40, LEAST(99, v.overall)),
+             years_pro = COALESCE(p.years_pro, 0) + 1
+           FROM (VALUES ${updateValues}) AS v(id, age, overall)
+           WHERE p.id = v.id`,
+          updateParams
+        );
+      }
+
+      for (const [attr, changes] of attrChanges) {
+        if (changes.length === 0) continue;
+        const caseStatements = changes.map((c, i) =>
+          `WHEN player_id = $${i * 2 + 1} THEN GREATEST(30, LEAST(99, COALESCE(${attr}, 60) + $${i * 2 + 2}))`
+        ).join(' ');
+        const params = changes.flatMap(c => [c.playerId, c.change]);
+        const playerIds = changes.map(c => c.playerId);
+        await client.query(
+          `UPDATE player_attributes SET ${attr} = CASE ${caseStatements} ELSE ${attr} END
+           WHERE player_id = ANY($${params.length + 1})`,
+          [...params, playerIds]
+        );
+      }
+
+      await client.query(
+        `UPDATE contracts SET years_remaining = years_remaining - 1, updated_at = NOW()
+         WHERE status = 'active' AND years_remaining > 0`
+      );
+      await client.query(
+        `UPDATE contracts SET status = 'expired', updated_at = NOW()
+         WHERE status = 'active' AND years_remaining <= 0`
+      );
+
+      const expiredContracts = await client.query(
+        `SELECT c.player_id, c.base_salary, p.overall
+         FROM contracts c
+         JOIN players p ON c.player_id = p.id
+         WHERE c.status = 'expired' AND c.updated_at > NOW() - INTERVAL '1 minute'`
+      );
+
+      for (const row of expiredContracts.rows) {
+        await client.query(`UPDATE players SET team_id = NULL, salary = 0 WHERE id = $1`, [row.player_id]);
+        await client.query(
+          `INSERT INTO free_agents (player_id, previous_team_id, asking_salary, market_value, status)
+           VALUES ($1, (SELECT team_id FROM contracts WHERE player_id = $1 ORDER BY created_at DESC LIMIT 1), $2, $3, 'available')
+           ON CONFLICT (player_id) DO UPDATE SET status = 'available', asking_salary = $2`,
+          [row.player_id, row.base_salary || 5000000, (row.overall || 70) * 100000]
+        );
+      }
+
       if (userIsChampion) {
         await client.query(`UPDATE teams SET championships = championships + 1 WHERE id = $1`, [franchise.team_id]);
         await client.query(`UPDATE franchises SET championships = championships + 1 WHERE id = $1`, [franchise.id]);

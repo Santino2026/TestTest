@@ -105,9 +105,10 @@ async function getSeriesResult(seriesId: string): Promise<{ winner: string; scor
   return { winner: series.winner_name, score: `${series.higher_seed_wins}-${series.lower_seed_wins}` };
 }
 
-router.get('/', async (req, res) => {
+router.get('/', authMiddleware(true), async (req: any, res) => {
   try {
-    const seasonId = await getCurrentSeasonId();
+    const franchise = await getUserActiveFranchise(req.user.userId);
+    const seasonId = franchise?.season_id || await getCurrentSeasonId();
     if (!seasonId) {
       return res.json({ round: 0, series: [], isComplete: false, champion: null });
     }
@@ -124,7 +125,7 @@ router.post('/start', authMiddleware(true), async (req: any, res) => {
   try {
     const franchise = await getUserActiveFranchise(req.user.userId);
     if (!franchise) {
-      return res.status(400).json({ error: 'No franchise selected' });
+      console.log('START PLAYOFFS ERROR: No franchise selected'); return res.status(400).json({ error: 'No franchise selected' });
     }
 
     const seasonId = franchise.season_id;
@@ -141,13 +142,13 @@ router.post('/start', authMiddleware(true), async (req: any, res) => {
 
     const { total, eastern, western } = standingsResult.rows[0];
     if (parseInt(total) < 30) {
-      return res.status(400).json({
+      console.log('START PLAYOFFS ERROR: Regular season incomplete', { total }); return res.status(400).json({
         error: `Regular season incomplete: only ${total}/30 teams have standings data. Complete the regular season first.`
       });
     }
 
     if (parseInt(eastern) < 10 || parseInt(western) < 10) {
-      return res.status(400).json({
+      console.log('START PLAYOFFS ERROR: Insufficient conference standings', { eastern, western }); return res.status(400).json({
         error: `Insufficient conference standings: Eastern has ${eastern}, Western has ${western}. Need at least 10 per conference.`
       });
     }
@@ -164,7 +165,7 @@ router.post('/start', authMiddleware(true), async (req: any, res) => {
       );
 
       if (parseInt(existingResult.rows[0].count) > 0) {
-        throw { status: 400, message: 'Playoffs already started' };
+        console.log('START PLAYOFFS ERROR: Playoffs already started for season', seasonId); throw { status: 400, message: 'Playoffs already started' };
       }
 
       await saveSeries(playInSeries, client);
@@ -307,7 +308,7 @@ router.post('/simulate/round', authMiddleware(true), async (req: any, res) => {
   try {
     const franchise = await getUserActiveFranchise(req.user.userId);
     if (!franchise) {
-      return res.status(400).json({ error: 'No franchise selected' });
+      console.log('START PLAYOFFS ERROR: No franchise selected'); return res.status(400).json({ error: 'No franchise selected' });
     }
 
     const seasonId = franchise.season_id;
@@ -359,7 +360,7 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
   try {
     const franchise = await getUserActiveFranchise(req.user.userId);
     if (!franchise) {
-      return res.status(400).json({ error: 'No franchise selected' });
+      console.log('START PLAYOFFS ERROR: No franchise selected'); return res.status(400).json({ error: 'No franchise selected' });
     }
 
     const seasonId = franchise.season_id;
@@ -440,9 +441,10 @@ router.post('/simulate/all', authMiddleware(true), async (req: any, res) => {
   }
 });
 
-router.get('/standings', async (req, res) => {
+router.get('/standings', authMiddleware(true), async (req: any, res) => {
   try {
-    const seasonId = await getCurrentSeasonId();
+    const franchise = await getUserActiveFranchise(req.user.userId);
+    const seasonId = franchise?.season_id || await getCurrentSeasonId();
     if (!seasonId) {
       return res.json({ eastern: [], western: [] });
     }
