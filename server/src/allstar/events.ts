@@ -74,50 +74,73 @@ function generateBoxScore(roster: Player[], totalScore: number, playerIdKey = 'i
 }
 
 export async function simulateRisingStars(seasonId: string): Promise<EventResult> {
+  // Get young players (years_pro <= 3 to ensure we have enough participants)
   const result = await pool.query(
     `SELECT
       p.id, p.first_name, p.last_name, p.overall, p.years_pro,
       COALESCE(ps.points / NULLIF(ps.games_played, 0), 0) as ppg
     FROM players p
     LEFT JOIN player_season_stats ps ON p.id = ps.player_id AND ps.season_id = $1
-    WHERE p.years_pro <= 1 AND p.team_id IS NOT NULL
+    WHERE p.years_pro <= 3 AND p.team_id IS NOT NULL
     ORDER BY p.overall DESC
     LIMIT 24`,
     [seasonId]
   );
 
+  if (result.rows.length < 10) {
+    throw new Error('Not enough young players for Rising Stars Challenge (need at least 10)');
+  }
+
+  // Try traditional rookies vs sophomores format first
   const rookies = result.rows.filter((r: any) => r.years_pro === 0).slice(0, 10);
   const sophomores = result.rows.filter((r: any) => r.years_pro === 1).slice(0, 10);
 
-  if (rookies.length === 0 || sophomores.length === 0) {
-    throw new Error('Not enough rookies or sophomores for Rising Stars Challenge');
+  let team1: Player[];
+  let team2: Player[];
+  let team1Name: string;
+  let team2Name: string;
+
+  if (rookies.length >= 5 && sophomores.length >= 5) {
+    // Traditional format: Rookies vs Sophomores
+    team1 = rookies;
+    team2 = sophomores;
+    team1Name = 'rookies';
+    team2Name = 'sophomores';
+  } else {
+    // Fallback: Split young players into Team A vs Team B
+    const allYoung = result.rows.slice(0, 20);
+    team1 = allYoung.filter((_: any, i: number) => i % 2 === 0).slice(0, 10);
+    team2 = allYoung.filter((_: any, i: number) => i % 2 === 1).slice(0, 10);
+    team1Name = 'team_a';
+    team2Name = 'team_b';
   }
 
-  const rookieStrength = calculateTeamStrength(rookies);
-  const sophStrength = calculateTeamStrength(sophomores);
+  const team1Strength = calculateTeamStrength(team1);
+  const team2Strength = calculateTeamStrength(team2);
 
   const baseScore = 150;
   const variance = 30;
 
-  const rookieScore = clamp(
-    baseScore + Math.floor((rookieStrength - 70) * 2) + randomVariance(0, variance),
+  const team1Score = clamp(
+    baseScore + Math.floor((team1Strength - 70) * 2) + randomVariance(0, variance),
     120, 180
   );
-  const sophScore = clamp(
-    baseScore + Math.floor((sophStrength - 70) * 2) + randomVariance(0, variance),
+  const team2Score = clamp(
+    baseScore + Math.floor((team2Strength - 70) * 2) + randomVariance(0, variance),
     120, 180
   );
 
-  const rookiesWon = rookieScore > sophScore;
-  const winningTeam = rookiesWon ? 'rookies' : 'sophomores';
-  const winningRoster = rookiesWon ? rookies : sophomores;
+  const team1Won = team1Score > team2Score;
+  const winningTeam = team1Won ? team1Name : team2Name;
+  const winningRoster = team1Won ? team1 : team2;
 
   const mvpCandidates = winningRoster.slice(0, 3);
   const mvp = mvpCandidates[Math.floor(Math.random() * mvpCandidates.length)];
 
   const details = {
-    rookies: generateBoxScore(rookies, rookieScore),
-    sophomores: generateBoxScore(sophomores, sophScore),
+    [team1Name]: generateBoxScore(team1, team1Score),
+    [team2Name]: generateBoxScore(team2, team2Score),
+    format: rookies.length >= 5 && sophomores.length >= 5 ? 'rookies_vs_sophomores' : 'team_draft',
     mvp_stats: {
       player_id: mvp.id,
       name: getFullName(mvp),
@@ -127,8 +150,8 @@ export async function simulateRisingStars(seasonId: string): Promise<EventResult
     }
   };
 
-  const winningScore = rookiesWon ? rookieScore : sophScore;
-  const losingScore = rookiesWon ? sophScore : rookieScore;
+  const winningScore = team1Won ? team1Score : team2Score;
+  const losingScore = team1Won ? team2Score : team1Score;
 
   await pool.query(
     `INSERT INTO all_star_events
