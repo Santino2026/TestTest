@@ -599,6 +599,10 @@ export interface TeamSalary {
   salary_cap: number;
   luxury_tax: number;
   roster_count: number;
+  over_cap: boolean;
+  mle_used: boolean;
+  mle_available: boolean;
+  mle_amount: number;
 }
 
 export interface FATransaction {
