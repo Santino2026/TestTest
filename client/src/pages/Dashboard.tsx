@@ -230,7 +230,7 @@ export default function Dashboard() {
   return (
     <PageTemplate
       title={`${franchise?.city} ${franchise?.team_name}`}
-      subtitle={`Season ${season?.season_number || 1} - ${getCurrentPhaseLabel()}`}
+      subtitle={`Season ${franchise?.season_number || 1} - ${getCurrentPhaseLabel()}`}
     >
       {/* Trade Deadline Notification Banner */}
       {franchise?.phase === 'regular_season' && tradeDeadline && (

@@ -1,14 +1,14 @@
 import { PageTemplate } from '@/components/layout/PageTemplate';
-import { useSeason } from '@/api/hooks';
 import { AwardsContent } from '@/components/season-hub/AwardsContent';
+import { useFranchise } from '@/context/FranchiseContext';
 
 export default function AwardsPage(): JSX.Element {
-  const { data: season } = useSeason();
+  const { franchise } = useFranchise();
 
   return (
     <PageTemplate
       title="Season Awards"
-      subtitle={`Season ${season?.season_number || 1}`}
+      subtitle={`Season ${franchise?.season_number || 1}`}
     >
       <AwardsContent />
     </PageTemplate>

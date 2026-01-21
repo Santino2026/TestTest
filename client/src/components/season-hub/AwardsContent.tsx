@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, Button } from '@/components/ui';
-import { useAwards, useFranchise, useSeason } from '@/api/hooks';
+import { useAwards, useFranchise } from '@/api/hooks';
 import { useFranchise as useFranchiseContext } from '@/context/FranchiseContext';
 import { api } from '@/api/client';
 import { Trophy, Calculator, Loader2, Play } from 'lucide-react';
@@ -18,7 +18,6 @@ export function AwardsContent(): JSX.Element {
   const queryClient = useQueryClient();
   const { data: franchise } = useFranchise();
   const { refreshFranchise } = useFranchiseContext();
-  const { data: season } = useSeason();
   const { data: awards, isLoading } = useAwards(
     franchise?.season_id ? { season_id: franchise.season_id } : undefined
   );
@@ -90,7 +89,7 @@ export function AwardsContent(): JSX.Element {
             <div className="flex items-center justify-between gap-4">
               <div>
                 <h3 className="font-bold text-white">Ready for Playoffs</h3>
-                <p className="text-sm text-slate-400">Season {season?.season_number} awards have been calculated</p>
+                <p className="text-sm text-slate-400">Season {franchise?.season_number} awards have been calculated</p>
               </div>
               <Button
                 onClick={() => startPlayoffs.mutate()}
