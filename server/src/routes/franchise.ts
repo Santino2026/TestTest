@@ -67,8 +67,8 @@ async function createNewFranchise(
   }
 
   const insertResult = await pool.query(
-    `INSERT INTO franchises (user_id, team_id, season_id, phase, current_day, name, is_active)
-     VALUES ($1, $2, $3, 'preseason', -7, $4, TRUE)
+    `INSERT INTO franchises (user_id, team_id, season_id, phase, current_day, name, is_active, season_number)
+     VALUES ($1, $2, $3, 'preseason', -7, $4, TRUE, 1)
      RETURNING *`,
     [userId, team.id, seasonId, franchiseName]
   );
