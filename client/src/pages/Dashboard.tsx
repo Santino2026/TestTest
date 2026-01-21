@@ -5,7 +5,7 @@ import { Users, Trophy, Calendar, TrendingUp, Play, ChevronRight, FastForward, S
 import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
 import { TeamLogo } from '@/components/team/TeamLogo';
-import { useTeams, useStandings, useSeason, usePlayers, useAdvancePreseasonDay, useAdvancePreseasonAll, useAdvanceDay, useSimulatePlayoffRound, useSimulatePlayoffAll, useAdvanceOffseasonPhase, useStartNewSeason, useStartPlayoffsFromAwards, useTradeDeadlineStatus } from '@/api/hooks';
+import { useTeams, useStandings, usePlayers, useAdvancePreseasonDay, useAdvancePreseasonAll, useAdvanceDay, useSimulatePlayoffRound, useSimulatePlayoffAll, useAdvanceOffseasonPhase, useStartNewSeason, useStartPlayoffsFromAwards, useTradeDeadlineStatus } from '@/api/hooks';
 import { useFranchise } from '@/context/FranchiseContext';
 import { cn, getStatColor } from '@/lib/utils';
 import { api, ScheduledGame, UserGameResult } from '@/api/client';
@@ -16,7 +16,6 @@ export default function Dashboard() {
   const { data: standings } = useStandings(
     franchise?.season_id ? { season_id: franchise.season_id } : undefined
   );
-  const { data: season } = useSeason();
   const { data: playersData } = usePlayers({ limit: 5 });
   const { data: tradeDeadline } = useTradeDeadlineStatus();
 
