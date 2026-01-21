@@ -453,8 +453,7 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
       });
     }
 
-    const seasonResult = await pool.query(`SELECT MAX(season_number) as max_season FROM seasons`);
-    const newSeasonNumber = (seasonResult.rows[0].max_season || 0) + 1;
+    const newSeasonNumber = (franchise.season_number || 0) + 1;
 
     const newSeasonId = await pool.query(
       `INSERT INTO seasons (season_number, status) VALUES ($1, 'preseason') RETURNING id`,
