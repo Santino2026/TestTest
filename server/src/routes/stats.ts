@@ -46,27 +46,41 @@ const STAT_MAP: Record<string, { column: string; isComputed: boolean; minAttempt
 function buildLeadersQuery(statConfig: { column: string; isComputed: boolean; minAttempts?: string }): string {
   const attemptFilter = statConfig.minAttempts ? ` AND pss.${statConfig.minAttempts}` : '';
 
+  const regularGpCte = `
+    WITH regular_gp AS (
+      SELECT pgs.player_id, COUNT(*) as games_played
+      FROM player_game_stats pgs
+      JOIN games g ON pgs.game_id = g.id
+      LEFT JOIN schedule s ON s.game_id = g.id
+      WHERE g.season_id = $1
+        AND g.is_playoff = FALSE
+        AND (s.is_preseason = FALSE OR s.is_preseason IS NULL)
+      GROUP BY pgs.player_id
+    )`;
+
   if (statConfig.isComputed) {
-    return `
+    return `${regularGpCte}
       SELECT pss.player_id, p.first_name, p.last_name, p.position,
              t.name as team_name, t.abbreviation as team_abbrev,
-             pss.games_played, ${statConfig.column} as stat_value
+             rgp.games_played, ${statConfig.column} as stat_value
       FROM player_season_stats pss
       JOIN players p ON pss.player_id = p.id
       LEFT JOIN teams t ON pss.team_id = t.id
-      WHERE pss.season_id = $1 AND pss.games_played >= 5${attemptFilter}
+      JOIN regular_gp rgp ON rgp.player_id = pss.player_id
+      WHERE pss.season_id = $1 AND rgp.games_played >= 5${attemptFilter}
       ORDER BY ${statConfig.column} DESC NULLS LAST
       LIMIT $2`;
   }
 
-  return `
+  return `${regularGpCte}
     SELECT pss.player_id, p.first_name, p.last_name, p.position,
            t.name as team_name, t.abbreviation as team_abbrev,
-           pss.games_played, COALESCE(pss.${statConfig.column}, 0) as stat_value
+           rgp.games_played, COALESCE(pss.${statConfig.column}, 0) as stat_value
     FROM player_season_stats pss
     JOIN players p ON pss.player_id = p.id
     LEFT JOIN teams t ON pss.team_id = t.id
-    WHERE pss.season_id = $1 AND pss.games_played >= 5
+    JOIN regular_gp rgp ON rgp.player_id = pss.player_id
+    WHERE pss.season_id = $1 AND rgp.games_played >= 5
     ORDER BY COALESCE(pss.${statConfig.column}, 0) DESC
     LIMIT $2`;
 }
