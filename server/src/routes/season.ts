@@ -48,11 +48,11 @@ router.get('/progress', authMiddleware(true), async (req: any, res) => {
     if (!franchise) return res.status(404).json({ error: 'No franchise found' });
 
     const [completedResult, totalResult, userGamesResult] = await Promise.all([
-      pool.query(`SELECT COUNT(*) FROM schedule WHERE season_id = $1 AND status = 'completed'`, [franchise.season_id]),
-      pool.query(`SELECT COUNT(*) FROM schedule WHERE season_id = $1`, [franchise.season_id]),
+      pool.query(`SELECT COUNT(*) FROM schedule WHERE season_id = $1 AND status = 'completed' AND is_preseason IS NOT TRUE`, [franchise.season_id]),
+      pool.query(`SELECT COUNT(*) FROM schedule WHERE season_id = $1 AND is_preseason IS NOT TRUE`, [franchise.season_id]),
       pool.query(
         `SELECT COUNT(*) FILTER (WHERE status = 'completed') as completed, COUNT(*) as total
-         FROM schedule WHERE season_id = $1 AND (home_team_id = $2 OR away_team_id = $2)`,
+         FROM schedule WHERE season_id = $1 AND is_preseason IS NOT TRUE AND (home_team_id = $2 OR away_team_id = $2)`,
         [franchise.season_id, franchise.team_id]
       )
     ]);

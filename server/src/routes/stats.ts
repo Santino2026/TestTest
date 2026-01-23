@@ -14,16 +14,16 @@ import {
 const router = Router();
 
 const STAT_MAP: Record<string, { column: string; isComputed: boolean; minAttempts?: string }> = {
-  points: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.points::float / rgp.games_played ELSE 0 END', isComputed: true },
-  ppg: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.points::float / rgp.games_played ELSE 0 END', isComputed: true },
-  rebounds: { column: 'CASE WHEN rgp.games_played > 0 THEN (pss.oreb + pss.dreb)::float / rgp.games_played ELSE 0 END', isComputed: true },
-  rpg: { column: 'CASE WHEN rgp.games_played > 0 THEN (pss.oreb + pss.dreb)::float / rgp.games_played ELSE 0 END', isComputed: true },
-  assists: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.assists::float / rgp.games_played ELSE 0 END', isComputed: true },
-  apg: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.assists::float / rgp.games_played ELSE 0 END', isComputed: true },
-  steals: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.steals::float / rgp.games_played ELSE 0 END', isComputed: true },
-  spg: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.steals::float / rgp.games_played ELSE 0 END', isComputed: true },
-  blocks: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.blocks::float / rgp.games_played ELSE 0 END', isComputed: true },
-  bpg: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.blocks::float / rgp.games_played ELSE 0 END', isComputed: true },
+  points: { column: 'CASE WHEN pss.games_played > 0 THEN pss.points::float / pss.games_played ELSE 0 END', isComputed: true },
+  ppg: { column: 'CASE WHEN pss.games_played > 0 THEN pss.points::float / pss.games_played ELSE 0 END', isComputed: true },
+  rebounds: { column: 'CASE WHEN pss.games_played > 0 THEN (pss.oreb + pss.dreb)::float / pss.games_played ELSE 0 END', isComputed: true },
+  rpg: { column: 'CASE WHEN pss.games_played > 0 THEN (pss.oreb + pss.dreb)::float / pss.games_played ELSE 0 END', isComputed: true },
+  assists: { column: 'CASE WHEN pss.games_played > 0 THEN pss.assists::float / pss.games_played ELSE 0 END', isComputed: true },
+  apg: { column: 'CASE WHEN pss.games_played > 0 THEN pss.assists::float / pss.games_played ELSE 0 END', isComputed: true },
+  steals: { column: 'CASE WHEN pss.games_played > 0 THEN pss.steals::float / pss.games_played ELSE 0 END', isComputed: true },
+  spg: { column: 'CASE WHEN pss.games_played > 0 THEN pss.steals::float / pss.games_played ELSE 0 END', isComputed: true },
+  blocks: { column: 'CASE WHEN pss.games_played > 0 THEN pss.blocks::float / pss.games_played ELSE 0 END', isComputed: true },
+  bpg: { column: 'CASE WHEN pss.games_played > 0 THEN pss.blocks::float / pss.games_played ELSE 0 END', isComputed: true },
   fg_pct: { column: 'CASE WHEN pss.fga > 0 THEN pss.fgm::float / pss.fga ELSE 0 END', isComputed: true, minAttempts: 'fga >= 50' },
   three_pct: { column: 'CASE WHEN pss.three_pa > 0 THEN pss.three_pm::float / pss.three_pa ELSE 0 END', isComputed: true, minAttempts: 'three_pa >= 30' },
   ft_pct: { column: 'CASE WHEN pss.fta > 0 THEN pss.ftm::float / pss.fta ELSE 0 END', isComputed: true, minAttempts: 'fta >= 25' },
@@ -45,39 +45,27 @@ const STAT_MAP: Record<string, { column: string; isComputed: boolean; minAttempt
 
 function buildLeadersQuery(statConfig: { column: string; isComputed: boolean; minAttempts?: string }): string {
   const attemptFilter = statConfig.minAttempts ? ` AND pss.${statConfig.minAttempts}` : '';
-
-  const cte = `
-    WITH rgp AS (
-      SELECT pgs.player_id, pgs.team_id, COUNT(*) as games_played
-      FROM player_game_stats pgs
-      JOIN schedule s ON s.game_id = pgs.game_id AND s.season_id = $1
-      WHERE s.is_preseason IS NOT TRUE
-      GROUP BY pgs.player_id, pgs.team_id
-    )`;
+  const gamesColumn = 'pss.games_played';
 
   if (statConfig.isComputed) {
-    return `${cte}
-      SELECT pss.player_id, p.first_name, p.last_name, p.position,
+    return `SELECT pss.player_id, p.first_name, p.last_name, p.position,
              t.name as team_name, t.abbreviation as team_abbrev,
-             COALESCE(rgp.games_played, 0) as games_played, ${statConfig.column} as stat_value
+             ${gamesColumn} as games_played, ${statConfig.column.replace(/rgp\.games_played/g, gamesColumn)} as stat_value
       FROM player_season_stats pss
       JOIN players p ON pss.player_id = p.id
       LEFT JOIN teams t ON pss.team_id = t.id
-      LEFT JOIN rgp ON rgp.player_id = pss.player_id AND rgp.team_id = pss.team_id
-      WHERE pss.season_id = $1 AND COALESCE(rgp.games_played, 0) >= 5${attemptFilter}
-      ORDER BY ${statConfig.column} DESC NULLS LAST
+      WHERE pss.season_id = $1 AND ${gamesColumn} >= 5${attemptFilter}
+      ORDER BY ${statConfig.column.replace(/rgp\.games_played/g, gamesColumn)} DESC NULLS LAST
       LIMIT $2`;
   }
 
-  return `${cte}
-    SELECT pss.player_id, p.first_name, p.last_name, p.position,
+  return `SELECT pss.player_id, p.first_name, p.last_name, p.position,
            t.name as team_name, t.abbreviation as team_abbrev,
-           COALESCE(rgp.games_played, 0) as games_played, COALESCE(pss.${statConfig.column}, 0) as stat_value
+           ${gamesColumn} as games_played, COALESCE(pss.${statConfig.column}, 0) as stat_value
     FROM player_season_stats pss
     JOIN players p ON pss.player_id = p.id
     LEFT JOIN teams t ON pss.team_id = t.id
-    LEFT JOIN rgp ON rgp.player_id = pss.player_id AND rgp.team_id = pss.team_id
-    WHERE pss.season_id = $1 AND COALESCE(rgp.games_played, 0) >= 5
+    WHERE pss.season_id = $1 AND ${gamesColumn} >= 5
     ORDER BY COALESCE(pss.${statConfig.column}, 0) DESC
     LIMIT $2`;
 }
@@ -289,10 +277,36 @@ router.post('/recalculate/:seasonId', authMiddleware(true), async (req: any, res
   try {
     const { seasonId } = req.params;
 
+    // First, sync games_played from actual player_game_stats records
+    await pool.query(
+      `UPDATE player_season_stats pss SET
+         games_played = sub.actual_games
+       FROM (
+         SELECT pgs.player_id, pgs.team_id, COUNT(*) as actual_games
+         FROM player_game_stats pgs
+         JOIN games g ON pgs.game_id = g.id
+         WHERE g.season_id = $1 AND g.is_playoff IS NOT TRUE
+         GROUP BY pgs.player_id, pgs.team_id
+       ) sub
+       WHERE pss.player_id = sub.player_id AND pss.team_id = sub.team_id AND pss.season_id = $1
+         AND pss.games_played != sub.actual_games`,
+      [seasonId]
+    );
+
+    // Get team totals for PER calculation
+    const teamTotalsResult = await pool.query(
+      `SELECT team_id, games_played, wins, minutes, fga, fta, oreb, dreb, turnovers
+       FROM team_season_stats WHERE season_id = $1`,
+      [seasonId]
+    );
+    const teamTotals = new Map<string, any>();
+    for (const row of teamTotalsResult.rows) {
+      teamTotals.set(row.team_id, row);
+    }
+
     const statsResult = await pool.query(
-      `SELECT pss.*, t.id as team_id
+      `SELECT pss.*
        FROM player_season_stats pss
-       LEFT JOIN teams t ON pss.team_id = t.id
        WHERE pss.season_id = $1`,
       [seasonId]
     );
@@ -307,14 +321,22 @@ router.post('/recalculate/:seasonId', authMiddleware(true), async (req: any, res
       const tsPct = calculateTrueShootingPct(stats.points, stats.fga, stats.fta);
       const efgPct = calculateEffectiveFgPct(stats.fgm, stats.three_pm, stats.fga);
 
+      const tt = teamTotals.get(stats.team_id);
+      const teamMinutes = tt?.minutes || stats.games_played * 48 * 5;
+      const teamFga = tt?.fga || stats.fga * 5;
+      const teamFta = tt?.fta || stats.fta * 5;
+      const teamOreb = tt?.oreb || stats.oreb * 5;
+      const teamTurnovers = tt?.turnovers || stats.turnovers * 5;
+      const teamGames = tt?.games_played || stats.games_played;
+
       const per = calculatePER(basicStats, {
-        minutes: stats.games_played * 48 * 5,
-        fga: stats.fga * 5,
-        fta: stats.fta * 5,
-        oreb: stats.oreb * 5,
-        dreb: stats.dreb * 5,
-        turnovers: stats.turnovers * 5,
-        possessions: stats.games_played * 100
+        minutes: teamMinutes,
+        fga: teamFga,
+        fta: teamFta,
+        oreb: teamOreb,
+        dreb: tt?.dreb || stats.dreb * 5,
+        turnovers: teamTurnovers,
+        possessions: teamGames * 100
       }, 100);
 
       await pool.query(

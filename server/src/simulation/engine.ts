@@ -338,6 +338,25 @@ function simulateQuarter(
         quarterAwayPoints += result.points_scored;
       }
 
+      // Track team-level scoring categories
+      const teamStats = isHome ? homeTeam : awayTeam;
+      if (context.is_fast_break) {
+        (teamStats as any).__fast_break_points = ((teamStats as any).__fast_break_points || 0) + result.points_scored;
+      }
+      if (result.is_offensive_rebound) {
+        (teamStats as any).__second_chance_points = ((teamStats as any).__second_chance_points || 0) + result.points_scored;
+      }
+      const scoringPlay = result.plays.find(p => p.type === 'made_shot');
+      if (scoringPlay) {
+        const shotType = scoringPlay.shot_type;
+        const isPaintShot = shotType === 'dunk' || shotType === 'layup' || shotType === 'floater' ||
+          shotType === 'putback' || shotType === 'tip_in' || shotType === 'alley_oop' ||
+          shotType === 'hook_shot';
+        if (isPaintShot) {
+          (teamStats as any).__points_in_paint = ((teamStats as any).__points_in_paint || 0) + result.points_scored;
+        }
+      }
+
       for (const player of offensiveTeam.on_court) {
         player.stats.plus_minus += result.points_scored;
       }
@@ -466,6 +485,14 @@ export function simulateGame(homeTeam: SimTeam, awayTeam: SimTeam): GameResult {
 
   const homeStats = calculateTeamStats(homeTeam.roster);
   const awayStats = calculateTeamStats(awayTeam.roster);
+
+  // Assign tracked team-level scoring categories
+  homeStats.fast_break_points = (homeTeam as any).__fast_break_points || 0;
+  homeStats.points_in_paint = (homeTeam as any).__points_in_paint || 0;
+  homeStats.second_chance_points = (homeTeam as any).__second_chance_points || 0;
+  awayStats.fast_break_points = (awayTeam as any).__fast_break_points || 0;
+  awayStats.points_in_paint = (awayTeam as any).__points_in_paint || 0;
+  awayStats.second_chance_points = (awayTeam as any).__second_chance_points || 0;
 
   const mapPlayerStats = (roster: SimPlayer[]) => roster.map(p => ({
     ...p.stats,

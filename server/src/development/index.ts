@@ -2,6 +2,7 @@ export {
   AttributeChanges,
   DevelopmentResult,
   DevelopmentSpeed,
+  POSITION_OVERALL_WEIGHTS,
   calculateOverall,
   developPlayer,
   agePlayer,

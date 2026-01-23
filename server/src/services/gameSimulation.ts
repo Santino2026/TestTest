@@ -60,6 +60,13 @@ async function simulateGamesForDay(
 
   const gameDateStr = calculateGameDate(currentDay);
 
+  // Recover any games stuck in 'simulating' state from interrupted runs
+  await pool.query(
+    `UPDATE schedule SET status = 'scheduled'
+     WHERE season_id = $1 AND game_day = $2 AND status = 'simulating'`,
+    [seasonId, currentDay]
+  );
+
   const gamesResult = await pool.query(
     `SELECT s.*, ht.name as home_team_name, at.name as away_team_name
      FROM schedule s

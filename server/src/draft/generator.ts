@@ -106,12 +106,22 @@ function pickRandom<T>(array: T[]): T {
   return array[Math.floor(Math.random() * array.length)];
 }
 
+// Box-Muller for normal distribution
+function normalRandom(mean: number, stdDev: number): number {
+  let u1 = Math.random();
+  let u2 = Math.random();
+  while (u1 === 0) u1 = Math.random();
+  const z = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+  return Math.round(mean + stdDev * z);
+}
+
 function generateProspectOverall(tier: ProspectTier): number {
+  // Wider spread between tiers for meaningful differentiation
   switch (tier) {
-    case 'lottery': return random(72, 82);
-    case 'first_round': return random(62, 74);
-    case 'second_round': return random(52, 66);
-    case 'undrafted': return random(42, 58);
+    case 'lottery': return Math.max(72, Math.min(90, normalRandom(79, 4)));
+    case 'first_round': return Math.max(62, Math.min(77, normalRandom(69, 4)));
+    case 'second_round': return Math.max(50, Math.min(67, normalRandom(58, 4)));
+    case 'undrafted': return Math.max(40, Math.min(57, normalRandom(48, 4)));
   }
 }
 
@@ -126,10 +136,12 @@ function generateProspectAttributes(archetype: string, overall: number): Record<
   const attrs: Record<string, number> = {};
 
   for (const attr of ALL_ATTRIBUTES) {
-    let value = baseAttributes[attr] || random(45, 65);
+    const hasBase = baseAttributes[attr] !== undefined;
+    let value = baseAttributes[attr] || random(40, 60);
     value = Math.round(value * overallFactor);
-    value += random(-10, 10);
-    attrs[attr] = Math.max(30, Math.min(99, value));
+    // Wider variance for archetype skills (±15), tighter for others (±10)
+    value += hasBase ? random(-15, 15) : random(-10, 10);
+    attrs[attr] = Math.max(25, Math.min(99, value));
   }
 
   attrs['streakiness'] = random(20, 90);

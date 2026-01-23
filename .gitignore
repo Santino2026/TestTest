@@ -32,5 +32,8 @@ playwright-report/
 # Windows artifacts
 nul
 
+# Backup files
+*.backup
+
 # Claude Code temp files
 tmpclaude-*

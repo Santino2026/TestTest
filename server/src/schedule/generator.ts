@@ -315,13 +315,36 @@ export function generateSchedule(
   config: ScheduleConfig = DEFAULT_CONFIG
 ): ScheduledGame[] {
   const allMatchups = generateAllMatchups(teams);
+  const seasonDays = 174;
+
+  // Try scheduling with progressively relaxed gap constraints
+  const gapAttempts = [7, 5, 3, 1, 0];
+
+  for (const minGap of gapAttempts) {
+    const result = attemptSchedule(teams, allMatchups, seasonDays, config, minGap);
+    if (result) {
+      if (minGap < 7) {
+        console.log(`Schedule generated with relaxed gap constraint: ${minGap} days`);
+      }
+      return result;
+    }
+  }
+
+  throw new Error('Failed to generate valid 82-game schedule after all gap constraint attempts');
+}
+
+function attemptSchedule(
+  teams: Team[],
+  allMatchups: Matchup[],
+  seasonDays: number,
+  config: ScheduleConfig,
+  minMatchupGap: number
+): ScheduledGame[] | null {
   const teamGamesOnDate = new Map<string, Set<string>>();
   const gameCountByTeam = createTeamCounterMap(teams);
-  const lastMatchupDay = new Map<string, number>(); // pairKey -> last day index scheduled
+  const lastMatchupDay = new Map<string, number>();
 
   const schedule: ScheduledGame[] = [];
-  const seasonDays = 174;
-  const MIN_MATCHUP_GAP = 7; // Minimum days between games vs same opponent
 
   const dates: Date[] = [];
   const startDate = new Date(config.season_start);
@@ -332,8 +355,6 @@ export function generateSchedule(
     teamGamesOnDate.set(getDateKey(date), new Set());
   }
 
-  // Schedule games day-by-day, prioritizing teams with fewest games
-  // This ensures all teams stay within 1-2 games of each other throughout the season
   const unscheduledMatchups = [...allMatchups];
 
   for (let dayIndex = 0; dayIndex < seasonDays && unscheduledMatchups.length > 0; dayIndex++) {
@@ -341,18 +362,15 @@ export function generateSchedule(
     const dateKey = getDateKey(date);
     const teamsOnDate = teamGamesOnDate.get(dateKey)!;
 
-    // Calculate games per day dynamically to spread across full 174 days
     const remainingDays = seasonDays - dayIndex;
     const gamesPerDay = Math.ceil(unscheduledMatchups.length / remainingDays);
 
-    // Sort unscheduled matchups by priority: teams with fewer games first
     unscheduledMatchups.sort((a, b) => {
       const aTotal = gameCountByTeam.get(a.home)! + gameCountByTeam.get(a.away)!;
       const bTotal = gameCountByTeam.get(b.home)! + gameCountByTeam.get(b.away)!;
       return aTotal - bTotal;
     });
 
-    // Schedule up to gamesPerDay games for this day
     let gamesScheduledToday = 0;
     const matchupsToRemove: number[] = [];
 
@@ -360,10 +378,9 @@ export function generateSchedule(
       const matchup = unscheduledMatchups[i];
       const { home: homeTeamId, away: awayTeamId } = matchup;
 
-      // Check if both teams are available and haven't played each other recently
       const pairKey = getPairKey(homeTeamId, awayTeamId);
-      const lastDay = lastMatchupDay.get(pairKey) ?? -MIN_MATCHUP_GAP;
-      if (!teamsOnDate.has(homeTeamId) && !teamsOnDate.has(awayTeamId) && (dayIndex - lastDay) >= MIN_MATCHUP_GAP) {
+      const lastDay = lastMatchupDay.get(pairKey) ?? -minMatchupGap;
+      if (!teamsOnDate.has(homeTeamId) && !teamsOnDate.has(awayTeamId) && (dayIndex - lastDay) >= minMatchupGap) {
         const homeGameNum = gameCountByTeam.get(homeTeamId)! + 1;
         const awayGameNum = gameCountByTeam.get(awayTeamId)! + 1;
 
@@ -385,41 +402,22 @@ export function generateSchedule(
       }
     }
 
-    // Remove scheduled matchups (in reverse order to preserve indices)
     for (let i = matchupsToRemove.length - 1; i >= 0; i--) {
       unscheduledMatchups.splice(matchupsToRemove[i], 1);
     }
   }
 
-  // Fallback: schedule remaining matchups without gap constraint
+  // If any matchups remain unscheduled, this gap constraint failed
   if (unscheduledMatchups.length > 0) {
-    for (let dayIndex = 0; dayIndex < seasonDays && unscheduledMatchups.length > 0; dayIndex++) {
-      const date = dates[dayIndex];
-      const dateKey = getDateKey(date);
-      const teamsOnDate = teamGamesOnDate.get(dateKey)!;
-      const matchupsToRemove: number[] = [];
+    return null;
+  }
 
-      for (let i = 0; i < unscheduledMatchups.length; i++) {
-        const matchup = unscheduledMatchups[i];
-        if (!teamsOnDate.has(matchup.home) && !teamsOnDate.has(matchup.away)) {
-          schedule.push({
-            home_team_id: matchup.home,
-            away_team_id: matchup.away,
-            game_date: new Date(date),
-            game_number_home: gameCountByTeam.get(matchup.home)! + 1,
-            game_number_away: gameCountByTeam.get(matchup.away)! + 1,
-          });
-          teamsOnDate.add(matchup.home);
-          teamsOnDate.add(matchup.away);
-          gameCountByTeam.set(matchup.home, gameCountByTeam.get(matchup.home)! + 1);
-          gameCountByTeam.set(matchup.away, gameCountByTeam.get(matchup.away)! + 1);
-          matchupsToRemove.push(i);
-        }
-      }
-
-      for (let i = matchupsToRemove.length - 1; i >= 0; i--) {
-        unscheduledMatchups.splice(matchupsToRemove[i], 1);
-      }
+  // Assert every team has exactly 82 games
+  for (const team of teams) {
+    const count = gameCountByTeam.get(team.id)!;
+    if (count !== 82) {
+      console.error(`Schedule assertion failed: team ${team.id} has ${count} games (expected 82)`);
+      return null;
     }
   }
 

@@ -38,8 +38,8 @@ export function simulatePossession(context: PossessionContext): PossessionResult
       }
     }
 
-    // Time to read defense, set up play (2-5 seconds)
-    shotClock -= Math.floor(Math.random() * 4) + 2;
+    // Time to read defense, set up play (5-9 seconds)
+    shotClock -= Math.floor(Math.random() * 5) + 5;
     if (shotClock <= 0) {
       plays.push(createTurnoverPlay(ballHandler, context, context.game_clock - SHOT_CLOCK, 'Shot clock violation'));
       return { plays, points_scored: 0, time_elapsed: SHOT_CLOCK, possession_ended: true, ending: 'shot_clock_violation' };
@@ -182,7 +182,7 @@ export function simulatePossession(context: PossessionContext): PossessionResult
         lastPasser = ballHandler; // Track passer for potential assist
         ballHandler = receiver;
         passCount++;
-        shotClock -= Math.floor(Math.random() * 3) + 1;
+        shotClock -= Math.floor(Math.random() * 3) + 2;
 
         if (passCount >= 6) {
           shotClock = Math.min(shotClock, 4);
@@ -275,7 +275,7 @@ export function simulatePossession(context: PossessionContext): PossessionResult
       case 'iso':
       case 'post_up':
       case 'pick_and_roll': {
-        shotClock -= Math.floor(Math.random() * 3) + 1;
+        shotClock -= Math.floor(Math.random() * 3) + 3;
 
         if (shotClock <= 0) {
           plays.push(createTurnoverPlay(ballHandler, context, context.game_clock - SHOT_CLOCK, 'Shot clock violation'));

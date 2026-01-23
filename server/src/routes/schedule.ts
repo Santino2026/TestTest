@@ -14,11 +14,18 @@ router.post('/generate', authMiddleware(true), async (req: any, res) => {
     if (franchise.phase !== 'preseason') return res.status(400).json({ error: 'Can only generate schedule during preseason' });
 
     const teamsResult = await pool.query('SELECT id, conference, division FROM teams');
-    const schedule = generateSchedule(teamsResult.rows);
+
+    let schedule: ReturnType<typeof generateSchedule>;
+    try {
+      schedule = generateSchedule(teamsResult.rows);
+    } catch (genError: any) {
+      console.error('Schedule generation failed:', genError.message);
+      return res.status(500).json({ error: 'Failed to generate valid schedule. Please try again.' });
+    }
 
     if (!validateSchedule(schedule, teamsResult.rows)) {
       console.error('Schedule validation failed - generated invalid schedule');
-      return res.status(500).json({ error: 'Schedule generation produced invalid results' });
+      return res.status(500).json({ error: 'Schedule generation produced invalid results. Please try again.' });
     }
 
     await withTransaction(async (client) => {

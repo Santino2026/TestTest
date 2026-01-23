@@ -67,10 +67,84 @@ function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-export function calculateOverall(attributes: Record<string, number>): number {
-  const attrValues = Object.values(attributes).filter(v => typeof v === 'number');
-  if (attrValues.length === 0) return 50;
-  return Math.round(attrValues.reduce((sum, v) => sum + v, 0) / attrValues.length);
+// Position-weighted overall rating calculation
+// Weights are normalized percentages (~1.0 total per position)
+// Attributes not listed for a position contribute 0 to overall
+export const POSITION_OVERALL_WEIGHTS: Record<string, Record<string, number>> = {
+  PG: {
+    inside_scoring: 0.02, mid_range: 0.05, three_point: 0.09, free_throw: 0.03,
+    layup: 0.03, driving_dunk: 0.02,
+    ball_handling: 0.12, passing_accuracy: 0.08, passing_vision: 0.06, offensive_iq: 0.05,
+    speed: 0.04, acceleration: 0.03, stamina: 0.01,
+    perimeter_defense: 0.10, steal: 0.06, defensive_iq: 0.04,
+    interior_defense: 0.01, block: 0.01,
+    lateral_quickness: 0.03,
+    clutch: 0.03, offensive_consistency: 0.02, defensive_consistency: 0.02,
+    basketball_iq: 0.02, speed_with_ball: 0.03
+  },
+  SG: {
+    inside_scoring: 0.03, mid_range: 0.09, three_point: 0.12, free_throw: 0.03,
+    layup: 0.03, driving_dunk: 0.03,
+    ball_handling: 0.06, passing_accuracy: 0.03, passing_vision: 0.03, offensive_iq: 0.04,
+    speed: 0.04, acceleration: 0.04, vertical: 0.02, stamina: 0.02,
+    perimeter_defense: 0.11, steal: 0.05, defensive_iq: 0.04,
+    interior_defense: 0.02, block: 0.02,
+    lateral_quickness: 0.03,
+    clutch: 0.03, offensive_consistency: 0.02, defensive_consistency: 0.02,
+    basketball_iq: 0.01, speed_with_ball: 0.02
+  },
+  SF: {
+    inside_scoring: 0.06, mid_range: 0.08, three_point: 0.09, free_throw: 0.03,
+    layup: 0.03, driving_dunk: 0.03, standing_dunk: 0.02,
+    ball_handling: 0.03, passing_accuracy: 0.02, passing_vision: 0.02, offensive_iq: 0.04,
+    speed: 0.03, acceleration: 0.03, strength: 0.03, vertical: 0.03, stamina: 0.02,
+    perimeter_defense: 0.08, interior_defense: 0.05, steal: 0.03, block: 0.03, defensive_iq: 0.04,
+    defensive_rebound: 0.03, lateral_quickness: 0.02,
+    clutch: 0.03, offensive_consistency: 0.02, defensive_consistency: 0.02,
+    basketball_iq: 0.02
+  },
+  PF: {
+    inside_scoring: 0.10, mid_range: 0.06, three_point: 0.05, free_throw: 0.03,
+    layup: 0.03, standing_dunk: 0.04, driving_dunk: 0.02, post_moves: 0.04,
+    passing_accuracy: 0.02, offensive_iq: 0.03,
+    speed: 0.02, acceleration: 0.02, strength: 0.07, vertical: 0.04, stamina: 0.02,
+    interior_defense: 0.12, perimeter_defense: 0.03, block: 0.08, defensive_iq: 0.04,
+    defensive_rebound: 0.05, offensive_rebound: 0.03,
+    clutch: 0.02, offensive_consistency: 0.01, defensive_consistency: 0.02,
+    basketball_iq: 0.01
+  },
+  C: {
+    inside_scoring: 0.12, mid_range: 0.03, three_point: 0.02, free_throw: 0.02,
+    layup: 0.03, standing_dunk: 0.04, post_moves: 0.05, post_control: 0.03,
+    passing_accuracy: 0.02, offensive_iq: 0.03,
+    strength: 0.10, vertical: 0.04, stamina: 0.02,
+    interior_defense: 0.16, block: 0.12, defensive_iq: 0.04,
+    perimeter_defense: 0.01,
+    defensive_rebound: 0.05, offensive_rebound: 0.03,
+    clutch: 0.02, defensive_consistency: 0.02,
+    basketball_iq: 0.01
+  }
+};
+
+export function calculateOverall(attributes: Record<string, number>, position?: string): number {
+  const weights = position ? POSITION_OVERALL_WEIGHTS[position] : null;
+
+  if (!weights) {
+    // Fallback for unknown position: simple average of all numeric attributes
+    const attrValues = Object.values(attributes).filter(v => typeof v === 'number');
+    if (attrValues.length === 0) return 50;
+    return Math.round(attrValues.reduce((sum, v) => sum + v, 0) / attrValues.length);
+  }
+
+  let overall = 0;
+  for (const [attr, weight] of Object.entries(weights)) {
+    const value = attributes[attr];
+    if (typeof value === 'number') {
+      overall += value * weight;
+    }
+  }
+
+  return Math.round(Math.min(99, Math.max(40, overall)));
 }
 
 function getMinutesModifier(seasonMinutes: number): number {
@@ -135,6 +209,7 @@ export function developPlayer(player: {
   id: string;
   first_name: string;
   last_name: string;
+  position?: string;
   age: number;
   overall: number;
   potential: number;
@@ -203,7 +278,7 @@ export function developPlayer(player: {
     }
   }
 
-  const newOverall = calculateOverall(newAttributes);
+  const newOverall = calculateOverall(newAttributes, player.position);
 
   return {
     player_id: player.id,
@@ -250,6 +325,7 @@ export function processOffseasonDevelopment(players: Array<{
   id: string;
   first_name: string;
   last_name: string;
+  position?: string;
   age: number;
   overall: number;
   potential: number;

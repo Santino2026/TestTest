@@ -116,28 +116,38 @@ function random(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+// Box-Muller transform for normal distribution
+function normalRandom(mean: number, stdDev: number): number {
+  let u1 = Math.random();
+  let u2 = Math.random();
+  while (u1 === 0) u1 = Math.random();
+  const z = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+  return Math.round(mean + stdDev * z);
+}
+
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
 function generateOverall(age: number, isPremium: boolean): number {
-  // Premium players (1-2 per team) get higher ratings
+  // Bell curve distributions centered at realistic NBA2K-style values
   if (isPremium) {
-    return random(80, 95);
+    // Stars: centered at 87, tight distribution (83-94 typical)
+    return Math.max(80, Math.min(97, normalRandom(87, 4)));
   }
 
-  // Young players (19-23) have wider range
   if (age <= 23) {
-    return random(55, 78);
+    // Young: centered at 63, wide range (48-78)
+    return Math.max(48, Math.min(78, normalRandom(63, 7)));
   }
 
-  // Prime players (24-30)
   if (age <= 30) {
-    return random(65, 82);
+    // Prime: centered at 73, moderate range (62-84)
+    return Math.max(62, Math.min(84, normalRandom(73, 5)));
   }
 
-  // Older players (31+)
-  return random(58, 75);
+  // Older (31+): centered at 68, moderate range (55-78)
+  return Math.max(55, Math.min(78, normalRandom(68, 5)));
 }
 
 function generatePotential(age: number, overall: number): number {
@@ -181,10 +191,13 @@ function generateAttributes(archetype: Archetype, overall: number): Record<strin
   const overallFactor = overall / 75; // Scale attributes based on overall
 
   for (const attr of allAttributes) {
-    let value = base[attr] || random(45, 65); // Use archetype base or random default
+    const hasArchetypeBase = base[attr] !== undefined;
+    let value = base[attr] || random(40, 60); // Use archetype base or random default
     value = Math.round(value * overallFactor); // Scale by overall
-    value += random(-8, 8); // Add variance
-    value = Math.max(30, Math.min(99, value)); // Clamp to valid range
+    // Wider variance for archetype skills (±14), tighter for non-archetype (±8)
+    const variance = hasArchetypeBase ? random(-14, 14) : random(-8, 8);
+    value += variance;
+    value = Math.max(25, Math.min(99, value)); // Allow lower floor for differentiation
     attrs[attr] = value;
   }
 
