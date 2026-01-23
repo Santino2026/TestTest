@@ -102,7 +102,8 @@ async function simulateGamesForDay(
           { id: homeTeam.id, starters: homeTeam.starters },
           { id: awayTeam.id, starters: awayTeam.starters },
           updateStandings,
-          client
+          client,
+          isPreseason
         );
 
         await client.query(

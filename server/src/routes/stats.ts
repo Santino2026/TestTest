@@ -14,16 +14,16 @@ import {
 const router = Router();
 
 const STAT_MAP: Record<string, { column: string; isComputed: boolean; minAttempts?: string }> = {
-  points: { column: 'ppg', isComputed: false },
-  ppg: { column: 'ppg', isComputed: false },
-  rebounds: { column: 'rpg', isComputed: false },
-  rpg: { column: 'rpg', isComputed: false },
-  assists: { column: 'apg', isComputed: false },
-  apg: { column: 'apg', isComputed: false },
-  steals: { column: 'spg', isComputed: false },
-  spg: { column: 'spg', isComputed: false },
-  blocks: { column: 'bpg', isComputed: false },
-  bpg: { column: 'bpg', isComputed: false },
+  points: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.points::float / rgp.games_played ELSE 0 END', isComputed: true },
+  ppg: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.points::float / rgp.games_played ELSE 0 END', isComputed: true },
+  rebounds: { column: 'CASE WHEN rgp.games_played > 0 THEN (pss.oreb + pss.dreb)::float / rgp.games_played ELSE 0 END', isComputed: true },
+  rpg: { column: 'CASE WHEN rgp.games_played > 0 THEN (pss.oreb + pss.dreb)::float / rgp.games_played ELSE 0 END', isComputed: true },
+  assists: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.assists::float / rgp.games_played ELSE 0 END', isComputed: true },
+  apg: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.assists::float / rgp.games_played ELSE 0 END', isComputed: true },
+  steals: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.steals::float / rgp.games_played ELSE 0 END', isComputed: true },
+  spg: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.steals::float / rgp.games_played ELSE 0 END', isComputed: true },
+  blocks: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.blocks::float / rgp.games_played ELSE 0 END', isComputed: true },
+  bpg: { column: 'CASE WHEN rgp.games_played > 0 THEN pss.blocks::float / rgp.games_played ELSE 0 END', isComputed: true },
   fg_pct: { column: 'CASE WHEN pss.fga > 0 THEN pss.fgm::float / pss.fga ELSE 0 END', isComputed: true, minAttempts: 'fga >= 50' },
   three_pct: { column: 'CASE WHEN pss.three_pa > 0 THEN pss.three_pm::float / pss.three_pa ELSE 0 END', isComputed: true, minAttempts: 'three_pa >= 30' },
   ft_pct: { column: 'CASE WHEN pss.fta > 0 THEN pss.ftm::float / pss.fta ELSE 0 END', isComputed: true, minAttempts: 'fta >= 25' },
@@ -46,27 +46,38 @@ const STAT_MAP: Record<string, { column: string; isComputed: boolean; minAttempt
 function buildLeadersQuery(statConfig: { column: string; isComputed: boolean; minAttempts?: string }): string {
   const attemptFilter = statConfig.minAttempts ? ` AND pss.${statConfig.minAttempts}` : '';
 
+  const cte = `
+    WITH rgp AS (
+      SELECT pgs.player_id, pgs.team_id, COUNT(*) as games_played
+      FROM player_game_stats pgs
+      JOIN schedule s ON s.game_id = pgs.game_id AND s.season_id = $1
+      WHERE s.is_preseason IS NOT TRUE
+      GROUP BY pgs.player_id, pgs.team_id
+    )`;
+
   if (statConfig.isComputed) {
-    return `
+    return `${cte}
       SELECT pss.player_id, p.first_name, p.last_name, p.position,
              t.name as team_name, t.abbreviation as team_abbrev,
-             pss.games_played, ${statConfig.column} as stat_value
+             COALESCE(rgp.games_played, 0) as games_played, ${statConfig.column} as stat_value
       FROM player_season_stats pss
       JOIN players p ON pss.player_id = p.id
       LEFT JOIN teams t ON pss.team_id = t.id
-      WHERE pss.season_id = $1 AND pss.games_played >= 5${attemptFilter}
+      LEFT JOIN rgp ON rgp.player_id = pss.player_id AND rgp.team_id = pss.team_id
+      WHERE pss.season_id = $1 AND COALESCE(rgp.games_played, 0) >= 5${attemptFilter}
       ORDER BY ${statConfig.column} DESC NULLS LAST
       LIMIT $2`;
   }
 
-  return `
+  return `${cte}
     SELECT pss.player_id, p.first_name, p.last_name, p.position,
            t.name as team_name, t.abbreviation as team_abbrev,
-           pss.games_played, COALESCE(pss.${statConfig.column}, 0) as stat_value
+           COALESCE(rgp.games_played, 0) as games_played, COALESCE(pss.${statConfig.column}, 0) as stat_value
     FROM player_season_stats pss
     JOIN players p ON pss.player_id = p.id
     LEFT JOIN teams t ON pss.team_id = t.id
-    WHERE pss.season_id = $1 AND pss.games_played >= 5
+    LEFT JOIN rgp ON rgp.player_id = pss.player_id AND rgp.team_id = pss.team_id
+    WHERE pss.season_id = $1 AND COALESCE(rgp.games_played, 0) >= 5
     ORDER BY COALESCE(pss.${statConfig.column}, 0) DESC
     LIMIT $2`;
 }
