@@ -120,7 +120,8 @@ export async function getAllStarCandidates(
 
 export async function selectAllStars(
   seasonId: string,
-  conference: 'Eastern' | 'Western'
+  conference: 'Eastern' | 'Western',
+  userPickId?: string
 ): Promise<AllStarCandidate[]> {
   const candidates = await getAllStarCandidates(seasonId, conference);
   const confKey = conference === 'Eastern' ? 'east' : 'west';
@@ -186,6 +187,13 @@ export async function selectAllStars(
 
   const reserves = [...unrepresentedCandidates, ...representedCandidates].slice(0, 10);
   selected.push(...reserves);
+
+  if (userPickId && !selected.some(p => p.player_id === userPickId)) {
+    const userPlayer = candidates.find(c => c.player_id === userPickId);
+    if (userPlayer) {
+      selected[selected.length - 1] = userPlayer;
+    }
+  }
 
   const allStarsWithVotes = selected.map((player, idx) => {
     const isStarter = idx < 5;

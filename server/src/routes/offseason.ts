@@ -166,10 +166,10 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
       for (const row of expiredContracts.rows) {
         await client.query(`UPDATE players SET team_id = NULL, salary = 0 WHERE id = $1`, [row.player_id]);
         await client.query(
-          `INSERT INTO free_agents (player_id, previous_team_id, asking_salary, market_value, status)
-           VALUES ($1, (SELECT team_id FROM contracts WHERE player_id = $1 ORDER BY created_at DESC LIMIT 1), $2, $3, 'available')
-           ON CONFLICT (player_id) DO UPDATE SET status = 'available', asking_salary = $2`,
-          [row.player_id, row.base_salary || 5000000, (row.overall || 70) * 100000]
+          `INSERT INTO free_agents (player_id, season_id, asking_salary, market_value, status)
+           VALUES ($1, $2, $3, $4, 'available')
+           ON CONFLICT (player_id, season_id) DO UPDATE SET status = 'available', asking_salary = $3`,
+          [row.player_id, franchise.season_id, row.base_salary || 5000000, (row.overall || 70) * 100000]
         );
       }
 
@@ -332,10 +332,10 @@ router.post('/finalize-playoffs', authMiddleware(true), async (req: any, res) =>
       for (const row of expiredContracts.rows) {
         await client.query(`UPDATE players SET team_id = NULL, salary = 0 WHERE id = $1`, [row.player_id]);
         await client.query(
-          `INSERT INTO free_agents (player_id, previous_team_id, asking_salary, market_value, status)
-           VALUES ($1, (SELECT team_id FROM contracts WHERE player_id = $1 ORDER BY created_at DESC LIMIT 1), $2, $3, 'available')
-           ON CONFLICT (player_id) DO UPDATE SET status = 'available', asking_salary = $2`,
-          [row.player_id, row.base_salary || 5000000, (row.overall || 70) * 100000]
+          `INSERT INTO free_agents (player_id, season_id, asking_salary, market_value, status)
+           VALUES ($1, $2, $3, $4, 'available')
+           ON CONFLICT (player_id, season_id) DO UPDATE SET status = 'available', asking_salary = $3`,
+          [row.player_id, franchise.season_id, row.base_salary || 5000000, (row.overall || 70) * 100000]
         );
       }
 

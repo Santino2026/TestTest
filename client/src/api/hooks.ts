@@ -93,17 +93,6 @@ export function useFranchise() {
   });
 }
 
-export function useSelectFranchise() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (teamId: string) => api.selectFranchise(teamId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['franchise'] });
-    },
-  });
-}
-
 // Schedule
 export function useSchedule(params?: { team_id?: string; date?: string; month?: string }) {
   return useQuery({
@@ -117,17 +106,6 @@ export function useUpcomingGames(teamId: string, limit = 10) {
     queryKey: ['schedule', 'upcoming', teamId, limit],
     queryFn: () => api.getUpcomingGames(teamId, limit),
     enabled: !!teamId,
-  });
-}
-
-export function useGenerateSchedule() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: api.generateSchedule,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['schedule'] });
-    },
   });
 }
 
@@ -332,28 +310,6 @@ export function useAwards(params?: { season_id?: number }) {
   });
 }
 
-export function useCalculateAwards() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: api.calculateAwards,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['awards'] });
-    },
-  });
-}
-
-export function useSetFinalsMvp() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (playerId: string) => api.setFinalsMvp(playerId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['awards'] });
-    },
-  });
-}
-
 // Draft AI
 export function useDraftState() {
   return useQuery({
@@ -366,47 +322,6 @@ export function useTeamNeeds() {
   return useQuery({
     queryKey: ['draft', 'needs'],
     queryFn: api.getTeamNeeds,
-  });
-}
-
-export function useMakeAIPick() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: api.makeAIPick,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['draft'] });
-      queryClient.invalidateQueries({ queryKey: ['players'] });
-    },
-  });
-}
-
-export function useSimToPick() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: api.simToPick,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['draft'] });
-      queryClient.invalidateQueries({ queryKey: ['draftProspects'] });
-      queryClient.invalidateQueries({ queryKey: ['draftOrder'] });
-      queryClient.invalidateQueries({ queryKey: ['players'] });
-    },
-  });
-}
-
-export function useAutoDraft() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: api.autoDraft,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['draft'] });
-      queryClient.invalidateQueries({ queryKey: ['draftProspects'] });
-      queryClient.invalidateQueries({ queryKey: ['draftOrder'] });
-      queryClient.invalidateQueries({ queryKey: ['players'] });
-      queryClient.invalidateQueries({ queryKey: ['franchise'] });
-    },
   });
 }
 

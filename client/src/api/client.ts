@@ -775,41 +775,6 @@ export const api = {
   getUpcomingGames: (teamId: string, limit = 10) =>
     fetchAPI<ScheduledGame[]>(`/schedule/upcoming?team_id=${teamId}&limit=${limit}`),
 
-  // Season Progress
-  getSeasonProgress: () =>
-    fetchAPI<{
-      current_day: number;
-      total_days: number;
-      phase: string;
-      games_completed: number;
-      total_games: number;
-      user_games_completed: number;
-      user_games_total: number;
-    }>('/season/progress'),
-
-  // Season Summary (championship display)
-  getSeasonSummary: () =>
-    fetchAPI<{
-      season_number: number;
-      champion: {
-        team_id: string;
-        name: string;
-        abbreviation: string;
-        city: string;
-        series_score: string;
-      } | null;
-      user_team: {
-        name: string;
-        abbreviation: string;
-        wins: number;
-        losses: number;
-        playoff_finish: string;
-        is_champion: boolean;
-      };
-      top_standings: { name: string; abbreviation: string; wins: number; losses: number; conference: string }[];
-      playoffs_complete: boolean;
-    }>('/season/summary'),
-
   // Season Advancement
   startSeason: () =>
     fetchAPI<{ message: string; phase: string }>('/season/start', { method: 'POST' }),
@@ -839,14 +804,6 @@ export const api = {
     ),
   advanceDay: () =>
     fetchAPI<AdvanceDayResult>('/season/advance/day', { method: 'POST' }),
-  advanceWeek: () =>
-    fetchAPI<{
-      days_simulated: number;
-      current_day: number;
-      phase: string;
-      games_played: number;
-      user_games: any[];
-    }>('/season/advance/week', { method: 'POST' }),
   advanceToPlayoffs: () =>
     fetchAPI<{
       message: string;
