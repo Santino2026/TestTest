@@ -391,9 +391,36 @@ export function generateSchedule(
     }
   }
 
-  // Handle any remaining matchups (shouldn't happen with 174 days)
+  // Fallback: schedule remaining matchups without gap constraint
   if (unscheduledMatchups.length > 0) {
-    throw new Error(`Failed to schedule ${unscheduledMatchups.length} games - not enough days`);
+    for (let dayIndex = 0; dayIndex < seasonDays && unscheduledMatchups.length > 0; dayIndex++) {
+      const date = dates[dayIndex];
+      const dateKey = getDateKey(date);
+      const teamsOnDate = teamGamesOnDate.get(dateKey)!;
+      const matchupsToRemove: number[] = [];
+
+      for (let i = 0; i < unscheduledMatchups.length; i++) {
+        const matchup = unscheduledMatchups[i];
+        if (!teamsOnDate.has(matchup.home) && !teamsOnDate.has(matchup.away)) {
+          schedule.push({
+            home_team_id: matchup.home,
+            away_team_id: matchup.away,
+            game_date: new Date(date),
+            game_number_home: gameCountByTeam.get(matchup.home)! + 1,
+            game_number_away: gameCountByTeam.get(matchup.away)! + 1,
+          });
+          teamsOnDate.add(matchup.home);
+          teamsOnDate.add(matchup.away);
+          gameCountByTeam.set(matchup.home, gameCountByTeam.get(matchup.home)! + 1);
+          gameCountByTeam.set(matchup.away, gameCountByTeam.get(matchup.away)! + 1);
+          matchupsToRemove.push(i);
+        }
+      }
+
+      for (let i = matchupsToRemove.length - 1; i >= 0; i--) {
+        unscheduledMatchups.splice(matchupsToRemove[i], 1);
+      }
+    }
   }
 
   schedule.sort((a, b) => a.game_date.getTime() - b.game_date.getTime());
