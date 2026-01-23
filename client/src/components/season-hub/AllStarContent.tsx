@@ -13,6 +13,7 @@ import {
   useSimulateAllStarWeekend,
   useAllStarResults,
   useCompleteAllStar,
+  useTeam,
 } from '@/api/hooks';
 import { cn, getStatColor } from '@/lib/utils';
 import { Star, Trophy, Target, Zap, Users, Play, FastForward, ChevronRight } from 'lucide-react';
@@ -39,6 +40,9 @@ function formatWinningTeam(team: string): string {
 export function AllStarContent() {
   const { franchise, refreshFranchise } = useFranchise();
   const [selectedTab, setSelectedTab] = useState<'events' | 'rosters'>('events');
+  const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
+
+  const { data: teamData } = useTeam(franchise?.team_id || '');
 
   const { data: state } = useAllStarState();
   const { data: rosters } = useAllStarRosters();
@@ -237,15 +241,35 @@ export function AllStarContent() {
   return (
     <>
       {/* Controls */}
-      <div className="flex flex-wrap gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
         {!state?.selections_made && (
-          <Button
-            onClick={() => selectAllStars.mutate(undefined, { onSuccess: () => refreshFranchise() })}
-            disabled={selectAllStars.isPending}
-          >
-            <Star className="w-4 h-4 mr-2" />
-            {selectAllStars.isPending ? 'Selecting...' : 'Select All-Stars'}
-          </Button>
+          <>
+            <select
+              value={selectedPlayer || ''}
+              onChange={(e) => setSelectedPlayer(e.target.value || null)}
+              className="bg-slate-800 border border-slate-600 text-white text-sm rounded px-3 py-2"
+            >
+              <option value="">Your All-Star pick (optional)</option>
+              {teamData?.roster
+                ?.slice()
+                .sort((a, b) => b.overall - a.overall)
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.first_name} {p.last_name} - {p.position} ({p.overall} OVR)
+                  </option>
+                ))}
+            </select>
+            <Button
+              onClick={() => selectAllStars.mutate(
+                selectedPlayer ? { player_id: selectedPlayer } : undefined,
+                { onSuccess: () => refreshFranchise() }
+              )}
+              disabled={selectAllStars.isPending}
+            >
+              <Star className="w-4 h-4 mr-2" />
+              {selectAllStars.isPending ? 'Selecting...' : 'Select All-Stars'}
+            </Button>
+          </>
         )}
         {state?.selections_made && !state?.all_events_complete && (
           <Button

@@ -79,9 +79,23 @@ router.post('/select', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: 'All-Star selections already made' });
     }
 
+    const { player_id } = req.body || {};
+    let userPickConference: 'Eastern' | 'Western' | null = null;
+
+    if (player_id) {
+      const playerResult = await pool.query(
+        `SELECT t.conference FROM players p JOIN teams t ON p.team_id = t.id WHERE p.id = $1 AND p.team_id = $2`,
+        [player_id, franchise.team_id]
+      );
+      if (playerResult.rows.length === 0) {
+        return res.status(400).json({ error: 'Player not found on your roster' });
+      }
+      userPickConference = playerResult.rows[0].conference;
+    }
+
     const [eastStars, westStars] = await Promise.all([
-      selectAllStars(seasonId, 'Eastern'),
-      selectAllStars(seasonId, 'Western')
+      selectAllStars(seasonId, 'Eastern', userPickConference === 'Eastern' ? player_id : undefined),
+      selectAllStars(seasonId, 'Western', userPickConference === 'Western' ? player_id : undefined)
     ]);
 
     res.json({
