@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db/pool';
 import { authMiddleware } from '../auth';
 import { getUserActiveFranchise, getSeasonAllStarDay } from '../db/queries';
+import { simulateDayGames } from '../services/gameSimulation';
 import { withAdvisoryLock } from '../db/transactions';
 import {
   selectAllStars,
@@ -301,6 +302,11 @@ router.post('/complete', authMiddleware(true), async (req: any, res) => {
   try {
     const franchise = await getUserActiveFranchise(req.user.userId);
     if (!franchise) return res.status(404).json({ error: 'No active franchise' });
+
+    const allStarDay = await getSeasonAllStarDay(franchise.season_id);
+    for (let day = allStarDay; day < allStarDay + 4; day++) {
+      await simulateDayGames({ ...franchise, current_day: day });
+    }
 
     await pool.query(
       `UPDATE franchises
