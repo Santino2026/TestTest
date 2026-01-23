@@ -6,7 +6,7 @@ export function calculateActionProbabilities(
   shotClock: number
 ): Record<ActionType, number> {
   const probs: Record<ActionType, number> = {
-    shoot: 0.25, pass: 0.35, drive: 0.20, post_up: 0.05, pick_and_roll: 0.10, iso: 0.05
+    shoot: 0.15, pass: 0.40, drive: 0.20, post_up: 0.05, pick_and_roll: 0.15, iso: 0.05
   };
 
   if (!ballHandler || !ballHandler.attributes) return probs;

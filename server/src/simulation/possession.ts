@@ -38,6 +38,13 @@ export function simulatePossession(context: PossessionContext): PossessionResult
       }
     }
 
+    // Time to read defense, set up play (2-5 seconds)
+    shotClock -= Math.floor(Math.random() * 4) + 2;
+    if (shotClock <= 0) {
+      plays.push(createTurnoverPlay(ballHandler, context, context.game_clock - SHOT_CLOCK, 'Shot clock violation'));
+      return { plays, points_scored: 0, time_elapsed: SHOT_CLOCK, possession_ended: true, ending: 'shot_clock_violation' };
+    }
+
     const action = selectAction(calculateActionProbabilities(ballHandler, context, shotClock));
 
     switch (action) {
@@ -268,11 +275,19 @@ export function simulatePossession(context: PossessionContext): PossessionResult
       case 'iso':
       case 'post_up':
       case 'pick_and_roll': {
-        shotClock -= Math.floor(Math.random() * 4) + 2;
+        shotClock -= Math.floor(Math.random() * 3) + 1;
 
         if (shotClock <= 0) {
           plays.push(createTurnoverPlay(ballHandler, context, context.game_clock - SHOT_CLOCK, 'Shot clock violation'));
           return { plays, points_scored: 0, time_elapsed: SHOT_CLOCK, possession_ended: true, ending: 'shot_clock_violation' };
+        }
+
+        // Pass-out after play creation (enables assists)
+        const teammates = context.players_on_court.filter(p => p.id !== ballHandler.id);
+        if (teammates.length > 0 && Math.random() < 0.5) {
+          lastPasser = ballHandler;
+          ballHandler = teammates[Math.floor(Math.random() * teammates.length)];
+          passCount++;
         }
         break;
       }
