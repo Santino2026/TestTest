@@ -321,7 +321,7 @@ export function generateSchedule(
 
   const schedule: ScheduledGame[] = [];
   const seasonDays = 174;
-  const MIN_MATCHUP_GAP = 10; // Minimum days between games vs same opponent
+  const MIN_MATCHUP_GAP = 7; // Minimum days between games vs same opponent
 
   const dates: Date[] = [];
   const startDate = new Date(config.season_start);
