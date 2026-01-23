@@ -1,3 +1,5 @@
+import { calculateOverall } from '../../development/progression';
+
 // Player generation utilities
 
 const firstNames = [
@@ -233,12 +235,13 @@ export function generatePlayer(teamId: string | null, position: Position, isPrem
   const age = random(19, 35);
   const height = random(heightByPosition[position].min, heightByPosition[position].max);
   const weight = random(weightByPosition[position].min, weightByPosition[position].max);
-  const overall = generateOverall(age, isPremium);
-  const potential = generatePotential(age, overall);
+  const targetOverall = generateOverall(age, isPremium);
   const yearsExperience = Math.max(0, age - 19);
   const yearsInLeague = Math.min(yearsExperience, random(0, yearsExperience));
   const hiddenAttrs = generateHiddenAttributes();
-  const attributes = generateAttributes(archetype, overall);
+  const attributes = generateAttributes(archetype, targetOverall);
+  const overall = calculateOverall(attributes, position);
+  const potential = generatePotential(age, overall);
   const traits = assignTraits(attributes, hiddenAttrs, overall, isPremium);
 
   return {

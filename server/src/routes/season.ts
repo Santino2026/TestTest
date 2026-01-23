@@ -10,7 +10,7 @@ import {
   simulateAllStarGame
 } from '../allstar';
 import { getUserActiveFranchise, getSeasonAllStarDay } from '../db/queries';
-import { withTransaction, lockUserActiveFranchise } from '../db/transactions';
+import { withTransaction, withAdvisoryLock, lockUserActiveFranchise } from '../db/transactions';
 import { simulateDayGames } from '../services/gameSimulation';
 import { REGULAR_SEASON_END_DAY } from '../constants';
 
@@ -106,25 +106,28 @@ router.post('/advance/day', authMiddleware(true), async (req: any, res) => {
     if (!franchise) return res.status(404).json({ error: 'No franchise found' });
     if (franchise.phase !== 'regular_season') return res.status(400).json({ error: 'Not in regular season' });
 
-    const { gameDateStr, results, userGameResult } = await simulateDayGames(franchise);
-    const newDay = franchise.current_day + 1;
-    const allStarDay = await getSeasonAllStarDay(franchise.season_id);
-    const newPhase = determineNextPhase(newDay, allStarDay, franchise.all_star_complete);
+    const result = await withAdvisoryLock(`season-advance-${franchise.id}`, async (client) => {
+      const locked = await lockUserActiveFranchise(client, req.user.userId);
+      if (!locked || locked.phase !== 'regular_season') throw { status: 400, message: 'Not in regular season' };
 
-    await pool.query(
-      `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW() WHERE id = $3`,
-      [newDay, newPhase, franchise.id]
-    );
+      const { gameDateStr, results, userGameResult } = await simulateDayGames(locked);
+      const newDay = locked.current_day + 1;
+      const allStarDay = await getSeasonAllStarDay(locked.season_id);
+      const newPhase = determineNextPhase(newDay, allStarDay, locked.all_star_complete);
 
-    res.json({
-      day: newDay,
-      date: gameDateStr,
-      phase: newPhase,
-      games_played: results.length,
-      results,
-      user_game_result: userGameResult,
-      all_star_weekend: newPhase === 'all_star'
+      await client.query(
+        `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW() WHERE id = $3`,
+        [newDay, newPhase, locked.id]
+      );
+
+      return {
+        day: newDay, date: gameDateStr, phase: newPhase,
+        games_played: results.length, results, user_game_result: userGameResult,
+        all_star_weekend: newPhase === 'all_star'
+      };
     });
+
+    res.json(result);
   } catch (error: any) {
     handleError(res, error, 'Failed to advance day');
   }
@@ -136,33 +139,37 @@ router.post('/advance/week', authMiddleware(true), async (req: any, res) => {
     if (!franchise) return res.status(404).json({ error: 'No franchise found' });
     if (franchise.phase !== 'regular_season') return res.status(400).json({ error: 'Not in regular season' });
 
-    const allStarDay = await getSeasonAllStarDay(franchise.season_id);
-    const allResults: any[] = [];
-    let daysSimulated = 0;
-    let finalPhase = franchise.phase;
-    let currentDay = franchise.current_day;
+    const result = await withAdvisoryLock(`season-advance-${franchise.id}`, async (client) => {
+      const locked = await lockUserActiveFranchise(client, req.user.userId);
+      if (!locked || locked.phase !== 'regular_season') throw { status: 400, message: 'Not in regular season' };
 
-    for (let i = 0; i < 7 && finalPhase === 'regular_season'; i++) {
-      const { results } = await simulateDayGames({ ...franchise, current_day: currentDay });
-      allResults.push(...results);
-      currentDay++;
-      daysSimulated++;
-      finalPhase = determineNextPhase(currentDay, allStarDay, franchise.all_star_complete);
-    }
+      const allStarDay = await getSeasonAllStarDay(locked.season_id);
+      const allResults: any[] = [];
+      let daysSimulated = 0;
+      let finalPhase = locked.phase;
+      let currentDay = locked.current_day;
 
-    await pool.query(
-      `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW() WHERE id = $3`,
-      [currentDay, finalPhase, franchise.id]
-    );
+      for (let i = 0; i < 7 && finalPhase === 'regular_season'; i++) {
+        const { results } = await simulateDayGames({ ...locked, current_day: currentDay });
+        allResults.push(...results);
+        currentDay++;
+        daysSimulated++;
+        finalPhase = determineNextPhase(currentDay, allStarDay, locked.all_star_complete);
+      }
 
-    res.json({
-      days_simulated: daysSimulated,
-      current_day: currentDay,
-      phase: finalPhase,
-      games_played: allResults.length,
-      user_games: allResults.filter(r => r.is_user_game),
-      all_star_weekend: finalPhase === 'all_star'
+      await client.query(
+        `UPDATE franchises SET current_day = $1, phase = $2, last_played_at = NOW() WHERE id = $3`,
+        [currentDay, finalPhase, locked.id]
+      );
+
+      return {
+        days_simulated: daysSimulated, current_day: currentDay, phase: finalPhase,
+        games_played: allResults.length, user_games: allResults.filter(r => r.is_user_game),
+        all_star_weekend: finalPhase === 'all_star'
+      };
     });
+
+    res.json(result);
   } catch (error: any) {
     handleError(res, error, 'Failed to advance week');
   }
@@ -174,92 +181,97 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
     if (!franchise) return res.status(404).json({ error: 'No franchise found' });
     if (franchise.phase !== 'regular_season') return res.status(400).json({ error: 'Not in regular season' });
 
-    const allStarDay = await getSeasonAllStarDay(franchise.season_id);
-    const userResults: any[] = [];
-    let daysSimulated = 0;
-    let allStarSimulated = false;
-    let currentDay = franchise.current_day;
-    let allStarComplete = franchise.all_star_complete;
+    const result = await withAdvisoryLock(`season-advance-${franchise.id}`, async (client) => {
+      const locked = await lockUserActiveFranchise(client, req.user.userId);
+      if (!locked || locked.phase !== 'regular_season') throw { status: 400, message: 'Not in regular season' };
 
-    const MAX_ITERATIONS = 200; // Safety limit to prevent infinite loops
-    let iterations = 0;
+      const allStarDay = await getSeasonAllStarDay(locked.season_id);
+      const userResults: any[] = [];
+      let daysSimulated = 0;
+      let allStarSimulated = false;
+      let currentDay = locked.current_day;
+      let allStarComplete = locked.all_star_complete;
 
-    while (currentDay <= REGULAR_SEASON_END_DAY && iterations < MAX_ITERATIONS) {
-      iterations++;
-      try {
-        const { results } = await simulateDayGames({ ...franchise, current_day: currentDay });
-        userResults.push(...results.filter((r: any) => r.is_user_game));
-      } catch (simError) {
-        console.error(`Failed to simulate day ${currentDay}, continuing:`, simError);
-      }
+      const MAX_ITERATIONS = 200;
+      let iterations = 0;
 
-      const newDay = currentDay + 1;
-
-      if (newDay >= allStarDay && !allStarComplete && !allStarSimulated) {
+      while (currentDay <= REGULAR_SEASON_END_DAY && iterations < MAX_ITERATIONS) {
+        iterations++;
         try {
-          await selectAllStars(franchise.season_id, 'Eastern');
-          await selectAllStars(franchise.season_id, 'Western');
-          await simulateRisingStars(franchise.season_id);
-          await simulateSkillsChallenge(franchise.season_id);
-          await simulateThreePointContest(franchise.season_id);
-          await simulateDunkContest(franchise.season_id);
-          await simulateAllStarGame(franchise.season_id);
-          allStarSimulated = true;
-        } catch (allStarError) {
-          console.error('All-Star Weekend failed, skipping:', allStarError);
+          const { results } = await simulateDayGames({ ...locked, current_day: currentDay });
+          userResults.push(...results.filter((r: any) => r.is_user_game));
+        } catch (simError) {
+          console.error(`Failed to simulate day ${currentDay}, continuing:`, simError);
         }
-        allStarComplete = true;
+
+        const newDay = currentDay + 1;
+
+        if (newDay >= allStarDay && !allStarComplete && !allStarSimulated) {
+          try {
+            await selectAllStars(locked.season_id, 'Eastern');
+            await selectAllStars(locked.season_id, 'Western');
+            await simulateRisingStars(locked.season_id);
+            await simulateSkillsChallenge(locked.season_id);
+            await simulateThreePointContest(locked.season_id);
+            await simulateDunkContest(locked.season_id);
+            await simulateAllStarGame(locked.season_id);
+            allStarSimulated = true;
+          } catch (allStarError) {
+            console.error('All-Star Weekend failed, skipping:', allStarError);
+          }
+          allStarComplete = true;
+        }
+
+        currentDay = newDay;
+        daysSimulated++;
+        if (newDay > REGULAR_SEASON_END_DAY) break;
       }
 
-      currentDay = newDay;
-      daysSimulated++;
-      if (newDay > REGULAR_SEASON_END_DAY) break;
-    }
+      const remainingDays = await pool.query(
+        `SELECT DISTINCT game_day FROM schedule
+         WHERE season_id = $1 AND status = 'scheduled'
+           AND (is_preseason = FALSE OR is_preseason IS NULL)
+         ORDER BY game_day`,
+        [locked.season_id]
+      );
 
-    // Simulate any remaining scheduled games (in case some days were skipped due to errors)
-    const remainingDays = await pool.query(
-      `SELECT DISTINCT game_day FROM schedule
-       WHERE season_id = $1 AND status = 'scheduled'
-         AND (is_preseason = FALSE OR is_preseason IS NULL)
-       ORDER BY game_day`,
-      [franchise.season_id]
-    );
-
-    for (const row of remainingDays.rows) {
-      try {
-        const { results } = await simulateDayGames({ ...franchise, current_day: row.game_day });
-        userResults.push(...results.filter((r: any) => r.is_user_game));
-      } catch (simError) {
-        console.error(`Failed to simulate remaining day ${row.game_day}:`, simError);
+      for (const row of remainingDays.rows) {
+        try {
+          const { results } = await simulateDayGames({ ...locked, current_day: row.game_day });
+          userResults.push(...results.filter((r: any) => r.is_user_game));
+        } catch (simError) {
+          console.error(`Failed to simulate remaining day ${row.game_day}:`, simError);
+        }
       }
-    }
 
-    await pool.query(
-      `UPDATE franchises SET current_day = $1, phase = 'awards', all_star_complete = $2, last_played_at = NOW() WHERE id = $3`,
-      [currentDay, allStarComplete, franchise.id]
-    );
+      await client.query(
+        `UPDATE franchises SET current_day = $1, phase = 'awards', all_star_complete = $2, last_played_at = NOW() WHERE id = $3`,
+        [currentDay, allStarComplete, locked.id]
+      );
 
-    const standingsResult = await pool.query(
-      `SELECT s.*, t.name, t.abbreviation, t.conference
-       FROM standings s JOIN teams t ON s.team_id = t.id
-       WHERE s.season_id = $1 ORDER BY s.wins DESC`,
-      [franchise.season_id]
-    );
+      const standingsResult = await pool.query(
+        `SELECT s.*, t.name, t.abbreviation, t.conference
+         FROM standings s JOIN teams t ON s.team_id = t.id
+         WHERE s.season_id = $1 ORDER BY s.wins DESC`,
+        [locked.season_id]
+      );
 
-    const teamName = franchise.team_name;
-    const wins = userResults.filter(r =>
-      (r.home_score > r.away_score && r.home_team === teamName) ||
-      (r.away_score > r.home_score && r.away_team === teamName)
-    ).length;
+      const teamName = locked.team_name;
+      const wins = userResults.filter(r =>
+        (r.home_score > r.away_score && r.home_team === teamName) ||
+        (r.away_score > r.home_score && r.away_team === teamName)
+      ).length;
 
-    res.json({
-      message: 'Regular season complete! View awards before playoffs.',
-      days_simulated: daysSimulated,
-      phase: 'awards',
-      all_star_simulated: allStarSimulated,
-      user_record: { wins, losses: userResults.length - wins },
-      top_standings: standingsResult.rows.slice(0, 10)
+      return {
+        message: 'Regular season complete! View awards before playoffs.',
+        days_simulated: daysSimulated, phase: 'awards',
+        all_star_simulated: allStarSimulated,
+        user_record: { wins, losses: userResults.length - wins },
+        top_standings: standingsResult.rows.slice(0, 10)
+      };
     });
+
+    res.json(result);
   } catch (error: any) {
     handleError(res, error, 'Failed to advance to playoffs');
   }

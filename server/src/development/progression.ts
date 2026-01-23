@@ -16,13 +16,15 @@ export type DevelopmentSpeed = 'slow' | 'normal' | 'fast';
 
 const PHYSICAL_ATTRIBUTES = [
   'speed', 'acceleration', 'vertical', 'stamina', 'strength',
-  'lateral_quickness', 'hustle'
+  'lateral_quickness', 'hustle', 'speed_with_ball'
 ];
 
 const SKILL_ATTRIBUTES = [
   'inside_scoring', 'close_shot', 'mid_range', 'three_point', 'free_throw',
   'layup', 'standing_dunk', 'driving_dunk', 'post_moves', 'post_control',
-  'ball_handling', 'passing_accuracy', 'passing_vision', 'steal', 'block'
+  'ball_handling', 'passing_accuracy', 'passing_vision', 'steal', 'block',
+  'perimeter_defense', 'interior_defense', 'defensive_rebound', 'offensive_rebound',
+  'box_out', 'rebound_timing', 'draw_foul'
 ];
 
 const IQ_ATTRIBUTES = [

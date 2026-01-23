@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { calculateOverall } from '../development/progression';
 
 export type Position = 'PG' | 'SG' | 'SF' | 'PF' | 'C';
 export type ProspectTier = 'lottery' | 'first_round' | 'second_round' | 'undrafted';
@@ -153,7 +154,10 @@ function generateProspectAttributes(archetype: string, overall: number): Record<
 function generateProspect(tier: ProspectTier, mockPosition: number): DraftProspect {
   const position = pickRandom(POSITIONS);
   const archetype = pickRandom(ARCHETYPES_BY_POSITION[position]);
-  const overall = generateProspectOverall(tier);
+  const targetOverall = generateProspectOverall(tier);
+  const attributes = generateProspectAttributes(archetype, targetOverall);
+  const overall = calculateOverall(attributes, position);
+  const potential = generateProspectPotential(overall, tier);
 
   return {
     id: uuidv4(),
@@ -165,14 +169,14 @@ function generateProspect(tier: ProspectTier, mockPosition: number): DraftProspe
     weight_lbs: random(WEIGHT_BY_POSITION[position].min, WEIGHT_BY_POSITION[position].max),
     age: random(19, 22),
     overall,
-    potential: generateProspectPotential(overall, tier),
+    potential,
     mock_draft_position: mockPosition,
     big_board_rank: mockPosition + random(-3, 3),
     peak_age: random(25, 31),
     durability: random(50, 95),
     coachability: random(50, 90),
     motor: random(55, 95),
-    attributes: generateProspectAttributes(archetype, overall)
+    attributes
   };
 }
 
@@ -196,6 +200,7 @@ export function generateDraftClass(): DraftProspect[] {
 }
 
 export function convertProspectToPlayer(prospect: DraftProspect, teamId: string): any {
+  const overall = calculateOverall(prospect.attributes, prospect.position);
   return {
     player: {
       first_name: prospect.first_name,
@@ -209,7 +214,7 @@ export function convertProspectToPlayer(prospect: DraftProspect, teamId: string)
       age: prospect.age,
       jersey_number: random(0, 99),
       years_pro: 0,
-      overall: prospect.overall,
+      overall,
       potential: prospect.potential,
       peak_age: prospect.peak_age,
       durability: prospect.durability,

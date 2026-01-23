@@ -75,7 +75,7 @@ export async function getAllStarCandidates(
         SUM(pgs.fga) as total_fga
       FROM player_game_stats pgs
       JOIN games g ON pgs.game_id = g.id
-      WHERE g.season_id = $1 AND g.status = 'completed'
+      WHERE g.season_id = $1 AND g.status = 'completed' AND g.is_playoff IS NOT TRUE
       GROUP BY pgs.player_id
     ) stats ON p.id = stats.player_id
     LEFT JOIN standings st ON t.id = st.team_id AND st.season_id = $1

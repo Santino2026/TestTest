@@ -155,7 +155,7 @@ router.post('/propose', authMiddleware(true), async (req: any, res) => {
     const teamsResult = await pool.query(
       `SELECT t.id, t.name, s.wins, s.losses,
               (SELECT COUNT(*) FROM players WHERE team_id = t.id) as roster_size,
-              (SELECT COALESCE(SUM(salary), 0) FROM players WHERE team_id = t.id) as payroll
+              (SELECT COALESCE(SUM(base_salary), 0) FROM contracts WHERE team_id = t.id AND status = 'active') as payroll
        FROM teams t
        LEFT JOIN standings s ON t.id = s.team_id AND s.season_id = $1
        WHERE t.id IN ($2, $3)`,
@@ -269,7 +269,7 @@ router.get('/:tradeId/evaluate/:teamId', async (req, res) => {
     const teamResult = await pool.query(
       `SELECT t.id, t.name, s.wins, s.losses,
               (SELECT COUNT(*) FROM players WHERE team_id = t.id) as roster_size,
-              (SELECT COALESCE(SUM(salary), 0) FROM players WHERE team_id = t.id) as payroll
+              (SELECT COALESCE(SUM(base_salary), 0) FROM contracts WHERE team_id = t.id AND status = 'active') as payroll
        FROM teams t
        LEFT JOIN standings s ON t.id = s.team_id
        WHERE t.id = $1`,

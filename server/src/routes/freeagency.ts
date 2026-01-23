@@ -359,6 +359,14 @@ router.post('/release', authMiddleware(true), async (req: any, res) => {
       if (playerResult.rows.length === 0) {
         throw { status: 400, message: 'Player not on this team' };
       }
+
+      const rosterResult = await client.query(
+        `SELECT COUNT(*) FROM players WHERE team_id = $1`, [team_id]
+      );
+      if (parseInt(rosterResult.rows[0].count) <= 12) {
+        throw { status: 400, message: 'Cannot release player: roster would fall below 12-man minimum' };
+      }
+
       const player = playerResult.rows[0];
       const seasonId = await getLatestSeasonId(client);
 

@@ -11,6 +11,6 @@ export function executePass(
     return { success: false, stolen: true, stealer_id: defender.id };
   }
 
-  const successRate = 0.88 + ((passer.attributes.passing || 70) / 99) * 0.10;
+  const successRate = 0.88 + ((passer.attributes.passing_accuracy || 70) / 99) * 0.10;
   return { success: Math.random() < successRate, stolen: false };
 }

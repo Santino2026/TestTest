@@ -24,7 +24,7 @@ export function calculateActionProbabilities(
 
   const shootingAbility = (attrs.three_point + attrs.mid_range + attrs.inside_scoring) / 3;
   probs.shoot *= shootingAbility / 70;
-  probs.pass *= (attrs.passing || 70) / 70;
+  probs.pass *= (attrs.passing_accuracy || 70) / 70;
   probs.drive *= attrs.ball_handling / 70;
 
   if (ballHandler.position === 'C' || ballHandler.position === 'PF') {

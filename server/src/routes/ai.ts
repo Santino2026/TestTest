@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db/pool';
 import { withTransaction } from '../db/transactions';
+import { generateYearlySalaries } from '../freeagency';
 import { getLatestSeasonId } from '../db/queries';
 import { authMiddleware } from '../auth';
 import {
@@ -43,7 +44,7 @@ async function getMultipleTeamContexts(teamIds: string[], seasonId: string): Pro
             COALESCE(AVG(overall), 70) as avg_overall,
             COUNT(*) FILTER (WHERE overall >= 80) as star_count,
             COUNT(*) FILTER (WHERE age < 25 AND potential >= 75) as young_talent,
-            COALESCE(SUM(salary), 0) as payroll
+            (SELECT COALESCE(SUM(c.base_salary), 0) FROM contracts c WHERE c.team_id = players.team_id AND c.status = 'active') as payroll
      FROM players
      WHERE team_id = ANY($1)
      GROUP BY team_id`,
@@ -285,12 +286,16 @@ async function signFreeAgentForCPU(playerId: string, teamId: string, salary: num
       );
       if (claimResult.rows.length === 0) return false;
 
+      const salaries = generateYearlySalaries(salary, years);
       await client.query(
-        `INSERT INTO contracts (player_id, team_id, total_years, years_remaining, base_salary, year_1_salary, contract_type, status)
-         VALUES ($1, $2, $3, $3, $4, $4, 'standard', 'active')
+        `INSERT INTO contracts (player_id, team_id, total_years, years_remaining, base_salary,
+          year_1_salary, year_2_salary, year_3_salary, year_4_salary, year_5_salary, contract_type, status)
+         VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, 'standard', 'active')
          ON CONFLICT (player_id) DO UPDATE SET
-           team_id = $2, total_years = $3, years_remaining = $3, base_salary = $4, year_1_salary = $4, status = 'active'`,
-        [playerId, teamId, years, salary]
+           team_id = $2, total_years = $3, years_remaining = $3, base_salary = $4,
+           year_1_salary = $5, year_2_salary = $6, year_3_salary = $7, year_4_salary = $8, year_5_salary = $9, status = 'active'`,
+        [playerId, teamId, years, salary,
+         salaries[0], salaries[1] || null, salaries[2] || null, salaries[3] || null, salaries[4] || null]
       );
       return true;
     });

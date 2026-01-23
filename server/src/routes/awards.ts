@@ -133,7 +133,7 @@ router.post('/calculate', authMiddleware(true), async (req: any, res) => {
       FROM players p
       JOIN player_game_stats ps ON p.id = ps.player_id
       JOIN games g ON ps.game_id = g.id
-      WHERE g.season_id = $1 AND g.status = 'completed' AND g.is_playoff = false
+      WHERE g.season_id = $1 AND g.status = 'completed' AND g.is_playoff IS NOT TRUE
       GROUP BY p.id, p.first_name, p.last_name, p.team_id, p.position, p.years_pro
       HAVING COUNT(ps.id) >= 20
       ORDER BY AVG(ps.points) DESC
@@ -194,14 +194,14 @@ router.post('/calculate', authMiddleware(true), async (req: any, res) => {
           SELECT pgs.player_id, AVG(pgs.points) as ppg, AVG(pgs.rebounds) as rpg, AVG(pgs.assists) as apg
           FROM player_game_stats pgs
           JOIN games g ON pgs.game_id = g.id
-          WHERE g.season_id = $1 AND g.status = 'completed' AND g.is_playoff = false
+          WHERE g.season_id = $1 AND g.status = 'completed' AND g.is_playoff IS NOT TRUE
           GROUP BY pgs.player_id HAVING COUNT(*) >= 20
         ),
         prev_stats AS (
           SELECT pgs.player_id, AVG(pgs.points) as ppg, AVG(pgs.rebounds) as rpg, AVG(pgs.assists) as apg
           FROM player_game_stats pgs
           JOIN games g ON pgs.game_id = g.id
-          WHERE g.season_id = $2 AND g.status = 'completed' AND g.is_playoff = false
+          WHERE g.season_id = $2 AND g.status = 'completed' AND g.is_playoff IS NOT TRUE
           GROUP BY pgs.player_id HAVING COUNT(*) >= 20
         )
         SELECT p.id as player_id, p.team_id, (c.ppg - pr.ppg) as ppg_improvement
