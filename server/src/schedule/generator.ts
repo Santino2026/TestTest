@@ -317,9 +317,11 @@ export function generateSchedule(
   const allMatchups = generateAllMatchups(teams);
   const teamGamesOnDate = new Map<string, Set<string>>();
   const gameCountByTeam = createTeamCounterMap(teams);
+  const lastMatchupDay = new Map<string, number>(); // pairKey -> last day index scheduled
 
   const schedule: ScheduledGame[] = [];
   const seasonDays = 174;
+  const MIN_MATCHUP_GAP = 10; // Minimum days between games vs same opponent
 
   const dates: Date[] = [];
   const startDate = new Date(config.season_start);
@@ -358,8 +360,10 @@ export function generateSchedule(
       const matchup = unscheduledMatchups[i];
       const { home: homeTeamId, away: awayTeamId } = matchup;
 
-      // Check if both teams are available
-      if (!teamsOnDate.has(homeTeamId) && !teamsOnDate.has(awayTeamId)) {
+      // Check if both teams are available and haven't played each other recently
+      const pairKey = getPairKey(homeTeamId, awayTeamId);
+      const lastDay = lastMatchupDay.get(pairKey) ?? -MIN_MATCHUP_GAP;
+      if (!teamsOnDate.has(homeTeamId) && !teamsOnDate.has(awayTeamId) && (dayIndex - lastDay) >= MIN_MATCHUP_GAP) {
         const homeGameNum = gameCountByTeam.get(homeTeamId)! + 1;
         const awayGameNum = gameCountByTeam.get(awayTeamId)! + 1;
 
@@ -375,6 +379,7 @@ export function generateSchedule(
         teamsOnDate.add(awayTeamId);
         gameCountByTeam.set(homeTeamId, homeGameNum);
         gameCountByTeam.set(awayTeamId, awayGameNum);
+        lastMatchupDay.set(pairKey, dayIndex);
         matchupsToRemove.push(i);
         gamesScheduledToday++;
       }
