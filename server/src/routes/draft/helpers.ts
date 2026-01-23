@@ -2,14 +2,23 @@ import { PoolClient } from 'pg';
 import { v4 as uuidv4 } from 'uuid';
 import { withTransaction } from '../../db/transactions';
 import { getDraftState } from '../../draft';
+import { generateYearlySalaries } from '../../freeagency';
 
 const ROSTER_LIMIT = 15;
+
+function getRookieContract(pickNumber: number): { salary: number; years: number } {
+  const isFirstRound = pickNumber <= 30;
+  const years = isFirstRound ? 4 : 2;
+  const salary = Math.max(1_500_000, 12_000_000 - (pickNumber - 1) * 350_000);
+  return { salary, years };
+}
 
 export async function createPlayerFromProspect(
   client: PoolClient,
   prospect: any,
   teamId: string,
-  prospectId: string
+  prospectId: string,
+  pickNumber: number
 ): Promise<string> {
   // Check roster size before drafting - release lowest OVR player if at limit
   const rosterCount = await client.query(
@@ -68,6 +77,29 @@ export async function createPlayerFromProspect(
     [playerId, prospectId]
   );
 
+  const { salary, years } = getRookieContract(pickNumber);
+  const salaries = generateYearlySalaries(salary, years, 0.05);
+
+  await client.query(
+    `INSERT INTO contracts (player_id, team_id, total_years, years_remaining, base_salary,
+      year_1_salary, year_2_salary, year_3_salary, year_4_salary, year_5_salary, contract_type, status)
+     VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, 'rookie', 'active')
+     ON CONFLICT (player_id) DO UPDATE SET
+       team_id = EXCLUDED.team_id, total_years = EXCLUDED.total_years,
+       years_remaining = EXCLUDED.years_remaining, base_salary = EXCLUDED.base_salary,
+       year_1_salary = EXCLUDED.year_1_salary, year_2_salary = EXCLUDED.year_2_salary,
+       year_3_salary = EXCLUDED.year_3_salary, year_4_salary = EXCLUDED.year_4_salary,
+       year_5_salary = EXCLUDED.year_5_salary, contract_type = EXCLUDED.contract_type,
+       status = EXCLUDED.status, updated_at = NOW()`,
+    [playerId, teamId, years, salary,
+     salaries[0], salaries[1] || null, salaries[2] || null, salaries[3] || null, salaries[4] || null]
+  );
+
+  await client.query(
+    `UPDATE players SET salary = $1 WHERE id = $2`,
+    [salary, playerId]
+  );
+
   return playerId;
 }
 
@@ -91,7 +123,7 @@ export async function processDraftPick(
     }
 
     const prospect = claimResult.rows[0];
-    const playerId = await createPlayerFromProspect(client, prospect, teamId, prospectId);
+    const playerId = await createPlayerFromProspect(client, prospect, teamId, prospectId, currentPick);
 
     await client.query(
       `UPDATE draft_prospects SET drafted_by_team_id = $1, draft_round = $2, draft_pick = $3 WHERE id = $4`,

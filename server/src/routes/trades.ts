@@ -359,6 +359,8 @@ router.post('/:tradeId/accept', authMiddleware(true), async (req: any, res) => {
         if (asset.asset_type === 'player' && asset.player_id) {
           await client.query(`UPDATE players SET team_id = $1, last_traded_at = NOW() WHERE id = $2`, [asset.to_team_id, asset.player_id]);
           await client.query(`UPDATE contracts SET team_id = $1, updated_at = NOW() WHERE player_id = $2 AND status = 'active'`, [asset.to_team_id, asset.player_id]);
+          await client.query(`UPDATE player_season_stats SET team_id = $1 WHERE player_id = $2 AND season_id = $3`, [asset.to_team_id, asset.player_id, proposal.season_id]);
+          await client.query(`DELETE FROM free_agents WHERE player_id = $1`, [asset.player_id]);
         } else if (asset.asset_type === 'draft_pick') {
           await client.query(
             `UPDATE draft_pick_ownership SET current_owner_id = $1, updated_at = NOW()

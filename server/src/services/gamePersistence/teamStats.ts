@@ -8,13 +8,11 @@ export async function updateTeamSeasonStats(
   client?: PoolClient
 ): Promise<void> {
   const db = client || pool;
-  const homeWon = result.winner_id === result.home_team_id;
-
   await updateSingleTeamSeasonStats(db, result.home_team_id, seasonId,
-    result.home_stats, result.away_stats.points, homeWon);
+    result.home_stats, result.away_stats.points);
 
   await updateSingleTeamSeasonStats(db, result.away_team_id, seasonId,
-    result.away_stats, result.home_stats.points, !homeWon);
+    result.away_stats, result.home_stats.points);
 }
 
 async function updateSingleTeamSeasonStats(
@@ -22,18 +20,15 @@ async function updateSingleTeamSeasonStats(
   teamId: string,
   seasonId: string,
   stats: TeamStats,
-  opponentPoints: number,
-  won: boolean
+  opponentPoints: number
 ): Promise<void> {
   await db.query(
     `INSERT INTO team_season_stats
-     (team_id, season_id, games_played, wins, losses, points_for, points_against,
+     (team_id, season_id, games_played, points_for, points_against,
       fgm, fga, three_pm, three_pa, ftm, fta, oreb, dreb, assists, steals, blocks, turnovers)
-     VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+     VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
      ON CONFLICT (team_id, season_id) DO UPDATE SET
        games_played = team_season_stats.games_played + 1,
-       wins = team_season_stats.wins + EXCLUDED.wins,
-       losses = team_season_stats.losses + EXCLUDED.losses,
        points_for = team_season_stats.points_for + EXCLUDED.points_for,
        points_against = team_season_stats.points_against + EXCLUDED.points_against,
        fgm = team_season_stats.fgm + EXCLUDED.fgm,
@@ -89,7 +84,7 @@ async function updateSingleTeamSeasonStats(
        END,
        updated_at = NOW()`,
     [
-      teamId, seasonId, won ? 1 : 0, won ? 0 : 1,
+      teamId, seasonId,
       stats.points, opponentPoints,
       stats.fgm, stats.fga, stats.three_pm, stats.three_pa,
       stats.ftm, stats.fta, stats.oreb, stats.dreb,

@@ -34,7 +34,7 @@ router.post('/pick', authMiddleware(true), async (req: any, res) => {
       );
 
       const state = await getDraftState(prospect.season_id);
-      const playerId = await createPlayerFromProspect(client, prospect, franchise.team_id, prospectId);
+      const playerId = await createPlayerFromProspect(client, prospect, franchise.team_id, prospectId, state.current_pick);
 
       await client.query(
         `UPDATE draft_prospects SET drafted_by_team_id = $1, draft_round = $2, draft_pick = $3 WHERE id = $4`,

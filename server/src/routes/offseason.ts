@@ -153,6 +153,16 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
          WHERE status = 'active' AND years_remaining > 0`
       );
       await client.query(
+        `UPDATE players p SET salary = COALESCE(
+           CASE (c.total_years - c.years_remaining)
+             WHEN 1 THEN c.year_1_salary WHEN 2 THEN c.year_2_salary
+             WHEN 3 THEN c.year_3_salary WHEN 4 THEN c.year_4_salary
+             WHEN 5 THEN c.year_5_salary ELSE c.base_salary
+           END, c.base_salary)
+         FROM contracts c
+         WHERE c.player_id = p.id AND c.status = 'active' AND c.years_remaining > 0`
+      );
+      await client.query(
         `UPDATE contracts SET status = 'expired', updated_at = NOW()
          WHERE status = 'active' AND years_remaining <= 0`
       );
@@ -174,10 +184,16 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
         );
       }
 
-      await client.query(
-        `UPDATE franchises SET phase = 'offseason', offseason_phase = 'review', last_played_at = NOW() WHERE id = $1`,
-        [franchise.id]
-      );
+      await Promise.all([
+        client.query(
+          `UPDATE franchises SET phase = 'offseason', offseason_phase = 'review', last_played_at = NOW() WHERE id = $1`,
+          [franchise.id]
+        ),
+        client.query(
+          `UPDATE seasons SET status = 'offseason' WHERE id = $1`,
+          [franchise.season_id]
+        )
+      ]);
 
       const improved = developmentResults.filter(r => r.new_overall > r.previous_overall).length;
       const declined = developmentResults.filter(r => r.new_overall < r.previous_overall).length;
@@ -318,6 +334,16 @@ router.post('/finalize-playoffs', authMiddleware(true), async (req: any, res) =>
       await client.query(
         `UPDATE contracts SET years_remaining = years_remaining - 1, updated_at = NOW()
          WHERE status = 'active' AND years_remaining > 0`
+      );
+      await client.query(
+        `UPDATE players p SET salary = COALESCE(
+           CASE (c.total_years - c.years_remaining)
+             WHEN 1 THEN c.year_1_salary WHEN 2 THEN c.year_2_salary
+             WHEN 3 THEN c.year_3_salary WHEN 4 THEN c.year_4_salary
+             WHEN 5 THEN c.year_5_salary ELSE c.base_salary
+           END, c.base_salary)
+         FROM contracts c
+         WHERE c.player_id = p.id AND c.status = 'active' AND c.years_remaining > 0`
       );
       await client.query(
         `UPDATE contracts SET status = 'expired', updated_at = NOW()
@@ -566,15 +592,20 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
     }
 
     // Trim all rosters to 15 players before starting new season
-    await pool.query(`
+    const cutPlayersResult = await pool.query(`
       WITH ranked AS (
-        SELECT id, team_id,
+        SELECT id, team_id, overall, salary,
                ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY overall DESC) as rank
         FROM players WHERE team_id IS NOT NULL
+      ),
+      cut AS (
+        UPDATE players SET team_id = NULL, salary = 0
+        WHERE id IN (SELECT id FROM ranked WHERE rank > 15)
+        RETURNING id, overall, salary
       )
-      UPDATE players SET team_id = NULL
-      WHERE id IN (SELECT id FROM ranked WHERE rank > 15)
+      SELECT id, overall, salary FROM cut
     `);
+    const cutPlayerIds = cutPlayersResult.rows;
 
     const newSeasonNumber = (franchise.season_number || 0) + 1;
 
@@ -583,6 +614,31 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
       [newSeasonNumber]
     );
     const newSeason = newSeasonId.rows[0];
+
+    // Create free agent records for roster-trimmed players
+    if (cutPlayerIds.length > 0) {
+      const faValues = cutPlayerIds.map((p: any, i: number) =>
+        `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4}, 'available')`
+      ).join(', ');
+      const faParams = cutPlayerIds.flatMap((p: any) => [
+        p.id, newSeason.id,
+        Math.max(p.salary || 1_500_000, 1_500_000),
+        (p.overall || 60) * 100_000
+      ]);
+      await pool.query(
+        `INSERT INTO free_agents (player_id, season_id, asking_salary, market_value, status)
+         VALUES ${faValues}
+         ON CONFLICT (player_id, season_id) DO UPDATE SET status = 'available'`,
+        faParams
+      );
+
+      // Expire contracts for cut players
+      await pool.query(
+        `UPDATE contracts SET status = 'expired', updated_at = NOW()
+         WHERE player_id = ANY($1) AND status = 'active'`,
+        [cutPlayerIds.map((p: any) => p.id)]
+      );
+    }
 
     const teamsResult = await pool.query('SELECT id, conference, division FROM teams');
     const teams = teamsResult.rows;

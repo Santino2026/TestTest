@@ -284,10 +284,16 @@ router.post('/advance/start-playoffs', authMiddleware(true), async (req: any, re
       if (!franchise) throw { status: 404, message: 'No franchise found' };
       if (franchise.phase !== 'awards') throw { status: 400, message: 'Must be in awards phase to start playoffs' };
 
-      await client.query(
-        `UPDATE franchises SET phase = 'playoffs', last_played_at = NOW() WHERE id = $1`,
-        [franchise.id]
-      );
+      await Promise.all([
+        client.query(
+          `UPDATE franchises SET phase = 'playoffs', last_played_at = NOW() WHERE id = $1`,
+          [franchise.id]
+        ),
+        client.query(
+          `UPDATE seasons SET status = 'playoffs' WHERE id = $1`,
+          [franchise.season_id]
+        )
+      ]);
 
       return { message: 'Awards complete! Playoffs are ready to begin.', phase: 'playoffs' };
     });
