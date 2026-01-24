@@ -9,7 +9,7 @@ export function calculateReboundChance(player: SimPlayer, offensive: boolean): n
     chance *= 1.3;
   }
 
-  return chance;
+  return Math.pow(chance, 0.92);
 }
 
 export function simulateRebound(
