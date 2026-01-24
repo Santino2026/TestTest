@@ -146,7 +146,7 @@ export function calculateOverall(attributes: Record<string, number>, position?: 
     }
   }
 
-  return Math.round(Math.min(99, Math.max(40, overall)));
+  return Math.round(Math.min(99, Math.max(50, overall)));
 }
 
 function getMinutesModifier(seasonMinutes: number): number {

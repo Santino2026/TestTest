@@ -132,24 +132,23 @@ function pickRandom<T>(arr: T[]): T {
 }
 
 function generateOverall(age: number, isPremium: boolean): number {
-  // Bell curve distributions centered at realistic NBA2K-style values
   if (isPremium) {
-    // Stars: centered at 87, tight distribution (83-94 typical)
-    return Math.max(80, Math.min(97, normalRandom(87, 4)));
+    // Superstars/Legends: 87-99 range, mean 92
+    return Math.max(87, Math.min(99, normalRandom(92, 3)));
   }
 
   if (age <= 23) {
-    // Young: centered at 63, wide range (48-78)
-    return Math.max(48, Math.min(78, normalRandom(63, 7)));
+    // Young developing: 55-78, mean 67
+    return Math.max(55, Math.min(78, normalRandom(67, 6)));
   }
 
   if (age <= 30) {
-    // Prime: centered at 73, moderate range (62-84)
-    return Math.max(62, Math.min(84, normalRandom(73, 5)));
+    // Prime starters: 65-87, mean 76
+    return Math.max(65, Math.min(87, normalRandom(76, 5)));
   }
 
-  // Older (31+): centered at 68, moderate range (55-78)
-  return Math.max(55, Math.min(78, normalRandom(68, 5)));
+  // Veterans (31+): declining but experienced, 60-82, mean 72
+  return Math.max(60, Math.min(82, normalRandom(72, 5)));
 }
 
 function generatePotential(age: number, overall: number): number {
@@ -164,7 +163,7 @@ function generatePotential(age: number, overall: number): number {
     return Math.min(99, overall + random(0, 5));
   }
   // Older players: potential is at or slightly below current
-  return Math.max(40, overall - random(0, 5));
+  return Math.max(50, overall - random(0, 5));
 }
 
 function generateAttributes(archetype: Archetype, overall: number): Record<string, number> {

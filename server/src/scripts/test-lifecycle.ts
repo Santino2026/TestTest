@@ -381,7 +381,7 @@ async function runOffseason(seasonId: number): Promise<{
   // Batch update players
   for (const update of playerUpdates) {
     await pool.query(
-      `UPDATE players SET age = $1, overall = GREATEST(40, LEAST(99, $2)), years_pro = COALESCE(years_pro, 0) + 1 WHERE id = $3`,
+      `UPDATE players SET age = $1, overall = GREATEST(50, LEAST(99, $2)), years_pro = COALESCE(years_pro, 0) + 1 WHERE id = $3`,
       [update.age, update.overall, update.id]
     );
   }
