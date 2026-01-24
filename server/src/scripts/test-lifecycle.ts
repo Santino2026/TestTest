@@ -15,7 +15,6 @@ import {
   generateFirstRound, generateNextRound
 } from '../playoffs/engine';
 import { REGULAR_SEASON_END_DAY, SEASON_START_DATE } from '../constants';
-import { v4 as uuidv4 } from 'uuid';
 
 const TOTAL_SEASONS = 20;
 const SEASON_NUMBER_START = 200; // Use high season numbers to avoid conflicts
@@ -213,12 +212,6 @@ async function simulateSeries(
     if (winnerId === higherSeedId) higherWins++;
     else lowerWins++;
     gameNumber++;
-
-    await pool.query(
-      `INSERT INTO playoff_games (series_id, game_id, game_number)
-       VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-      [seriesId, uuidv4(), gameNumber]
-    );
   }
 
   const winnerId = higherWins >= winsNeeded ? higherSeedId : lowerSeedId;
