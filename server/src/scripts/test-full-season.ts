@@ -258,32 +258,37 @@ async function runFullSeasonTest() {
      ORDER BY ps.ppg DESC`, [seasonId]
   );
 
-  const top = playerStats.rows[0];
-  console.log(`\n  Scoring: ${top.first_name} ${top.last_name} - ${top.ppg} PPG`);
-  check('Scoring leader PPG', parseFloat(top.ppg), null, 38, 20, 'range');
+  if (playerStats.rows.length === 0) {
+    console.log('  FAIL: No player stats found (50+ GP)');
+    issues++;
+  } else {
+    const top = playerStats.rows[0];
+    console.log(`\n  Scoring: ${top.first_name} ${top.last_name} - ${top.ppg} PPG`);
+    check('Scoring leader PPG', parseFloat(top.ppg), null, 38, 20, 'range');
 
-  console.log(`  Top 10:`);
-  playerStats.rows.slice(0, 10).forEach((p: any) =>
-    console.log(`    ${p.first_name} ${p.last_name} (${p.position}): ${p.ppg}/${p.rpg}/${p.apg} PER:${p.per} WS:${p.win_shares}`)
-  );
+    console.log(`  Top 10:`);
+    playerStats.rows.slice(0, 10).forEach((p: any) =>
+      console.log(`    ${p.first_name} ${p.last_name} (${p.position}): ${p.ppg}/${p.rpg}/${p.apg} PER:${p.per} WS:${p.win_shares}`)
+    );
 
-  const rebLeader = [...playerStats.rows].sort((a: any, b: any) => b.rpg - a.rpg)[0];
-  console.log(`\n  Rebounds: ${rebLeader.first_name} ${rebLeader.last_name} - ${rebLeader.rpg} RPG`);
-  check('Rebound leader', parseFloat(rebLeader.rpg), null, 16, 8, 'range');
+    const rebLeader = [...playerStats.rows].sort((a: any, b: any) => b.rpg - a.rpg)[0];
+    console.log(`\n  Rebounds: ${rebLeader.first_name} ${rebLeader.last_name} - ${rebLeader.rpg} RPG`);
+    check('Rebound leader', parseFloat(rebLeader.rpg), null, 16, 8, 'range');
 
-  const astLeader = [...playerStats.rows].sort((a: any, b: any) => b.apg - a.apg)[0];
-  console.log(`  Assists: ${astLeader.first_name} ${astLeader.last_name} - ${astLeader.apg} APG`);
-  check('Assist leader', parseFloat(astLeader.apg), null, 13, 5, 'range');
+    const astLeader = [...playerStats.rows].sort((a: any, b: any) => b.apg - a.apg)[0];
+    console.log(`  Assists: ${astLeader.first_name} ${astLeader.last_name} - ${astLeader.apg} APG`);
+    check('Assist leader', parseFloat(astLeader.apg), null, 13, 5, 'range');
 
-  // Advanced stats checks
-  const withPER = playerStats.rows.filter((p: any) => p.per !== null && parseFloat(p.per) > 0);
-  check('Players with PER', withPER.length, playerStats.rows.length);
+    // Advanced stats checks
+    const withPER = playerStats.rows.filter((p: any) => p.per !== null && parseFloat(p.per) > 0);
+    check('Players with PER', withPER.length, playerStats.rows.length);
 
-  const avgPER = withPER.reduce((sum: number, p: any) => sum + parseFloat(p.per), 0) / withPER.length;
-  check('Avg PER', avgPER, null, 22, 10, 'range');
+    const avgPER = withPER.reduce((sum: number, p: any) => sum + parseFloat(p.per), 0) / withPER.length;
+    check('Avg PER', avgPER, null, 22, 10, 'range');
 
-  const avgTS = playerStats.rows.reduce((sum: number, p: any) => sum + parseFloat(p.true_shooting_pct || 0), 0) / playerStats.rows.length;
-  check('Avg TS%', avgTS, null, 0.65, 0.48, 'range');
+    const avgTS = playerStats.rows.reduce((sum: number, p: any) => sum + parseFloat(p.true_shooting_pct || 0), 0) / playerStats.rows.length;
+    check('Avg TS%', avgTS, null, 0.65, 0.48, 'range');
+  }
 
   check('Players with assist_pct', playerStats.rows.filter((p: any) => parseFloat(p.assist_pct || 0) > 0).length, null,
     playerStats.rows.length, Math.floor(playerStats.rows.length * 0.9), 'range');
