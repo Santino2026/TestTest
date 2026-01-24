@@ -466,8 +466,8 @@ async function runOffseason(seasonId: number): Promise<{
     // Give rookie contract (4 years)
     const rookieSalary = pick < 14 ? 8000000 - pick * 200000 : pick < 30 ? 3000000 : 1500000;
     await pool.query(
-      `INSERT INTO contracts (player_id, team_id, base_salary, total_years, years_remaining, status)
-       VALUES ($1, $2, $3, 4, 4, 'active')
+      `INSERT INTO contracts (player_id, team_id, base_salary, total_years, years_remaining, year_1_salary, year_2_salary, year_3_salary, year_4_salary, status)
+       VALUES ($1, $2, $3, 4, 4, $3, $3, $3, $3, 'active')
        ON CONFLICT DO NOTHING`,
       [playerId, teamId, rookieSalary]
     );
@@ -494,8 +494,8 @@ async function runOffseason(seasonId: number): Promise<{
         await pool.query(`UPDATE players SET team_id = $1 WHERE id = $2`, [team.team_id, fa.id]);
         const salary = Math.max(1500000, fa.overall * 80000);
         await pool.query(
-          `INSERT INTO contracts (player_id, team_id, base_salary, total_years, years_remaining, status)
-           VALUES ($1, $2, $3, 2, 2, 'active') ON CONFLICT DO NOTHING`,
+          `INSERT INTO contracts (player_id, team_id, base_salary, total_years, years_remaining, year_1_salary, year_2_salary, status)
+           VALUES ($1, $2, $3, 2, 2, $3, $3, 'active') ON CONFLICT DO NOTHING`,
           [fa.id, team.team_id, salary]
         );
         freeAgentSignings++;
