@@ -110,7 +110,8 @@ async function simulateGamesForDay(
           { id: awayTeam.id, starters: awayTeam.starters },
           updateStandings,
           client,
-          isPreseason
+          isPreseason,
+          gameDateStr
         );
 
         await client.query(
@@ -176,7 +177,8 @@ function buildGameResult(simResult: any): GameResult {
     away_player_stats: simResult.away_player_stats.map((ps: any) => ({
       ...ps,
       player_id: ps.player_id
-    }))
+    })),
+    plays: simResult.plays
   };
 }
 

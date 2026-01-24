@@ -295,7 +295,7 @@ router.post('/recalculate/:seasonId', authMiddleware(true), async (req: any, res
 
     // Get team totals for PER calculation
     const teamTotalsResult = await pool.query(
-      `SELECT team_id, games_played, wins, minutes, fga, fta, oreb, dreb, turnovers
+      `SELECT team_id, games_played, wins, minutes, fgm, fga, fta, oreb, dreb, turnovers
        FROM team_season_stats WHERE season_id = $1`,
       [seasonId]
     );
@@ -331,6 +331,7 @@ router.post('/recalculate/:seasonId', authMiddleware(true), async (req: any, res
 
       const per = calculatePER(basicStats, {
         minutes: teamMinutes,
+        fgm: tt?.fgm || stats.fgm * 5,
         fga: teamFga,
         fta: teamFta,
         oreb: teamOreb,

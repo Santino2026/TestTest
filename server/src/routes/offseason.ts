@@ -28,6 +28,153 @@ function buildPlayerAttributes(player: Record<string, any>): Record<string, numb
   return attributes;
 }
 
+interface DevelopmentOutput {
+  developmentResults: DevelopmentResult[];
+  retirements: Array<{ player_id: string; player_name: string; age: number; overall: number; years_pro: number }>;
+}
+
+async function processPlayerDevelopment(client: any, seasonId: string): Promise<DevelopmentOutput> {
+  const playersResult = await client.query(
+    `SELECT p.*,
+            pa.work_ethic, pa.basketball_iq, pa.speed, pa.acceleration, pa.vertical,
+            pa.stamina, pa.strength, pa.lateral_quickness, pa.hustle,
+            pa.inside_scoring, pa.close_shot, pa.mid_range, pa.three_point, pa.free_throw,
+            pa.layup, pa.standing_dunk, pa.driving_dunk, pa.post_moves, pa.post_control,
+            pa.ball_handling, pa.passing_accuracy, pa.passing_vision, pa.steal, pa.block,
+            pa.shot_iq, pa.offensive_iq, pa.passing_iq, pa.defensive_iq,
+            pa.help_defense_iq, pa.offensive_consistency, pa.defensive_consistency,
+            pa.interior_defense, pa.perimeter_defense, pa.offensive_rebound, pa.defensive_rebound,
+            pss.minutes as season_minutes
+     FROM players p
+     LEFT JOIN player_attributes pa ON p.id = pa.player_id
+     LEFT JOIN player_season_stats pss ON p.id = pss.player_id AND pss.season_id = $1`,
+    [seasonId]
+  );
+
+  const developmentResults: DevelopmentResult[] = [];
+  const retirements: DevelopmentOutput['retirements'] = [];
+  const retiringPlayerIds: string[] = [];
+  const playerUpdates: Array<{ id: string; age: number; overall: number }> = [];
+  const attrChanges: Map<string, Array<{ playerId: string; change: number }>> = new Map();
+
+  for (const player of playersResult.rows) {
+    if (shouldRetire(player.age, player.overall, player.years_pro || 0)) {
+      retirements.push({
+        player_id: player.id,
+        player_name: `${player.first_name} ${player.last_name}`,
+        age: player.age,
+        overall: player.overall,
+        years_pro: player.years_pro || 0
+      });
+      retiringPlayerIds.push(player.id);
+      continue;
+    }
+
+    const newAge = agePlayer(player.age);
+    const devResult = developPlayer({
+      id: player.id,
+      first_name: player.first_name,
+      last_name: player.last_name,
+      position: player.position,
+      age: newAge,
+      overall: player.overall,
+      potential: player.potential,
+      peak_age: player.peak_age || 28,
+      archetype: player.archetype,
+      work_ethic: player.work_ethic || 60,
+      coachability: player.coachability || 60,
+      attributes: buildPlayerAttributes(player),
+      season_minutes: player.season_minutes || undefined
+    });
+    developmentResults.push(devResult);
+    playerUpdates.push({ id: player.id, age: newAge, overall: devResult.new_overall });
+
+    for (const [attr, change] of Object.entries(devResult.changes)) {
+      if (change !== 0) {
+        if (!attrChanges.has(attr)) attrChanges.set(attr, []);
+        attrChanges.get(attr)!.push({ playerId: player.id, change });
+      }
+    }
+  }
+
+  if (retiringPlayerIds.length > 0) {
+    await client.query(`UPDATE players SET team_id = NULL WHERE id = ANY($1)`, [retiringPlayerIds]);
+  }
+
+  if (playerUpdates.length > 0) {
+    const updateValues = playerUpdates.map((p, i) =>
+      `($${i * 3 + 1}::uuid, $${i * 3 + 2}::integer, $${i * 3 + 3}::integer)`
+    ).join(', ');
+    const updateParams = playerUpdates.flatMap(p => [p.id, p.age, p.overall]);
+
+    await client.query(
+      `UPDATE players p SET
+         age = v.age,
+         overall = GREATEST(40, LEAST(99, v.overall)),
+         years_pro = COALESCE(p.years_pro, 0) + 1
+       FROM (VALUES ${updateValues}) AS v(id, age, overall)
+       WHERE p.id = v.id`,
+      updateParams
+    );
+  }
+
+  for (const [attr, changes] of attrChanges) {
+    if (changes.length === 0) continue;
+    const caseStatements = changes.map((c, i) =>
+      `WHEN player_id = $${i * 2 + 1} THEN GREATEST(30, LEAST(99, COALESCE(${attr}, 60) + $${i * 2 + 2}))`
+    ).join(' ');
+    const params = changes.flatMap(c => [c.playerId, c.change]);
+    const playerIds = changes.map(c => c.playerId);
+    await client.query(
+      `UPDATE player_attributes SET ${attr} = CASE ${caseStatements} ELSE ${attr} END
+       WHERE player_id = ANY($${params.length + 1})`,
+      [...params, playerIds]
+    );
+  }
+
+  return { developmentResults, retirements };
+}
+
+async function processContracts(client: any, seasonId: string): Promise<number> {
+  await client.query(
+    `UPDATE contracts SET years_remaining = years_remaining - 1, updated_at = NOW()
+     WHERE status = 'active' AND years_remaining > 0`
+  );
+  await client.query(
+    `UPDATE players p SET salary = COALESCE(
+       CASE (c.total_years - c.years_remaining)
+         WHEN 1 THEN c.year_1_salary WHEN 2 THEN c.year_2_salary
+         WHEN 3 THEN c.year_3_salary WHEN 4 THEN c.year_4_salary
+         WHEN 5 THEN c.year_5_salary ELSE c.base_salary
+       END, c.base_salary)
+     FROM contracts c
+     WHERE c.player_id = p.id AND c.status = 'active' AND c.years_remaining > 0`
+  );
+  await client.query(
+    `UPDATE contracts SET status = 'expired', updated_at = NOW()
+     WHERE status = 'active' AND years_remaining <= 0`
+  );
+
+  const expiredContracts = await client.query(
+    `SELECT c.player_id, c.base_salary, p.overall
+     FROM contracts c
+     JOIN players p ON c.player_id = p.id
+     WHERE c.status = 'expired' AND c.updated_at > NOW() - INTERVAL '1 minute'`
+  );
+
+  for (const row of expiredContracts.rows) {
+    await client.query(`UPDATE players SET team_id = NULL, salary = 0 WHERE id = $1`, [row.player_id]);
+    await client.query(
+      `INSERT INTO free_agents (player_id, season_id, asking_salary, market_value, status)
+       VALUES ($1, $2, $3, $4, 'available')
+       ON CONFLICT (player_id, season_id) DO UPDATE SET status = 'available', asking_salary = $3`,
+      [row.player_id, seasonId, row.base_salary || 5000000, (row.overall || 70) * 100000]
+    );
+  }
+
+  return expiredContracts.rows.length;
+}
+
 router.post('/offseason', authMiddleware(true), async (req: any, res) => {
   try {
     const franchise = await getUserActiveFranchise(req.user.userId);
@@ -42,147 +189,8 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
         throw { status: 400, message: 'Offseason already processed' };
       }
 
-      const playersResult = await client.query(
-        `SELECT p.*,
-                pa.work_ethic, pa.basketball_iq, pa.speed, pa.acceleration, pa.vertical,
-                pa.stamina, pa.strength, pa.lateral_quickness, pa.hustle,
-                pa.inside_scoring, pa.close_shot, pa.mid_range, pa.three_point, pa.free_throw,
-                pa.layup, pa.standing_dunk, pa.driving_dunk, pa.post_moves, pa.post_control,
-                pa.ball_handling, pa.passing_accuracy, pa.passing_vision, pa.steal, pa.block,
-                pa.shot_iq, pa.offensive_iq, pa.passing_iq, pa.defensive_iq,
-                pa.help_defense_iq, pa.offensive_consistency, pa.defensive_consistency,
-                pa.interior_defense, pa.perimeter_defense, pa.offensive_rebound, pa.defensive_rebound
-         FROM players p
-         LEFT JOIN player_attributes pa ON p.id = pa.player_id`
-      );
-
-      const developmentResults: DevelopmentResult[] = [];
-      const retirements: any[] = [];
-      const retiringPlayerIds: string[] = [];
-      const playerUpdates: Array<{ id: string; age: number; overall: number }> = [];
-      const attrChanges: Map<string, Array<{ playerId: string; change: number }>> = new Map();
-
-      // First pass: calculate all changes without database calls
-      for (const player of playersResult.rows) {
-        if (shouldRetire(player.age, player.overall, player.years_pro || 0)) {
-          retirements.push({
-            player_id: player.id,
-            player_name: `${player.first_name} ${player.last_name}`,
-            age: player.age,
-            overall: player.overall,
-            years_pro: player.years_pro || 0
-          });
-          retiringPlayerIds.push(player.id);
-          continue;
-        }
-
-        const newAge = agePlayer(player.age);
-        const devResult = developPlayer({
-          id: player.id,
-          first_name: player.first_name,
-          last_name: player.last_name,
-          position: player.position,
-          age: newAge,
-          overall: player.overall,
-          potential: player.potential,
-          peak_age: player.peak_age || 28,
-          archetype: player.archetype,
-          work_ethic: player.work_ethic || 60,
-          coachability: player.coachability || 60,
-          attributes: buildPlayerAttributes(player)
-        });
-        developmentResults.push(devResult);
-        playerUpdates.push({ id: player.id, age: newAge, overall: devResult.new_overall });
-
-        // Collect attribute changes
-        for (const [attr, change] of Object.entries(devResult.changes)) {
-          if (change !== 0) {
-            if (!attrChanges.has(attr)) {
-              attrChanges.set(attr, []);
-            }
-            attrChanges.get(attr)!.push({ playerId: player.id, change });
-          }
-        }
-      }
-
-      // Batch update retiring players
-      if (retiringPlayerIds.length > 0) {
-        await client.query(
-          `UPDATE players SET team_id = NULL WHERE id = ANY($1)`,
-          [retiringPlayerIds]
-        );
-      }
-
-      // Batch update player age/overall/years_pro
-      if (playerUpdates.length > 0) {
-        const updateValues = playerUpdates.map((p, i) =>
-          `($${i * 3 + 1}::uuid, $${i * 3 + 2}::integer, $${i * 3 + 3}::integer)`
-        ).join(', ');
-        const updateParams = playerUpdates.flatMap(p => [p.id, p.age, p.overall]);
-
-        await client.query(
-          `UPDATE players p SET
-             age = v.age,
-             overall = GREATEST(40, LEAST(99, v.overall)),
-             years_pro = COALESCE(p.years_pro, 0) + 1
-           FROM (VALUES ${updateValues}) AS v(id, age, overall)
-           WHERE p.id = v.id`,
-          updateParams
-        );
-      }
-
-      // Batch update attributes - one query per attribute that has changes
-      for (const [attr, changes] of attrChanges) {
-        if (changes.length === 0) continue;
-
-        const caseStatements = changes.map((c, i) =>
-          `WHEN player_id = $${i * 2 + 1} THEN GREATEST(30, LEAST(99, COALESCE(${attr}, 60) + $${i * 2 + 2}))`
-        ).join(' ');
-        const params = changes.flatMap(c => [c.playerId, c.change]);
-        const playerIds = changes.map(c => c.playerId);
-
-        await client.query(
-          `UPDATE player_attributes SET ${attr} = CASE ${caseStatements} ELSE ${attr} END
-           WHERE player_id = ANY($${params.length + 1})`,
-          [...params, playerIds]
-        );
-      }
-
-      await client.query(
-        `UPDATE contracts SET years_remaining = years_remaining - 1, updated_at = NOW()
-         WHERE status = 'active' AND years_remaining > 0`
-      );
-      await client.query(
-        `UPDATE players p SET salary = COALESCE(
-           CASE (c.total_years - c.years_remaining)
-             WHEN 1 THEN c.year_1_salary WHEN 2 THEN c.year_2_salary
-             WHEN 3 THEN c.year_3_salary WHEN 4 THEN c.year_4_salary
-             WHEN 5 THEN c.year_5_salary ELSE c.base_salary
-           END, c.base_salary)
-         FROM contracts c
-         WHERE c.player_id = p.id AND c.status = 'active' AND c.years_remaining > 0`
-      );
-      await client.query(
-        `UPDATE contracts SET status = 'expired', updated_at = NOW()
-         WHERE status = 'active' AND years_remaining <= 0`
-      );
-
-      const expiredContracts = await client.query(
-        `SELECT c.player_id, c.base_salary, p.overall
-         FROM contracts c
-         JOIN players p ON c.player_id = p.id
-         WHERE c.status = 'expired' AND c.updated_at > NOW() - INTERVAL '1 minute'`
-      );
-
-      for (const row of expiredContracts.rows) {
-        await client.query(`UPDATE players SET team_id = NULL, salary = 0 WHERE id = $1`, [row.player_id]);
-        await client.query(
-          `INSERT INTO free_agents (player_id, season_id, asking_salary, market_value, status)
-           VALUES ($1, $2, $3, $4, 'available')
-           ON CONFLICT (player_id, season_id) DO UPDATE SET status = 'available', asking_salary = $3`,
-          [row.player_id, franchise.season_id, row.base_salary || 5000000, (row.overall || 70) * 100000]
-        );
-      }
+      const { developmentResults, retirements } = await processPlayerDevelopment(client, franchise.season_id);
+      const contractsExpired = await processContracts(client, franchise.season_id);
 
       await Promise.all([
         client.query(
@@ -206,7 +214,7 @@ router.post('/offseason', authMiddleware(true), async (req: any, res) => {
           declined,
           unchanged: developmentResults.length - improved - declined,
           retirements: retirements.length,
-          contracts_expired: expiredContracts.rows.length
+          contracts_expired: contractsExpired
         },
         top_improvers: developmentResults
           .filter(r => r.new_overall > r.previous_overall)
@@ -246,126 +254,8 @@ router.post('/finalize-playoffs', authMiddleware(true), async (req: any, res) =>
     const userIsChampion = champion === franchise.team_id;
 
     await withTransaction(async (client) => {
-      // Process player development (age, overall, years_pro)
-      const playersResult = await client.query(
-        `SELECT p.*,
-                pa.work_ethic, pa.basketball_iq, pa.speed, pa.acceleration, pa.vertical,
-                pa.stamina, pa.strength, pa.lateral_quickness, pa.hustle,
-                pa.inside_scoring, pa.close_shot, pa.mid_range, pa.three_point, pa.free_throw,
-                pa.layup, pa.standing_dunk, pa.driving_dunk, pa.post_moves, pa.post_control,
-                pa.ball_handling, pa.passing_accuracy, pa.passing_vision, pa.steal, pa.block,
-                pa.shot_iq, pa.offensive_iq, pa.passing_iq, pa.defensive_iq,
-                pa.help_defense_iq, pa.offensive_consistency, pa.defensive_consistency,
-                pa.interior_defense, pa.perimeter_defense, pa.offensive_rebound, pa.defensive_rebound
-         FROM players p
-         LEFT JOIN player_attributes pa ON p.id = pa.player_id`
-      );
-
-      const retiringPlayerIds: string[] = [];
-      const playerUpdates: Array<{ id: string; age: number; overall: number }> = [];
-      const attrChanges: Map<string, Array<{ playerId: string; change: number }>> = new Map();
-
-      for (const player of playersResult.rows) {
-        if (shouldRetire(player.age, player.overall, player.years_pro || 0)) {
-          retiringPlayerIds.push(player.id);
-          continue;
-        }
-
-        const newAge = agePlayer(player.age);
-        const devResult = developPlayer({
-          id: player.id,
-          first_name: player.first_name,
-          last_name: player.last_name,
-          position: player.position,
-          age: newAge,
-          overall: player.overall,
-          potential: player.potential,
-          peak_age: player.peak_age || 28,
-          archetype: player.archetype,
-          work_ethic: player.work_ethic || 60,
-          coachability: player.coachability || 60,
-          attributes: buildPlayerAttributes(player)
-        });
-        playerUpdates.push({ id: player.id, age: newAge, overall: devResult.new_overall });
-
-        for (const [attr, change] of Object.entries(devResult.changes)) {
-          if (change !== 0) {
-            if (!attrChanges.has(attr)) attrChanges.set(attr, []);
-            attrChanges.get(attr)!.push({ playerId: player.id, change });
-          }
-        }
-      }
-
-      if (retiringPlayerIds.length > 0) {
-        await client.query(`UPDATE players SET team_id = NULL WHERE id = ANY($1)`, [retiringPlayerIds]);
-      }
-
-      if (playerUpdates.length > 0) {
-        const updateValues = playerUpdates.map((p, i) =>
-          `($${i * 3 + 1}::uuid, $${i * 3 + 2}::integer, $${i * 3 + 3}::integer)`
-        ).join(', ');
-        const updateParams = playerUpdates.flatMap(p => [p.id, p.age, p.overall]);
-
-        await client.query(
-          `UPDATE players p SET
-             age = v.age,
-             overall = GREATEST(40, LEAST(99, v.overall)),
-             years_pro = COALESCE(p.years_pro, 0) + 1
-           FROM (VALUES ${updateValues}) AS v(id, age, overall)
-           WHERE p.id = v.id`,
-          updateParams
-        );
-      }
-
-      for (const [attr, changes] of attrChanges) {
-        if (changes.length === 0) continue;
-        const caseStatements = changes.map((c, i) =>
-          `WHEN player_id = $${i * 2 + 1} THEN GREATEST(30, LEAST(99, COALESCE(${attr}, 60) + $${i * 2 + 2}))`
-        ).join(' ');
-        const params = changes.flatMap(c => [c.playerId, c.change]);
-        const playerIds = changes.map(c => c.playerId);
-        await client.query(
-          `UPDATE player_attributes SET ${attr} = CASE ${caseStatements} ELSE ${attr} END
-           WHERE player_id = ANY($${params.length + 1})`,
-          [...params, playerIds]
-        );
-      }
-
-      await client.query(
-        `UPDATE contracts SET years_remaining = years_remaining - 1, updated_at = NOW()
-         WHERE status = 'active' AND years_remaining > 0`
-      );
-      await client.query(
-        `UPDATE players p SET salary = COALESCE(
-           CASE (c.total_years - c.years_remaining)
-             WHEN 1 THEN c.year_1_salary WHEN 2 THEN c.year_2_salary
-             WHEN 3 THEN c.year_3_salary WHEN 4 THEN c.year_4_salary
-             WHEN 5 THEN c.year_5_salary ELSE c.base_salary
-           END, c.base_salary)
-         FROM contracts c
-         WHERE c.player_id = p.id AND c.status = 'active' AND c.years_remaining > 0`
-      );
-      await client.query(
-        `UPDATE contracts SET status = 'expired', updated_at = NOW()
-         WHERE status = 'active' AND years_remaining <= 0`
-      );
-
-      const expiredContracts = await client.query(
-        `SELECT c.player_id, c.base_salary, p.overall
-         FROM contracts c
-         JOIN players p ON c.player_id = p.id
-         WHERE c.status = 'expired' AND c.updated_at > NOW() - INTERVAL '1 minute'`
-      );
-
-      for (const row of expiredContracts.rows) {
-        await client.query(`UPDATE players SET team_id = NULL, salary = 0 WHERE id = $1`, [row.player_id]);
-        await client.query(
-          `INSERT INTO free_agents (player_id, season_id, asking_salary, market_value, status)
-           VALUES ($1, $2, $3, $4, 'available')
-           ON CONFLICT (player_id, season_id) DO UPDATE SET status = 'available', asking_salary = $3`,
-          [row.player_id, franchise.season_id, row.base_salary || 5000000, (row.overall || 70) * 100000]
-        );
-      }
+      await processPlayerDevelopment(client, franchise.season_id);
+      await processContracts(client, franchise.season_id);
 
       if (userIsChampion) {
         await client.query(`UPDATE teams SET championships = championships + 1 WHERE id = $1`, [franchise.team_id]);

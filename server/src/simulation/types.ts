@@ -260,6 +260,10 @@ export interface QuarterResult {
   away_points: number;
 }
 
+export interface GamePlayerStats extends PlayerGameStats {
+  player_id: string;
+}
+
 export interface GameResult {
   id: string;
   home_team_id: string;
@@ -270,8 +274,8 @@ export interface GameResult {
   plays: Play[];
   home_stats: TeamGameStats;
   away_stats: TeamGameStats;
-  home_player_stats: PlayerGameStats[];
-  away_player_stats: PlayerGameStats[];
+  home_player_stats: GamePlayerStats[];
+  away_player_stats: GamePlayerStats[];
   winner_id: string;
   is_overtime: boolean;
   overtime_periods: number;

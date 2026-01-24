@@ -68,8 +68,24 @@ async function updateTeamStanding(
        points_for = COALESCE(points_for, 0) + $3,
        points_against = COALESCE(points_against, 0) + $4,
        ${confField} = ${confField} + $5,
-       ${divField} = ${divField} + $6
+       ${divField} = ${divField} + $6,
+       streak = CASE
+         WHEN $7 AND COALESCE(streak, 0) >= 0 THEN COALESCE(streak, 0) + 1
+         WHEN $7 THEN 1
+         WHEN NOT $7 AND COALESCE(streak, 0) <= 0 THEN COALESCE(streak, 0) - 1
+         ELSE -1
+       END,
+       last_10_wins = (
+         SELECT COUNT(*) FROM (
+           SELECT winner_id FROM games
+           WHERE season_id = $1 AND is_playoff = false
+             AND (home_team_id = $2 OR away_team_id = $2)
+             AND status = 'completed'
+           ORDER BY completed_at DESC
+           LIMIT 10
+         ) recent WHERE winner_id = $2
+       )
      WHERE season_id = $1 AND team_id = $2`,
-    [seasonId, teamId, pointsFor, pointsAgainst, conferenceGame, divisionGame]
+    [seasonId, teamId, pointsFor, pointsAgainst, conferenceGame, divisionGame, won]
   );
 }

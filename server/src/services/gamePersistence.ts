@@ -9,6 +9,7 @@ export {
   GameResult,
   TeamStats,
   PlayerGameStats,
+  PlayRecord,
   SimulatedTeam,
   PlayoffGameResult
 } from './gamePersistence/types';
@@ -29,9 +30,10 @@ export async function saveCompleteGameResult(
   awayTeam: SimulatedTeam,
   updateStandings: boolean = true,
   client?: PoolClient,
-  isPreseason: boolean = false
+  isPreseason: boolean = false,
+  gameDate?: string
 ): Promise<void> {
-  await saveGameResult(result, seasonId, homeTeam, awayTeam, client);
+  await saveGameResult(result, seasonId, homeTeam, awayTeam, client, gameDate);
 
   if (updateStandings) {
     await updateStandingsAfterGame(result, seasonId, client);

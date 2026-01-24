@@ -5,6 +5,8 @@ import {
   calculateEffectiveFgPct,
   calculatePER,
   calculateUsageRate,
+  calculateAssistPct,
+  calculateReboundPct,
   calculateBoxPlusMinus,
   calculateWinShares,
   calculateVORP,
@@ -147,8 +149,11 @@ async function updateSinglePlayerSeasonStats(
     fouls: stats.fouls
   };
 
+  const teamFgm = tt.fgm || stats.fgm * 5;
+
   const per = calculatePER(basicStats, {
     minutes: teamMinutes,
+    fgm: teamFgm,
     fga: teamFga,
     fta: teamFta,
     oreb: tt.oreb || stats.oreb * 5,
@@ -166,6 +171,15 @@ async function updateSinglePlayerSeasonStats(
     stats.points, stats.oreb + stats.dreb, stats.assists,
     stats.steals, stats.blocks, stats.turnovers,
     stats.fga, stats.fgm, stats.minutes
+  );
+
+  const assistPct = calculateAssistPct(
+    stats.assists, stats.minutes, teamMinutes, teamFgm, stats.fgm
+  );
+  const reboundPct = calculateReboundPct(
+    stats.oreb, stats.dreb, stats.minutes, teamMinutes,
+    tt.oreb || stats.oreb * 5, tt.dreb || stats.dreb * 5,
+    tt.oreb || stats.oreb * 5, tt.dreb || stats.dreb * 5
   );
 
   const winShares = calculateWinShares(per, stats.minutes, teamWins, teamMinutes);
@@ -188,9 +202,9 @@ async function updateSinglePlayerSeasonStats(
        ppg = $3, rpg = $4, apg = $5, spg = $6, bpg = $7, mpg = $8,
        fg_pct = $9, three_pct = $10, ft_pct = $11,
        true_shooting_pct = $12, effective_fg_pct = $13,
-       per = $14, usage_rate = $15,
-       offensive_rating = $16, defensive_rating = $17, net_rating = $18,
-       win_shares = $19, box_plus_minus = $20, value_over_replacement = $21,
+       per = $14, usage_rate = $15, assist_pct = $16, rebound_pct = $17,
+       offensive_rating = $18, defensive_rating = $19, net_rating = $20,
+       win_shares = $21, box_plus_minus = $22, value_over_replacement = $23,
        updated_at = NOW()
      WHERE player_id = $1 AND season_id = $2`,
     [
@@ -199,7 +213,7 @@ async function updateSinglePlayerSeasonStats(
       roundTo(spg, 1), roundTo(bpg, 1), roundTo(mpg, 1),
       roundTo(fgPct, 3), roundTo(threePct, 3), roundTo(ftPct, 3),
       roundTo(trueShootingPct, 3), roundTo(effectiveFgPct, 3),
-      roundTo(per, 1), roundTo(usageRate, 1),
+      roundTo(per, 1), roundTo(usageRate, 1), roundTo(assistPct, 1), roundTo(reboundPct, 1),
       roundTo(offensiveRating, 1), roundTo(defensiveRating, 1), roundTo(netRating, 1),
       roundTo(winShares, 2), roundTo(bpm, 1), roundTo(vorp, 2)
     ]

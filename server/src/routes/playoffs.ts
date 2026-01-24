@@ -49,7 +49,7 @@ async function simulateSeriesGame(
   }
 
   const result = simulateGame(homeTeam, awayTeam);
-  await savePlayoffGame(result, seasonId);
+  await savePlayoffGame(result, seasonId, homeTeam, awayTeam);
   await updateSeriesResult(series.id, result.winner_id, result.id);
 
   return {
@@ -220,7 +220,7 @@ router.post('/simulate', authMiddleware(true), async (req: any, res) => {
       const awayTeam = await loadTeamForSimulation(awayTeamId);
       const result = simulateGame(homeTeam, awayTeam);
 
-      await savePlayoffGame(result, series.season_id);
+      await savePlayoffGame(result, series.season_id, homeTeam, awayTeam);
 
       const { seriesComplete, seriesWinner } = await updateSeriesResult(series_id, result.winner_id, result.id);
 

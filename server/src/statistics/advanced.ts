@@ -18,6 +18,7 @@ export interface BasicStats {
 
 export interface TeamTotals {
   minutes: number;
+  fgm: number;
   fga: number;
   fta: number;
   oreb: number;
@@ -370,7 +371,7 @@ export function calculateAllAdvancedStats(
       playerStats.assists,
       playerStats.minutes,
       teamTotals.minutes,
-      playerStats.fgm + 100,
+      teamTotals.fgm,
       playerStats.fgm
     ),
     rebound_pct: calculateReboundPct(
