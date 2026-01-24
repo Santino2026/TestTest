@@ -76,7 +76,7 @@ export function calculateShotProbability(context: ShotContext): number {
 
   const attribute = getRelevantAttribute(shooter, shot_type);
   const base = BASE_PERCENTAGES[shot_type];
-  const floor = base * 0.55;
+  const floor = base * 0.57;
   let probability = floor + (attribute / 99) * (base - floor);
   probability *= CONTEST_MODIFIERS[context.contest_level];
 

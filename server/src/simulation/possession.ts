@@ -32,7 +32,7 @@ export function simulatePossession(context: PossessionContext): PossessionResult
   let iteration = 0;
 
   // Simulate inbound/setup pass from PG for assist tracking
-  if (ballHandler.position !== 'PG') {
+  if (ballHandler.position !== 'PG' && Math.random() < 0.4) {
     const pg = context.players_on_court.find(p => p.position === 'PG');
     if (pg) {
       lastPasser = pg;
