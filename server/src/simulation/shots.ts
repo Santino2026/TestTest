@@ -64,17 +64,20 @@ export function determineContestLevel(
 
   const roll = Math.random() * 100 + (shooter.attributes.ball_handling - defenseRating) * 0.5;
 
-  if (roll > 85) return 'open';
-  if (roll > 65) return 'light';
-  if (roll > 40) return 'moderate';
-  if (roll > 20) return 'heavy';
+  if (roll > 70) return 'open';
+  if (roll > 40) return 'light';
+  if (roll > 15) return 'moderate';
+  if (roll > 3) return 'heavy';
   return 'smothered';
 }
 
 export function calculateShotProbability(context: ShotContext): number {
   const { shooter, defender, shot_type } = context;
 
-  let probability = (getRelevantAttribute(shooter, shot_type) / 99) * BASE_PERCENTAGES[shot_type];
+  const attribute = getRelevantAttribute(shooter, shot_type);
+  const base = BASE_PERCENTAGES[shot_type];
+  const floor = base * 0.55;
+  let probability = floor + (attribute / 99) * (base - floor);
   probability *= CONTEST_MODIFIERS[context.contest_level];
 
   if (defender && context.is_contested) {
