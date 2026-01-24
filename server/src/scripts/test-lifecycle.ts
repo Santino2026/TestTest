@@ -339,7 +339,8 @@ async function runOffseason(seasonId: number): Promise<{
   const attrUpdates: Array<{ playerId: string; attr: string; newValue: number }> = [];
 
   for (const player of playersResult.rows) {
-    if (shouldRetire(player.age, player.overall, player.years_pro || 0)) {
+    // Force retire at 44 to stay within age CHECK constraint (max 45)
+    if (player.age >= 44 || shouldRetire(player.age, player.overall, player.years_pro || 0)) {
       await pool.query(`UPDATE players SET team_id = NULL WHERE id = $1`, [player.id]);
       retirements++;
       continue;
@@ -598,6 +599,13 @@ async function getSeasonMetrics(seasonId: number, seasonNum: number, championId:
 
 async function cleanupTestData(seasonIds: number[]) {
   console.log('\nCleaning up test data...');
+
+  // Find any orphaned test seasons if IDs weren't tracked
+  if (seasonIds.length === 0) {
+    const orphaned = await pool.query(`SELECT id FROM seasons WHERE season_number >= ${SEASON_NUMBER_START}`);
+    seasonIds = orphaned.rows.map((r: any) => r.id);
+  }
+
   for (const seasonId of seasonIds) {
     await pool.query(`DELETE FROM playoff_games WHERE series_id IN (SELECT id FROM playoff_series WHERE season_id = $1)`, [seasonId]);
     await pool.query(`DELETE FROM playoff_series WHERE season_id = $1`, [seasonId]);
@@ -614,9 +622,35 @@ async function cleanupTestData(seasonIds: number[]) {
     await pool.query(`DELETE FROM seasons WHERE id = $1`, [seasonId]);
   }
 
-  // Clean up test players (drafted during test - years_pro < 20 and created recently)
-  await pool.query(`DELETE FROM player_attributes WHERE player_id IN (SELECT id FROM players WHERE years_pro = 0 AND age <= 22 AND team_id IS NULL)`);
-  await pool.query(`DELETE FROM contracts WHERE status = 'active' AND years_remaining > 3`);
+  // Restore player state if backup exists
+  const backupExists = await pool.query(`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '_test_players_backup')`);
+  if (backupExists.rows[0].exists) {
+    // Delete test-created players and their data
+    await pool.query(`DELETE FROM contracts WHERE player_id NOT IN (SELECT id FROM _test_players_backup)`);
+    await pool.query(`DELETE FROM player_attributes WHERE player_id NOT IN (SELECT id FROM _test_players_backup)`);
+    await pool.query(`DELETE FROM players WHERE id NOT IN (SELECT id FROM _test_players_backup)`);
+
+    // Restore original player state
+    await pool.query(`
+      UPDATE players SET
+        age = b.age, overall = b.overall, team_id = b.team_id,
+        years_pro = b.years_pro, salary = b.salary
+      FROM _test_players_backup b WHERE players.id = b.id
+    `);
+
+    // Restore original attributes
+    await pool.query(`DELETE FROM player_attributes`);
+    await pool.query(`INSERT INTO player_attributes SELECT * FROM _test_attrs_backup`);
+
+    // Restore original contracts
+    await pool.query(`DELETE FROM contracts`);
+    await pool.query(`INSERT INTO contracts SELECT * FROM _test_contracts_backup`);
+  }
+
+  // Clean up backup tables
+  await pool.query(`DROP TABLE IF EXISTS _test_players_backup`);
+  await pool.query(`DROP TABLE IF EXISTS _test_attrs_backup`);
+  await pool.query(`DROP TABLE IF EXISTS _test_contracts_backup`);
 
   console.log('Cleanup complete.');
 }
@@ -624,6 +658,14 @@ async function cleanupTestData(seasonIds: number[]) {
 async function runLifecycleTest() {
   console.log('=== 20-SEASON LIFECYCLE TEST ===\n');
   const startTime = Date.now();
+
+  // Backup player state so we can restore after test
+  await pool.query(`DROP TABLE IF EXISTS _test_players_backup`);
+  await pool.query(`DROP TABLE IF EXISTS _test_attrs_backup`);
+  await pool.query(`DROP TABLE IF EXISTS _test_contracts_backup`);
+  await pool.query(`CREATE TABLE _test_players_backup AS SELECT id, age, overall, team_id, years_pro, salary FROM players`);
+  await pool.query(`CREATE TABLE _test_attrs_backup AS SELECT * FROM player_attributes`);
+  await pool.query(`CREATE TABLE _test_contracts_backup AS SELECT * FROM contracts`);
 
   const seasonIds: number[] = [];
   const allMetrics: SeasonMetrics[] = [];
@@ -773,8 +815,12 @@ async function runLifecycleTest() {
   await pool.end();
 }
 
-runLifecycleTest().catch(err => {
+runLifecycleTest().catch(async err => {
   console.error('Test crashed:', err);
-  pool.end();
+  // Attempt cleanup even on crash
+  try {
+    await cleanupTestData([]);
+  } catch (_) { /* ignore cleanup errors */ }
+  await pool.end();
   process.exit(1);
 });
