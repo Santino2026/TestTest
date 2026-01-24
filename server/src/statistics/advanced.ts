@@ -89,9 +89,7 @@ export function calculatePER(
   const paceFactor = leaguePace / 100;
 
   const positives =
-    stats.three_pm * 3 +
-    stats.fgm * 2 +
-    stats.ftm +
+    stats.points +
     stats.assists * 2 +
     stats.steals * 2 +
     stats.blocks * 2 +
@@ -104,7 +102,7 @@ export function calculatePER(
     stats.turnovers * 2 +
     stats.fouls * 0.5;
 
-  const rawPer = ((positives - negatives) / stats.minutes) * 48;
+  const rawPer = ((positives - negatives) / stats.minutes) * 28;
   const per = rawPer * paceFactor;
 
   return Math.max(0, round1(per));

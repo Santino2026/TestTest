@@ -31,6 +31,15 @@ export function simulatePossession(context: PossessionContext): PossessionResult
   let lastPasser: SimPlayer | null = null; // Track passer for assists
   let iteration = 0;
 
+  // Simulate inbound/setup pass from PG for assist tracking
+  if (ballHandler.position !== 'PG') {
+    const pg = context.players_on_court.find(p => p.position === 'PG');
+    if (pg) {
+      lastPasser = pg;
+      passCount = 1;
+    }
+  }
+
   while (shotClock > 0) {
     if (!ballHandler || !ballHandler.id || !ballHandler.attributes) {
       ballHandler = selectBallHandler(context.players_on_court);
@@ -40,7 +49,7 @@ export function simulatePossession(context: PossessionContext): PossessionResult
     }
 
     if (iteration === 0) {
-      shotClock -= Math.floor(Math.random() * 5) + 5;
+      shotClock -= Math.floor(Math.random() * 4) + 5;
     } else {
       shotClock -= Math.floor(Math.random() * 2) + 1;
     }
