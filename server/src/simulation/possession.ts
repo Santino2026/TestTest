@@ -42,7 +42,7 @@ export function simulatePossession(context: PossessionContext): PossessionResult
     if (iteration === 0) {
       shotClock -= Math.floor(Math.random() * 5) + 5;
     } else {
-      shotClock -= Math.floor(Math.random() * 3) + 2;
+      shotClock -= Math.floor(Math.random() * 2) + 1;
     }
     iteration++;
     if (shotClock <= 0) {

@@ -14,7 +14,9 @@ export function simulateFreeThrows(
 ): { plays: Play[]; points: number } {
   const plays: Play[] = [];
   let points = 0;
-  const ftChance = (shooter.attributes.free_throw / 100) * getFreeThrowFatigueModifier(shooter.fatigue);
+  const ftBase = 0.88;
+  const ftFloor = ftBase * 0.65;
+  const ftChance = (ftFloor + (shooter.attributes.free_throw / 99) * (ftBase - ftFloor)) * getFreeThrowFatigueModifier(shooter.fatigue);
 
   for (let i = 0; i < numAttempts; i++) {
     const made = Math.random() < ftChance;
