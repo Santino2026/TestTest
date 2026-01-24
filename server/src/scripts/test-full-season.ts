@@ -6,9 +6,8 @@ import { pool } from '../db/pool';
 import { simulateGame } from '../simulation';
 import { loadTeamForSimulation } from '../services/simulation';
 import { saveCompleteGameResult, GameResult } from '../services/gamePersistence';
-import { generateSchedule, generatePreseasonSchedule } from '../schedule/generator';
+import { generateSchedule } from '../schedule/generator';
 import { REGULAR_SEASON_END_DAY, SEASON_START_DATE } from '../constants';
-import { v4 as uuidv4 } from 'uuid';
 
 function calculateGameDate(currentDay: number): string {
   const seasonStart = new Date(SEASON_START_DATE);
@@ -17,17 +16,17 @@ function calculateGameDate(currentDay: number): string {
   return gameDate.toISOString().split('T')[0];
 }
 
-async function createTestFranchise(): Promise<{ franchiseId: string; seasonId: number; teamId: string; teamName: string }> {
-  console.log('Creating test franchise...');
+async function createTestSeason(): Promise<{ seasonId: number; teamId: string; teamName: string }> {
+  console.log('Creating test season...');
 
   const newSeason = await pool.query(
-    `INSERT INTO seasons (season_number, status) VALUES (99, 'regular_season') RETURNING id`
+    `INSERT INTO seasons (season_number, status) VALUES (99, 'regular') RETURNING id`
   );
   const seasonId = newSeason.rows[0].id;
 
   const teamsResult = await pool.query('SELECT id, name, conference, division FROM teams');
   const teams = teamsResult.rows;
-  const testTeam = teams[0]; // Pick first team
+  const testTeam = teams[0];
 
   // Create standings for all teams
   for (const t of teams) {
@@ -62,20 +61,11 @@ async function createTestFranchise(): Promise<{ franchiseId: string; seasonId: n
     );
   }
 
-  // Create franchise record
-  const testUserId = uuidv4();
-  const insertResult = await pool.query(
-    `INSERT INTO franchises (user_id, team_id, season_id, phase, current_day, name, is_active, season_number)
-     VALUES ($1, $2, $3, 'regular_season', 1, 'TEST FRANCHISE', FALSE, 99)
-     RETURNING id`,
-    [testUserId, testTeam.id, seasonId]
-  );
-
   console.log(`  Season ID: ${seasonId}, Team: ${testTeam.name}\n`);
-  return { franchiseId: insertResult.rows[0].id, seasonId, teamId: testTeam.id, teamName: testTeam.name };
+  return { seasonId, teamId: testTeam.id, teamName: testTeam.name };
 }
 
-async function cleanupTestData(seasonId: number, franchiseId: string) {
+async function cleanupTestData(seasonId: number) {
   console.log('\nCleaning up test data...');
   await pool.query(`DELETE FROM plays WHERE game_id IN (SELECT id FROM games WHERE season_id = $1)`, [seasonId]);
   await pool.query(`DELETE FROM player_game_stats WHERE game_id IN (SELECT id FROM games WHERE season_id = $1)`, [seasonId]);
@@ -86,7 +76,6 @@ async function cleanupTestData(seasonId: number, franchiseId: string) {
   await pool.query(`DELETE FROM team_season_stats WHERE season_id = $1`, [seasonId]);
   await pool.query(`DELETE FROM standings WHERE season_id = $1`, [seasonId]);
   await pool.query(`DELETE FROM schedule WHERE season_id = $1`, [seasonId]);
-  await pool.query(`DELETE FROM franchises WHERE id = $1`, [franchiseId]);
   await pool.query(`DELETE FROM seasons WHERE id = $1`, [seasonId]);
   console.log('Cleanup complete.');
 }
@@ -94,7 +83,7 @@ async function cleanupTestData(seasonId: number, franchiseId: string) {
 async function runFullSeasonTest() {
   console.log('=== FULL SEASON SIMULATION TEST ===\n');
 
-  const { franchiseId, seasonId, teamId, teamName } = await createTestFranchise();
+  const { seasonId, teamId, teamName } = await createTestSeason();
 
   // Simulate all game days
   console.log('--- SIMULATING 82-GAME SEASON (1230 games) ---');
@@ -343,7 +332,7 @@ async function runFullSeasonTest() {
   console.log(issues === 0 && errors === 0 ? 'STATUS: ALL PASS' : `STATUS: ${issues} ISSUES`);
 
   // Cleanup
-  await cleanupTestData(seasonId, franchiseId);
+  await cleanupTestData(seasonId);
   await pool.end();
 }
 
