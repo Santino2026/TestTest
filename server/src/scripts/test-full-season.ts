@@ -71,11 +71,11 @@ async function cleanupTestData(seasonId: number) {
   await pool.query(`DELETE FROM player_game_stats WHERE game_id IN (SELECT id FROM games WHERE season_id = $1)`, [seasonId]);
   await pool.query(`DELETE FROM team_game_stats WHERE game_id IN (SELECT id FROM games WHERE season_id = $1)`, [seasonId]);
   await pool.query(`DELETE FROM game_quarters WHERE game_id IN (SELECT id FROM games WHERE season_id = $1)`, [seasonId]);
+  await pool.query(`DELETE FROM schedule WHERE season_id = $1`, [seasonId]);
   await pool.query(`DELETE FROM games WHERE season_id = $1`, [seasonId]);
   await pool.query(`DELETE FROM player_season_stats WHERE season_id = $1`, [seasonId]);
   await pool.query(`DELETE FROM team_season_stats WHERE season_id = $1`, [seasonId]);
   await pool.query(`DELETE FROM standings WHERE season_id = $1`, [seasonId]);
-  await pool.query(`DELETE FROM schedule WHERE season_id = $1`, [seasonId]);
   await pool.query(`DELETE FROM seasons WHERE id = $1`, [seasonId]);
   console.log('Cleanup complete.');
 }
