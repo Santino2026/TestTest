@@ -171,7 +171,7 @@ async function insertPlays(
       );
       values.push(
         gameId, play.type, play.quarter, play.game_clock, play.shot_clock || null,
-        play.primary_player_id, play.secondary_player_id || null, play.team_id,
+        play.primary_player_id || null, play.secondary_player_id || null, play.team_id || null,
         play.points, play.home_score, play.away_score,
         play.shot_type || null, play.shot_made ?? null, play.shot_distance || null,
         play.shot_contested ?? null, play.description, i + j
