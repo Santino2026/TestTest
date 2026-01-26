@@ -3,7 +3,7 @@ import { pool } from '../db/pool';
 import { authMiddleware } from '../auth';
 import { getUserActiveFranchise } from '../db/queries';
 import { withTransaction } from '../db/transactions';
-import { simulatePreseasonDayGames } from '../services/gameSimulation';
+import { simulatePreseasonDayGames, simulateAllPreseasonGames } from '../services/gameSimulation';
 
 const router = Router();
 
@@ -65,16 +65,7 @@ router.post('/all', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: 'Not in preseason' });
     }
 
-    const allResults: any[] = [];
-    let daysSimulated = 0;
-    let currentDay = franchise.current_day;
-
-    while (currentDay <= 0) {
-      const { results } = await simulatePreseasonDayGames({ ...franchise, current_day: currentDay });
-      allResults.push(...results);
-      currentDay++;
-      daysSimulated++;
-    }
+    const { daysSimulated, gamesPlayed, userGames } = await simulateAllPreseasonGames(franchise);
 
     await pool.query(
       `UPDATE seasons SET status = 'regular' WHERE id = $1`,
@@ -90,8 +81,8 @@ router.post('/all', authMiddleware(true), async (req: any, res) => {
       days_simulated: daysSimulated,
       phase: 'regular_season',
       current_day: 1,
-      games_played: allResults.length,
-      user_games: allResults.filter(r => r.is_user_game)
+      games_played: gamesPlayed,
+      user_games: userGames
     });
   } catch (error: any) {
     if (error.status) {
