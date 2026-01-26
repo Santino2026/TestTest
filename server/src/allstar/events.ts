@@ -176,11 +176,14 @@ export async function simulateRisingStars(seasonId: string): Promise<EventResult
 export async function simulateSkillsChallenge(seasonId: string): Promise<EventResult> {
   const result = await pool.query(
     `SELECT p.id, p.first_name, p.last_name, p.position, p.overall,
-            pa.ball_handling, pa.passing_accuracy, pa.three_point, pa.speed
+            COALESCE(pa.ball_handling, p.overall, 50) as ball_handling,
+            COALESCE(pa.passing_accuracy, p.overall, 50) as passing_accuracy,
+            COALESCE(pa.three_point, p.overall, 50) as three_point,
+            COALESCE(pa.speed, p.overall, 50) as speed
      FROM players p
-     JOIN player_attributes pa ON p.id = pa.player_id
+     LEFT JOIN player_attributes pa ON p.id = pa.player_id
      WHERE p.position IN ('PG', 'SG') AND p.team_id IS NOT NULL
-     ORDER BY (pa.ball_handling + pa.passing_accuracy + pa.speed) DESC
+     ORDER BY (COALESCE(pa.ball_handling, p.overall, 50) + COALESCE(pa.passing_accuracy, p.overall, 50) + COALESCE(pa.speed, p.overall, 50)) DESC
      LIMIT 8`,
     []
   );
@@ -254,11 +257,13 @@ export async function simulateSkillsChallenge(seasonId: string): Promise<EventRe
 export async function simulateThreePointContest(seasonId: string): Promise<EventResult> {
   const result = await pool.query(
     `SELECT p.id, p.first_name, p.last_name, p.overall,
-            pa.three_point, pa.shot_iq, pa.clutch
+            COALESCE(pa.three_point, p.overall, 50) as three_point,
+            COALESCE(pa.shot_iq, p.overall, 50) as shot_iq,
+            COALESCE(pa.clutch, p.overall, 50) as clutch
      FROM players p
-     JOIN player_attributes pa ON p.id = pa.player_id
+     LEFT JOIN player_attributes pa ON p.id = pa.player_id
      WHERE p.team_id IS NOT NULL
-     ORDER BY pa.three_point DESC
+     ORDER BY COALESCE(pa.three_point, p.overall, 50) DESC
      LIMIT 8`,
     []
   );
@@ -353,11 +358,15 @@ const DUNK_DESCRIPTIONS = [
 export async function simulateDunkContest(seasonId: string): Promise<EventResult> {
   const result = await pool.query(
     `SELECT p.id, p.first_name, p.last_name, p.overall,
-            pa.driving_dunk, pa.standing_dunk, pa.vertical, pa.speed, pa.acceleration
+            COALESCE(pa.driving_dunk, p.overall, 50) as driving_dunk,
+            COALESCE(pa.standing_dunk, p.overall, 50) as standing_dunk,
+            COALESCE(pa.vertical, p.overall, 50) as vertical,
+            COALESCE(pa.speed, p.overall, 50) as speed,
+            COALESCE(pa.acceleration, p.overall, 50) as acceleration
      FROM players p
-     JOIN player_attributes pa ON p.id = pa.player_id
+     LEFT JOIN player_attributes pa ON p.id = pa.player_id
      WHERE p.team_id IS NOT NULL
-     ORDER BY (pa.driving_dunk + pa.standing_dunk + pa.vertical) DESC
+     ORDER BY (COALESCE(pa.driving_dunk, p.overall, 50) + COALESCE(pa.standing_dunk, p.overall, 50) + COALESCE(pa.vertical, p.overall, 50)) DESC
      LIMIT 4`,
     []
   );
