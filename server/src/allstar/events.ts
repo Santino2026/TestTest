@@ -259,7 +259,8 @@ export async function simulateThreePointContest(seasonId: string): Promise<Event
      JOIN player_attributes pa ON p.id = pa.player_id
      WHERE p.team_id IS NOT NULL
      ORDER BY pa.three_point DESC
-     LIMIT 8`
+     LIMIT 8`,
+    []
   );
 
   if (result.rows.length < 3) {
@@ -325,15 +326,15 @@ export async function simulateThreePointContest(seasonId: string): Promise<Event
      VALUES ($1, 'three_point', $2, $3, $4)
      ON CONFLICT (season_id, event_type) DO UPDATE
      SET winner_id = $2, runner_up_id = $3, details = $4`,
-    [seasonId, winner.id, runnerUp.id, JSON.stringify(details)]
+    [seasonId, winner.id, runnerUp?.id, JSON.stringify(details)]
   );
 
   return {
     event_type: 'three_point',
     winner_id: winner.id,
     winner_name: getFullName(winner),
-    runner_up_id: runnerUp.id,
-    runner_up_name: getFullName(runnerUp),
+    runner_up_id: runnerUp?.id,
+    runner_up_name: runnerUp ? getFullName(runnerUp) : undefined,
     details
   };
 }
@@ -357,7 +358,8 @@ export async function simulateDunkContest(seasonId: string): Promise<EventResult
      JOIN player_attributes pa ON p.id = pa.player_id
      WHERE p.team_id IS NOT NULL
      ORDER BY (pa.driving_dunk + pa.standing_dunk + pa.vertical) DESC
-     LIMIT 4`
+     LIMIT 4`,
+    []
   );
 
   if (result.rows.length < 2) {
@@ -433,15 +435,15 @@ export async function simulateDunkContest(seasonId: string): Promise<EventResult
      VALUES ($1, 'dunk', $2, $3, $4)
      ON CONFLICT (season_id, event_type) DO UPDATE
      SET winner_id = $2, runner_up_id = $3, details = $4`,
-    [seasonId, winner.id, runnerUp.id, JSON.stringify(details)]
+    [seasonId, winner.id, runnerUp?.id, JSON.stringify(details)]
   );
 
   return {
     event_type: 'dunk',
     winner_id: winner.id,
     winner_name: getFullName(winner),
-    runner_up_id: runnerUp.id,
-    runner_up_name: getFullName(runnerUp),
+    runner_up_id: runnerUp?.id,
+    runner_up_name: runnerUp ? getFullName(runnerUp) : undefined,
     details
   };
 }
