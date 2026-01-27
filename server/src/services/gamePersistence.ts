@@ -28,7 +28,8 @@ export async function saveCompleteGameResult(
   homeTeam: SimulatedTeam,
   awayTeam: SimulatedTeam,
   updateStandings: boolean = true,
-  client?: PoolClient
+  client?: PoolClient,
+  isPreseason: boolean = false
 ): Promise<void> {
   await saveGameResult(result, seasonId, homeTeam, awayTeam, client);
 
@@ -36,6 +37,9 @@ export async function saveCompleteGameResult(
     await updateStandingsAfterGame(result, seasonId, client);
   }
 
-  await updateTeamSeasonStats(result, seasonId, client);
-  await updatePlayerSeasonStats(result, seasonId, homeTeam, awayTeam, client);
+  // Skip season stats for preseason games - they're not meaningful
+  if (!isPreseason) {
+    await updateTeamSeasonStats(result, seasonId, client);
+    await updatePlayerSeasonStats(result, seasonId, homeTeam, awayTeam, client);
+  }
 }

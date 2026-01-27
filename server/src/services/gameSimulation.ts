@@ -108,7 +108,8 @@ async function simulateGamesForDay(
           { id: homeTeam.id, starters: homeTeam.starters },
           { id: awayTeam.id, starters: awayTeam.starters },
           updateStandings,
-          client
+          client,
+          isPreseason
         );
 
         await client.query(
@@ -269,7 +270,8 @@ export async function simulateAllPreseasonGames(franchise: FranchiseContext): Pr
           { id: homeTeam.id, starters: homeTeam.starters },
           { id: awayTeam.id, starters: awayTeam.starters },
           false, // Never update standings for preseason
-          client
+          client,
+          true // isPreseason - skip season stats
         );
 
         await client.query(
