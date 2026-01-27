@@ -415,6 +415,194 @@ function simulateQuarter(
   };
 }
 
+// Fast simulation - generates realistic scores and stats without play-by-play
+// Used for preseason games where detailed simulation is unnecessary
+export function simulateGameFast(homeTeam: SimTeam, awayTeam: SimTeam): GameResult {
+  const gameId = uuidv4();
+
+  // Calculate team ratings (avg of top 8 players by overall)
+  const homeRating = getTeamRating(homeTeam);
+  const awayRating = getTeamRating(awayTeam);
+
+  // Generate final scores (100-120 range typical)
+  const baseScore = 105;
+  const homeAdvantage = 3;
+  const variance = 15;
+
+  const ratingDiff = (homeRating - awayRating) / 10;
+  let homeScore = Math.round(baseScore + homeAdvantage + ratingDiff + (Math.random() - 0.5) * variance);
+  let awayScore = Math.round(baseScore - ratingDiff + (Math.random() - 0.5) * variance);
+
+  // Ensure reasonable scores and no ties
+  homeScore = Math.max(85, Math.min(130, homeScore));
+  awayScore = Math.max(85, Math.min(130, awayScore));
+
+  // Break ties randomly
+  if (homeScore === awayScore) {
+    if (Math.random() > 0.5) homeScore += 1;
+    else awayScore += 1;
+  }
+
+  // Break into quarters
+  const quarters = generateQuarterScores(homeScore, awayScore);
+
+  // Generate player stats
+  const homePlayerStats = generatePlayerStatsFast(homeTeam, homeScore);
+  const awayPlayerStats = generatePlayerStatsFast(awayTeam, awayScore);
+
+  // Generate team stats from player stats
+  const homeStats = aggregateTeamStats(homePlayerStats);
+  const awayStats = aggregateTeamStats(awayPlayerStats);
+
+  return {
+    id: gameId,
+    home_team_id: homeTeam.id,
+    away_team_id: awayTeam.id,
+    home_score: homeScore,
+    away_score: awayScore,
+    quarters,
+    plays: [], // Empty - not needed for preseason
+    home_stats: homeStats,
+    away_stats: awayStats,
+    home_player_stats: homePlayerStats,
+    away_player_stats: awayPlayerStats,
+    winner_id: homeScore > awayScore ? homeTeam.id : awayTeam.id,
+    is_overtime: false,
+    overtime_periods: 0
+  };
+}
+
+function getTeamRating(team: SimTeam): number {
+  const sorted = [...team.roster].sort((a, b) => b.overall - a.overall);
+  const top8 = sorted.slice(0, 8);
+  if (top8.length === 0) return 70;
+  return top8.reduce((sum, p) => sum + p.overall, 0) / top8.length;
+}
+
+function generateQuarterScores(homeTotal: number, awayTotal: number): QuarterResult[] {
+  const quarters: QuarterResult[] = [];
+  let homeRemaining = homeTotal;
+  let awayRemaining = awayTotal;
+
+  for (let q = 1; q <= 4; q++) {
+    const isLast = q === 4;
+    const homePts = isLast ? homeRemaining : Math.round(homeTotal * (0.22 + Math.random() * 0.06));
+    const awayPts = isLast ? awayRemaining : Math.round(awayTotal * (0.22 + Math.random() * 0.06));
+    quarters.push({
+      quarter: q,
+      home_points: homePts,
+      away_points: awayPts,
+      plays: []
+    });
+    homeRemaining -= homePts;
+    awayRemaining -= awayPts;
+  }
+  return quarters;
+}
+
+function generatePlayerStatsFast(team: SimTeam, teamScore: number): Array<PlayerGameStats & { player_id: string }> {
+  const stats: Array<PlayerGameStats & { player_id: string }> = [];
+  const starters = team.starters?.length >= 5 ? team.starters : team.roster.slice(0, 5);
+  const bench = team.roster.filter(p => !starters.some(s => s.id === p.id)).slice(0, 8);
+
+  let remainingPoints = teamScore;
+
+  for (const player of [...starters, ...bench]) {
+    const isStarter = starters.some(s => s.id === player.id);
+    const minutes = isStarter ? 28 + Math.random() * 8 : 8 + Math.random() * 12;
+
+    // Points based on overall rating and minutes
+    const pointShare = (player.overall / 100) * (minutes / 240) * 2.5;
+    const points = Math.min(remainingPoints, Math.round(teamScore * pointShare * (0.8 + Math.random() * 0.4)));
+    remainingPoints -= points;
+
+    // Generate other stats proportionally
+    const fga = Math.max(1, Math.round(points / 1.1));
+    const fgm = Math.round(fga * 0.45);
+    const threePa = Math.round(fga * 0.35);
+    const threePm = Math.round(threePa * 0.36);
+    const oreb = Math.round(Math.random() * 2);
+    const dreb = Math.round(2 + Math.random() * 4);
+
+    stats.push({
+      player_id: player.id,
+      minutes: Math.round(minutes),
+      points,
+      fgm,
+      fga,
+      three_pm: threePm,
+      three_pa: threePa,
+      ftm: Math.round(points * 0.15),
+      fta: Math.round(points * 0.2),
+      oreb,
+      dreb,
+      rebounds: oreb + dreb,
+      assists: Math.round(1 + Math.random() * 5),
+      steals: Math.round(Math.random() * 2),
+      blocks: Math.round(Math.random() * 1.5),
+      turnovers: Math.round(Math.random() * 3),
+      fouls: Math.round(1 + Math.random() * 3),
+      plus_minus: 0
+    });
+  }
+  return stats;
+}
+
+function aggregateTeamStats(playerStats: Array<PlayerGameStats & { player_id: string }>): TeamGameStats {
+  const stats: TeamGameStats = {
+    points: 0,
+    fgm: 0,
+    fga: 0,
+    fg_pct: 0,
+    three_pm: 0,
+    three_pa: 0,
+    three_pct: 0,
+    ftm: 0,
+    fta: 0,
+    ft_pct: 0,
+    oreb: 0,
+    dreb: 0,
+    rebounds: 0,
+    assists: 0,
+    steals: 0,
+    blocks: 0,
+    turnovers: 0,
+    fouls: 0,
+    fast_break_points: 0,
+    points_in_paint: 0,
+    second_chance_points: 0
+  };
+
+  for (const ps of playerStats) {
+    stats.points += ps.points;
+    stats.fgm += ps.fgm;
+    stats.fga += ps.fga;
+    stats.three_pm += ps.three_pm;
+    stats.three_pa += ps.three_pa;
+    stats.ftm += ps.ftm;
+    stats.fta += ps.fta;
+    stats.oreb += ps.oreb;
+    stats.dreb += ps.dreb;
+    stats.rebounds += ps.rebounds;
+    stats.assists += ps.assists;
+    stats.steals += ps.steals;
+    stats.blocks += ps.blocks;
+    stats.turnovers += ps.turnovers;
+    stats.fouls += ps.fouls;
+  }
+
+  stats.fg_pct = stats.fga > 0 ? stats.fgm / stats.fga : 0;
+  stats.three_pct = stats.three_pa > 0 ? stats.three_pm / stats.three_pa : 0;
+  stats.ft_pct = stats.fta > 0 ? stats.ftm / stats.fta : 0;
+
+  // Estimate special scoring categories
+  stats.fast_break_points = Math.round(stats.points * 0.12);
+  stats.points_in_paint = Math.round(stats.points * 0.45);
+  stats.second_chance_points = Math.round(stats.points * 0.10);
+
+  return stats;
+}
+
 export function simulateGame(homeTeam: SimTeam, awayTeam: SimTeam): GameResult {
   const gameId = uuidv4();
 

@@ -1,5 +1,5 @@
 import { pool } from '../db/pool';
-import { simulateGame } from '../simulation';
+import { simulateGame, simulateGameFast } from '../simulation';
 import { loadTeamForSimulation } from './simulation';
 import { saveCompleteGameResult, GameResult } from './gamePersistence';
 import { SEASON_START_DATE } from '../constants';
@@ -113,7 +113,9 @@ async function simulateGamesForDay(
     try {
       const homeTeam = teamCache.get(scheduledGame.home_team_id)!;
       const awayTeam = teamCache.get(scheduledGame.away_team_id)!;
-      const simResult = simulateGame(homeTeam, awayTeam);
+      const simResult = isPreseason
+        ? simulateGameFast(homeTeam, awayTeam)
+        : simulateGame(homeTeam, awayTeam);
 
       const gameResult = buildGameResult(simResult);
 
