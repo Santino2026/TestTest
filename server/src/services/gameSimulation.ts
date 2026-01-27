@@ -80,6 +80,21 @@ async function simulateGamesForDay(
   const results: GameSimResult[] = [];
   let userGameResult: UserGameResult | null = null;
 
+  // Batch load all teams upfront
+  const teamIds = new Set<string>();
+  for (const game of gamesResult.rows) {
+    teamIds.add(game.home_team_id);
+    teamIds.add(game.away_team_id);
+  }
+
+  const teamCache = new Map<string, Awaited<ReturnType<typeof loadTeamForSimulation>>>();
+  await Promise.all(
+    Array.from(teamIds).map(async (teamId) => {
+      const team = await loadTeamForSimulation(teamId);
+      teamCache.set(teamId, team);
+    })
+  );
+
   for (const scheduledGame of gamesResult.rows) {
     const claimResult = await pool.query(
       `UPDATE schedule SET status = 'simulating'
@@ -96,8 +111,8 @@ async function simulateGamesForDay(
                        scheduledGame.away_team_id === userTeamId;
 
     try {
-      const homeTeam = await loadTeamForSimulation(scheduledGame.home_team_id);
-      const awayTeam = await loadTeamForSimulation(scheduledGame.away_team_id);
+      const homeTeam = teamCache.get(scheduledGame.home_team_id)!;
+      const awayTeam = teamCache.get(scheduledGame.away_team_id)!;
       const simResult = simulateGame(homeTeam, awayTeam);
 
       const gameResult = buildGameResult(simResult);
