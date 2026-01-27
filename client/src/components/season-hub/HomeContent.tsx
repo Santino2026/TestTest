@@ -55,6 +55,15 @@ export function HomeContent() {
     },
   });
 
+  const advancePreseasonAll = useMutation({
+    mutationFn: api.advancePreseasonAll,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['schedule'] });
+      queryClient.invalidateQueries({ queryKey: ['standings'] });
+      refreshFranchise();
+    },
+  });
+
   const advanceDay = useMutation({
     mutationFn: api.advanceDay,
     onSuccess: () => {
@@ -64,7 +73,7 @@ export function HomeContent() {
     },
   });
 
-  const isSimulating = advanceDay.isPending || advancePreseasonDay.isPending;
+  const isSimulating = advanceDay.isPending || advancePreseasonDay.isPending || advancePreseasonAll.isPending;
 
   const handleSimDay = () => {
     if (isPreseason) {
@@ -72,6 +81,10 @@ export function HomeContent() {
     } else {
       advanceDay.mutate();
     }
+  };
+
+  const handleSimAll = () => {
+    advancePreseasonAll.mutate();
   };
 
   // Get conference rank for a team (with defensive checks)
@@ -151,6 +164,7 @@ export function HomeContent() {
       {/* Action Buttons */}
       <ActionButtonsBar
         onSimDay={handleSimDay}
+        onSimAll={isPreseason ? handleSimAll : undefined}
         isSimulating={isSimulating}
       />
     </div>
@@ -527,18 +541,20 @@ function NotificationCard({
 // Action Buttons Bar
 function ActionButtonsBar({
   onSimDay,
+  onSimAll,
   isSimulating,
 }: {
   onSimDay: () => void;
+  onSimAll?: () => void;
   isSimulating: boolean;
 }) {
   return (
-    <div>
+    <div className={onSimAll ? 'flex gap-3' : ''}>
       {/* Sim Day - Primary Action */}
       <button
         onClick={onSimDay}
         disabled={isSimulating}
-        className="w-full relative flex items-center justify-center gap-2 py-4 rounded-lg text-sm font-bold tracking-wider uppercase transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+        className={`${onSimAll ? 'flex-1' : 'w-full'} relative flex items-center justify-center gap-2 py-4 rounded-lg text-sm font-bold tracking-wider uppercase transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed`}
         style={{
           background: 'linear-gradient(180deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%)',
           boxShadow: `
@@ -553,6 +569,29 @@ function ActionButtonsBar({
         <FastForward className="w-5 h-5" />
         <span>{isSimulating ? 'SIMULATING...' : 'SIM DAY'}</span>
       </button>
+
+      {/* Sim All - Only during preseason */}
+      {onSimAll && (
+        <button
+          onClick={onSimAll}
+          disabled={isSimulating}
+          className="flex-1 relative flex items-center justify-center gap-2 py-4 rounded-lg text-sm font-bold tracking-wider uppercase transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{
+            background: 'linear-gradient(180deg, #10b981 0%, #059669 50%, #047857 100%)',
+            boxShadow: `
+              inset 0 1px 0 rgba(255,255,255,0.2),
+              inset 0 -1px 0 rgba(0,0,0,0.2),
+              0 4px 12px rgba(16, 185, 129, 0.4),
+              0 0 30px rgba(16, 185, 129, 0.2)
+            `,
+            color: '#ffffff',
+          }}
+        >
+          <FastForward className="w-5 h-5" />
+          <FastForward className="w-5 h-5 -ml-3" />
+          <span>{isSimulating ? 'SIMULATING...' : 'SIMULATE ALL'}</span>
+        </button>
+      )}
     </div>
   );
 }

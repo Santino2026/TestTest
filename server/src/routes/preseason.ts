@@ -65,24 +65,24 @@ router.post('/all', authMiddleware(true), async (req: any, res) => {
       return res.status(400).json({ error: 'Not in preseason' });
     }
 
-    const { daysSimulated, gamesPlayed, userGames } = await simulateAllPreseasonGames(franchise);
+    const { games_played, user_wins, user_losses } = await simulateAllPreseasonGames(franchise);
 
     await pool.query(
       `UPDATE seasons SET status = 'regular' WHERE id = $1`,
       [franchise.season_id]
     );
     await pool.query(
-      `UPDATE franchises SET current_day = 1, phase = 'regular_season', last_played_at = NOW() WHERE id = $1`,
-      [franchise.id]
+      `UPDATE franchises SET current_day = 1, phase = 'regular_season', preseason_wins = COALESCE(preseason_wins, 0) + $2, preseason_losses = COALESCE(preseason_losses, 0) + $3, last_played_at = NOW() WHERE id = $1`,
+      [franchise.id, user_wins, user_losses]
     );
 
     res.json({
       message: 'Preseason complete!',
-      days_simulated: daysSimulated,
       phase: 'regular_season',
       current_day: 1,
-      games_played: gamesPlayed,
-      user_games: userGames
+      games_played,
+      user_wins,
+      user_losses
     });
   } catch (error: any) {
     if (error.status) {

@@ -225,7 +225,7 @@ async function updatePreseasonRecord(franchiseId: string, won: boolean): Promise
 }
 
 // Bulk preseason simulation - simulates all games then bulk inserts
-export async function simulateAllPreseasonGamesBulk(
+export async function simulateAllPreseasonGames(
   franchise: FranchiseContext
 ): Promise<{ games_played: number; user_wins: number; user_losses: number }> {
   const { season_id: seasonId, team_id: userTeamId } = franchise;
