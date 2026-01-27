@@ -1,6 +1,6 @@
 import { pool } from '../db/pool';
 import { simulateGame, simulateGameFast } from '../simulation';
-import { loadTeamForSimulation } from './simulation';
+import { loadTeamForSimulation, loadTeamsForSimulationBulk } from './simulation';
 import { saveCompleteGameResult, GameResult } from './gamePersistence';
 import { SEASON_START_DATE } from '../constants';
 import { withTransaction } from '../db/transactions';
@@ -245,20 +245,14 @@ export async function simulateAllPreseasonGamesBulk(
     return { games_played: 0, user_wins: 0, user_losses: 0 };
   }
 
-  // Batch load all teams upfront
+  // Batch load all teams upfront (3 queries instead of 48)
   const teamIds = new Set<string>();
   for (const game of gamesResult.rows) {
     teamIds.add(game.home_team_id);
     teamIds.add(game.away_team_id);
   }
 
-  const teamCache = new Map<string, Awaited<ReturnType<typeof loadTeamForSimulation>>>();
-  await Promise.all(
-    Array.from(teamIds).map(async (teamId) => {
-      const team = await loadTeamForSimulation(teamId);
-      teamCache.set(teamId, team);
-    })
-  );
+  const teamCache = await loadTeamsForSimulationBulk(Array.from(teamIds));
 
   // Simulate all games (CPU work - fast with simulateGameFast)
   const simulatedGames: Array<{
@@ -376,7 +370,7 @@ export async function simulateAllPreseasonGamesBulk(
       }
     }
 
-    const PLAYER_BATCH_SIZE = 100;
+    const PLAYER_BATCH_SIZE = 500;
     for (let i = 0; i < allPlayerStats.length; i += PLAYER_BATCH_SIZE) {
       const batch = allPlayerStats.slice(i, i + PLAYER_BATCH_SIZE);
       const playerValues: any[] = [];

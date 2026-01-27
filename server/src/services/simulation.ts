@@ -172,3 +172,66 @@ export function selectStarters(roster: SimPlayer[]): SimPlayer[] {
 
   return starters;
 }
+
+export async function loadTeamsForSimulationBulk(teamIds: string[]): Promise<Map<string, SimTeam>> {
+  if (teamIds.length === 0) return new Map();
+
+  // 1 query: all teams
+  const teamsResult = await pool.query(
+    'SELECT * FROM teams WHERE id = ANY($1)',
+    [teamIds]
+  );
+
+  // 1 query: all players with attributes
+  const playersResult = await pool.query(
+    `SELECT p.*, pa.*
+     FROM players p
+     LEFT JOIN player_attributes pa ON p.id = pa.player_id
+     WHERE p.team_id = ANY($1)
+     ORDER BY p.team_id, p.overall DESC`,
+    [teamIds]
+  );
+
+  // 1 query: all traits for all players
+  const playerIds = playersResult.rows.map((p: any) => p.id);
+  const traitsResult = playerIds.length > 0
+    ? await pool.query(
+        `SELECT pt.player_id, t.*, pt.tier
+         FROM player_traits pt
+         JOIN traits t ON pt.trait_id = t.id
+         WHERE pt.player_id = ANY($1)`,
+        [playerIds]
+      )
+    : { rows: [] };
+
+  // Group data by team
+  const traitsByPlayer = buildTraitsByPlayer(traitsResult.rows);
+  const playersByTeam: Record<string, any[]> = {};
+  for (const p of playersResult.rows) {
+    if (!playersByTeam[p.team_id]) playersByTeam[p.team_id] = [];
+    playersByTeam[p.team_id].push(p);
+  }
+
+  // Build SimTeam objects
+  const teamCache = new Map<string, SimTeam>();
+  for (const team of teamsResult.rows) {
+    const players = playersByTeam[team.id] || [];
+    const roster = players.map((p: any) => buildSimPlayer(p, traitsByPlayer[p.id] || []));
+    const starters = selectStarters(roster);
+    for (const player of starters) player.is_on_court = true;
+    const bench = roster.filter(p => !starters.includes(p));
+
+    teamCache.set(team.id, {
+      id: team.id,
+      name: team.name,
+      city: team.city,
+      abbreviation: team.abbreviation,
+      roster,
+      starters,
+      bench,
+      on_court: [...starters]
+    });
+  }
+
+  return teamCache;
+}
