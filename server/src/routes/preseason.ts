@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { authMiddleware } from '../auth';
 import { getUserActiveFranchise } from '../db/queries';
 import { withAdvisoryLock, lockUserActiveFranchise } from '../db/transactions';
-import { simulatePreseasonDayGames } from '../services/gameSimulation';
+import { simulatePreseasonDayGames, simulateAllPreseasonGamesBulk } from '../services/gameSimulation';
 
 const router = Router();
 
@@ -51,15 +51,15 @@ router.post('/all', authMiddleware(true), async (req: any, res) => {
       const locked = await lockUserActiveFranchise(client, req.user.userId);
       if (!locked || locked.phase !== 'preseason') throw { status: 400, message: 'Not in preseason' };
 
-      const allResults: any[] = [];
-      let daysSimulated = 0;
-      let currentDay = locked.current_day;
+      // Use bulk simulation for "Simulate All"
+      const { games_played, user_wins, user_losses } = await simulateAllPreseasonGamesBulk(locked);
 
-      while (currentDay <= 0) {
-        const { results } = await simulatePreseasonDayGames({ ...locked, current_day: currentDay });
-        allResults.push(...results);
-        currentDay++;
-        daysSimulated++;
+      // Update franchise preseason record
+      if (user_wins > 0 || user_losses > 0) {
+        await client.query(
+          `UPDATE franchises SET preseason_wins = COALESCE(preseason_wins, 0) + $1, preseason_losses = COALESCE(preseason_losses, 0) + $2 WHERE id = $3`,
+          [user_wins, user_losses, locked.id]
+        );
       }
 
       await client.query(`UPDATE seasons SET status = 'regular' WHERE id = $1`, [locked.season_id]);
@@ -69,9 +69,11 @@ router.post('/all', authMiddleware(true), async (req: any, res) => {
       );
 
       return {
-        message: 'Preseason complete!', days_simulated: daysSimulated,
-        phase: 'regular_season', current_day: 1, games_played: allResults.length,
-        user_games: allResults.filter(r => r.is_user_game)
+        message: 'Preseason complete!',
+        phase: 'regular_season',
+        current_day: 1,
+        games_played,
+        user_record: { wins: user_wins, losses: user_losses }
       };
     });
 
