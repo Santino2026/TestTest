@@ -355,7 +355,7 @@ export async function simulateAllPreseasonGamesBulk(
       );
     }
 
-    // Bulk insert player stats (batch in chunks of 100 to avoid parameter limits)
+    // Bulk insert player stats (batch in chunks to avoid parameter limits)
     const allPlayerStats: Array<{ gameId: string; ps: any; teamId: string; isStarter: boolean }> = [];
     for (const g of simulatedGames) {
       for (const ps of g.result.home_player_stats) {

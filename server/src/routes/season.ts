@@ -15,7 +15,7 @@ import { simulateDayGames } from '../services/gameSimulation';
 import { REGULAR_SEASON_END_DAY } from '../constants';
 
 function determineNextPhase(newDay: number, allStarDay: number, allStarComplete: boolean): string {
-  if (newDay >= allStarDay && !allStarComplete && newDay < allStarDay + 4) return 'all_star';
+  if (newDay >= allStarDay && !allStarComplete && newDay <= REGULAR_SEASON_END_DAY) return 'all_star';
   if (newDay > REGULAR_SEASON_END_DAY) return 'awards';
   return 'regular_season';
 }

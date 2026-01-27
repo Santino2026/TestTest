@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db/pool';
 import { authMiddleware } from '../auth';
 import { getUserActiveFranchise, getSeasonAllStarDay } from '../db/queries';
+import { simulateDayGames } from '../services/gameSimulation';
 import { withAdvisoryLock } from '../db/transactions';
 import {
   selectAllStars,
@@ -88,9 +89,9 @@ router.post('/select', authMiddleware(true), async (req: any, res) => {
         [player_id, franchise.team_id]
       );
       if (playerResult.rows.length === 0) {
-        return res.status(400).json({ error: 'Player not found on your team' });
+        return res.status(400).json({ error: 'Player not found on your roster' });
       }
-      userPickConference = playerResult.rows[0].conference === 'Eastern' ? 'Eastern' : 'Western';
+      userPickConference = playerResult.rows[0].conference;
     }
 
     const [eastStars, westStars] = await Promise.all([
@@ -301,6 +302,11 @@ router.post('/complete', authMiddleware(true), async (req: any, res) => {
   try {
     const franchise = await getUserActiveFranchise(req.user.userId);
     if (!franchise) return res.status(404).json({ error: 'No active franchise' });
+
+    const allStarDay = await getSeasonAllStarDay(franchise.season_id);
+    for (let day = allStarDay; day < allStarDay + 4; day++) {
+      await simulateDayGames({ ...franchise, current_day: day });
+    }
 
     await pool.query(
       `UPDATE franchises

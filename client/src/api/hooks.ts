@@ -337,7 +337,7 @@ export function useSelectAllStars() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: api.selectAllStars,
+    mutationFn: (params?: { player_id?: string }) => api.selectAllStars(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['allstar'] });
     },

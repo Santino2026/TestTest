@@ -9,7 +9,6 @@ export {
   GameResult,
   TeamStats,
   PlayerGameStats,
-  PlayRecord,
   SimulatedTeam,
   PlayoffGameResult
 } from './gamePersistence/types';
@@ -30,15 +29,15 @@ export async function saveCompleteGameResult(
   awayTeam: SimulatedTeam,
   updateStandings: boolean = true,
   client?: PoolClient,
-  isPreseason: boolean = false,
-  gameDate?: string
+  isPreseason: boolean = false
 ): Promise<void> {
-  await saveGameResult(result, seasonId, homeTeam, awayTeam, client, gameDate);
+  await saveGameResult(result, seasonId, homeTeam, awayTeam, client);
 
   if (updateStandings) {
     await updateStandingsAfterGame(result, seasonId, client);
   }
 
+  // Skip season stats for preseason games - they're not meaningful
   if (!isPreseason) {
     await updateTeamSeasonStats(result, seasonId, client);
     await updatePlayerSeasonStats(result, seasonId, homeTeam, awayTeam, client);

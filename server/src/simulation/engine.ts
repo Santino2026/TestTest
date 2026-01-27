@@ -189,8 +189,11 @@ function updateFatigue(playersOnCourt: SimPlayer[], timeElapsed: number): void {
   for (const player of playersOnCourt) {
     const staminaMod = 2 - (player.attributes.stamina / 100);
     const fatigueGain = 2.5 * minutesPlayed * staminaMod;
-    const hasMotor = player.traits.some(t => t.name === 'Motor');
-    const finalFatigue = hasMotor ? fatigueGain * 0.6 : fatigueGain;
+    // Cache Motor trait check on player (avoid .some() every call)
+    if ((player as any)._hasMotor === undefined) {
+      (player as any)._hasMotor = player.traits.some(t => t.name === 'Motor');
+    }
+    const finalFatigue = (player as any)._hasMotor ? fatigueGain * 0.6 : fatigueGain;
 
     player.fatigue = Math.min(100, player.fatigue + finalFatigue);
     player.minutes_played += minutesPlayed;
@@ -210,7 +213,6 @@ const POSITION_ORDER = ['PG', 'SG', 'SF', 'PF', 'C'] as const;
 
 function manageSubstitutions(team: SimTeam): void {
   const onCourt = team.on_court;
-  const bench = team.roster.filter(p => !p.is_on_court);
 
   for (let i = 0; i < onCourt.length; i++) {
     const player = onCourt[i];
@@ -223,7 +225,7 @@ function manageSubstitutions(team: SimTeam): void {
     let bestSub: SimPlayer | null = null;
     let bestScore = -1;
 
-    for (const sub of bench) {
+    for (const sub of team.bench) {
       if (sub.fouls >= 6 || sub.fatigue > 60) continue;
 
       const subPosIdx = POSITION_ORDER.indexOf(sub.position);
@@ -237,9 +239,15 @@ function manageSubstitutions(team: SimTeam): void {
     }
 
     if (bestSub && (mustSub || bestScore > player.overall * 0.8)) {
+      // Swap player and sub
       player.is_on_court = false;
       bestSub.is_on_court = true;
       onCourt[i] = bestSub;
+      // Keep bench in sync
+      const subIdx = team.bench.indexOf(bestSub);
+      if (subIdx !== -1) {
+        team.bench[subIdx] = player;
+      }
     }
   }
 }
@@ -268,6 +276,11 @@ function simulateQuarter(
   possession: 'home' | 'away',
   quarterLength: number = QUARTER_LENGTH
 ): { result: QuarterResult; finalHomeScore: number; finalAwayScore: number; possession: 'home' | 'away' } {
+  // Build player lookup map once per quarter (O(1) lookups vs O(n) iterations)
+  const playerMap = new Map<string, SimPlayer>();
+  for (const p of homeTeam.roster) playerMap.set(p.id, p);
+  for (const p of awayTeam.roster) playerMap.set(p.id, p);
+
   const plays: Play[] = [];
   let gameClock = quarterLength;
   let currentHomeScore = homeScore;
@@ -365,16 +378,23 @@ function simulateQuarter(
       }
     }
 
+    // Update stats directly by player ID (O(n) instead of O(n²))
     for (const play of result.plays) {
-      for (const player of [...homeTeam.roster, ...awayTeam.roster]) {
-        updatePlayerStats(player, play);
+      if (play.primary_player_id) {
+        const primary = playerMap.get(play.primary_player_id);
+        if (primary) updatePlayerStats(primary, play);
+      }
+      if (play.secondary_player_id) {
+        const secondary = playerMap.get(play.secondary_player_id);
+        if (secondary) updatePlayerStats(secondary, play);
       }
     }
 
     updateFatigue(offensiveTeam.on_court, result.time_elapsed);
     updateFatigue(defensiveTeam.on_court, result.time_elapsed);
-    recoverFatigue(offensiveTeam.roster.filter(p => !p.is_on_court), result.time_elapsed);
-    recoverFatigue(defensiveTeam.roster.filter(p => !p.is_on_court), result.time_elapsed);
+    // Use bench arrays instead of filtering every possession
+    recoverFatigue(offensiveTeam.bench, result.time_elapsed);
+    recoverFatigue(defensiveTeam.bench, result.time_elapsed);
 
     gameClock -= result.time_elapsed;
 

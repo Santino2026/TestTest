@@ -1174,7 +1174,7 @@ export const api = {
       };
       all_events_complete: boolean;
     }>('/allstar/state'),
-  selectAllStars: () =>
+  selectAllStars: (params?: { player_id?: string }) =>
     fetchAPI<{
       message: string;
       east: Array<{
@@ -1193,7 +1193,7 @@ export const api = {
         is_starter: boolean;
         is_captain: boolean;
       }>;
-    }>('/allstar/select', { method: 'POST' }),
+    }>('/allstar/select', { method: 'POST', body: JSON.stringify(params || {}) }),
   getAllStarRosters: () =>
     fetchAPI<{
       east: Array<{
