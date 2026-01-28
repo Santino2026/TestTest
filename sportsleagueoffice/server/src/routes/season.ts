@@ -237,47 +237,81 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
       }
 
       // Force-complete any remaining scheduled games (handles All-Star weekend games)
-      const remainingGamesQuery = await pool.query(
-        `SELECT s.id, s.home_team_id, s.away_team_id, s.game_date, s.season_id
-         FROM schedule s
-         WHERE s.season_id = $1 AND s.status = 'scheduled'
-           AND (s.is_preseason = FALSE OR s.is_preseason IS NULL)`,
-        [locked.season_id]
-      );
+      try {
+        // Use a single bulk query to force-complete all remaining games
+        const forceCompleteResult = await pool.query(`
+          WITH stuck_games AS (
+            SELECT s.id as schedule_id, s.home_team_id, s.away_team_id, s.game_date, s.season_id
+            FROM schedule s
+            WHERE s.season_id = $1 AND s.status = 'scheduled'
+              AND (s.is_preseason = FALSE OR s.is_preseason IS NULL)
+          ),
+          inserted_games AS (
+            INSERT INTO games (id, season_id, home_team_id, away_team_id, home_score, away_score, winner_id, status, game_date, completed_at)
+            SELECT
+              gen_random_uuid(),
+              sg.season_id,
+              sg.home_team_id,
+              sg.away_team_id,
+              95 + floor(random() * 20)::int,
+              95 + floor(random() * 20)::int,
+              CASE WHEN random() > 0.5 THEN sg.home_team_id ELSE sg.away_team_id END,
+              'completed',
+              sg.game_date,
+              NOW()
+            FROM stuck_games sg
+            RETURNING id, home_team_id, away_team_id, winner_id, game_date
+          )
+          SELECT COUNT(*) as force_completed FROM inserted_games
+        `, [locked.season_id]);
 
-      if (remainingGamesQuery.rows.length > 0) {
-        console.log(`Force-completing ${remainingGamesQuery.rows.length} remaining games`);
+        const forceCompletedCount = parseInt(forceCompleteResult.rows[0]?.force_completed || '0');
+        if (forceCompletedCount > 0) {
+          console.log(`Force-completed ${forceCompletedCount} games`);
 
-        for (const game of remainingGamesQuery.rows) {
-          const homeScore = 95 + Math.floor(Math.random() * 20);
-          const awayScore = 95 + Math.floor(Math.random() * 20);
-          const winnerId = homeScore > awayScore ? game.home_team_id : game.away_team_id;
+          // Link games to schedule and update standings
+          await pool.query(`
+            UPDATE schedule s
+            SET status = 'completed', game_id = g.id
+            FROM games g
+            WHERE s.season_id = $1
+              AND s.status = 'scheduled'
+              AND s.is_preseason = false
+              AND s.home_team_id = g.home_team_id
+              AND s.away_team_id = g.away_team_id
+              AND s.game_date = g.game_date
+              AND g.season_id = $1
+          `, [locked.season_id]);
 
-          // Create game record
-          const gameResult = await pool.query(
-            `INSERT INTO games (id, season_id, home_team_id, away_team_id, home_score, away_score, winner_id, status, game_date, completed_at)
-             VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, 'completed', $7, NOW())
-             RETURNING id`,
-            [game.season_id, game.home_team_id, game.away_team_id, homeScore, awayScore, winnerId, game.game_date]
-          );
+          // Update standings for winners and losers
+          await pool.query(`
+            WITH recent_games AS (
+              SELECT winner_id, home_team_id, away_team_id
+              FROM games
+              WHERE season_id = $1 AND completed_at > NOW() - INTERVAL '1 minute'
+            )
+            UPDATE standings st
+            SET wins = st.wins + (SELECT COUNT(*) FROM recent_games rg WHERE rg.winner_id = st.team_id)
+            WHERE st.season_id = $1
+          `, [locked.season_id]);
 
-          // Update schedule
-          await pool.query(
-            `UPDATE schedule SET status = 'completed', game_id = $1 WHERE id = $2`,
-            [gameResult.rows[0].id, game.id]
-          );
-
-          // Update standings
-          await pool.query(
-            `UPDATE standings SET wins = wins + 1 WHERE season_id = $1 AND team_id = $2`,
-            [game.season_id, winnerId]
-          );
-          const loserId = winnerId === game.home_team_id ? game.away_team_id : game.home_team_id;
-          await pool.query(
-            `UPDATE standings SET losses = losses + 1 WHERE season_id = $1 AND team_id = $2`,
-            [game.season_id, loserId]
-          );
+          await pool.query(`
+            WITH recent_games AS (
+              SELECT winner_id, home_team_id, away_team_id
+              FROM games
+              WHERE season_id = $1 AND completed_at > NOW() - INTERVAL '1 minute'
+            )
+            UPDATE standings st
+            SET losses = st.losses + (
+              SELECT COUNT(*) FROM recent_games rg
+              WHERE (rg.home_team_id = st.team_id OR rg.away_team_id = st.team_id)
+                AND rg.winner_id != st.team_id
+            )
+            WHERE st.season_id = $1
+          `, [locked.season_id]);
         }
+      } catch (forceCompleteError) {
+        console.error('Force-complete failed:', forceCompleteError);
       }
 
       // Verify all games completed
@@ -289,7 +323,7 @@ router.post('/advance/playoffs', authMiddleware(true), async (req: any, res) => 
       );
       const remainingGames = parseInt(verifyResult.rows[0].remaining);
       if (remainingGames > 0) {
-        console.error(`WARNING: ${remainingGames} regular season games still unplayed`);
+        console.error(`WARNING: ${remainingGames} regular season games still unplayed after force-complete`);
       }
 
       await client.query(
