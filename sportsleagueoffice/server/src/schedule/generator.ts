@@ -1,149 +1,307 @@
-import { v4 as uuidv4 } from 'uuid';
+// 82-Game Schedule Generator + 8 Preseason Games
 
 interface Team {
   id: string;
-  name: string;
-  abbreviation: string;
   conference: string;
   division: string;
 }
 
 interface ScheduledGame {
-  id: string;
   home_team_id: string;
   away_team_id: string;
-  game_date: string;
-  game_day: number;
-  is_preseason: boolean;
+  game_date: Date;
+  game_number_home: number;
+  game_number_away: number;
+  is_preseason?: boolean;
+  game_day?: number;
 }
 
-interface ValidationResult {
-  valid: boolean;
-  issues: string[];
+interface ScheduleConfig {
+  season_start: Date;
+  total_games: number;
+  preseason_games: number;
 }
 
-/**
- * Generates an 82-game regular season schedule + 8 preseason games per team.
- *
- * NBA Schedule Rules:
- * - 82 games per team (41 home, 41 away)
- * - Division rivals: 4 games each (16 total) - 2 home, 2 away
- * - Conference non-division: 10 teams × mix of 3-4 games (36 total)
- *   - 6 teams × 4 games = 24 (2 home, 2 away)
- *   - 4 teams × 3 games = 12 (alternating 2-1 or 1-2)
- * - Inter-conference: 15 teams × 2 games (30 total) - 1 home, 1 away
- *
- * Total: 16 + 36 + 30 = 82 games per team
- * Total games: 30 teams × 82 / 2 = 1230 games
- */
-export function generateSchedule(teams: Team[], seasonId: string): ScheduledGame[] {
-  if (teams.length !== 30) {
-    throw new Error(`Expected 30 teams, got ${teams.length}`);
+interface Matchup {
+  home: string;
+  away: string;
+}
+
+interface ThreeGameMatchup {
+  pairKey: string;
+  teamA: Team;
+  teamB: Team;
+}
+
+const DEFAULT_CONFIG: ScheduleConfig = {
+  season_start: new Date('2024-10-22'),
+  total_games: 82,
+  preseason_games: 8,
+};
+
+function getPairKey(teamA: string, teamB: string): string {
+  return [teamA, teamB].sort().join('|');
+}
+
+function getDateKey(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+function groupTeamsBy(teams: Team[], key: 'division' | 'conference'): Map<string, Team[]> {
+  const grouped = new Map<string, Team[]>();
+  for (const team of teams) {
+    const groupKey = team[key];
+    if (!grouped.has(groupKey)) {
+      grouped.set(groupKey, []);
+    }
+    grouped.get(groupKey)!.push(team);
   }
+  return grouped;
+}
 
-  const games: ScheduledGame[] = [];
+function createTeamCounterMap(teams: Team[]): Map<string, number> {
+  const counters = new Map<string, number>();
+  for (const team of teams) {
+    counters.set(team.id, 0);
+  }
+  return counters;
+}
 
-  // Generate regular season matchups by iterating through team pairs
-  const matchups = generateMatchups(teams);
+function assignHomeHeavyStatus(
+  teams: Team[],
+  threeGameMatchups: ThreeGameMatchup[]
+): Map<string, string> {
+  let bestAttempt: Map<string, string> | null = null;
+  let bestImbalance = Infinity;
 
-  // Assign dates - start regular season on game day 9 (after 8 preseason days)
-  const seasonStartDate = new Date();
-  seasonStartDate.setMonth(9, 20); // October 20th
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const homeHeavyCount = createTeamCounterMap(teams);
+    const attemptMap = new Map<string, string>();
 
-  // Generate preseason games first
-  const preseasonGames = generatePreseasonGames(teams, seasonStartDate);
-  games.push(...preseasonGames);
+    const shuffledMatchups = [...threeGameMatchups];
+    for (let i = shuffledMatchups.length - 1; i > 0; i--) {
+      const j = Math.floor((attempt * 7919 + i * 6529) % (i + 1));
+      [shuffledMatchups[i], shuffledMatchups[j]] = [shuffledMatchups[j], shuffledMatchups[i]];
+    }
 
-  // Schedule regular season games across ~180 days
-  let gameDay = 9;
-  const daysInSeason = 180;
-  const gamesPerDay = Math.ceil(matchups.length / daysInSeason);
+    for (const matchup of shuffledMatchups) {
+      const aCount = homeHeavyCount.get(matchup.teamA.id)!;
+      const bCount = homeHeavyCount.get(matchup.teamB.id)!;
 
-  for (let i = 0; i < matchups.length; i++) {
-    const matchup = matchups[i];
-    const gameDate = new Date(seasonStartDate);
-    gameDate.setDate(gameDate.getDate() + gameDay - 1);
+      let homeHeavyTeam: string;
+      if (aCount >= 2) {
+        homeHeavyTeam = matchup.teamB.id;
+      } else if (bCount >= 2) {
+        homeHeavyTeam = matchup.teamA.id;
+      } else if (aCount < bCount) {
+        homeHeavyTeam = matchup.teamA.id;
+      } else if (bCount < aCount) {
+        homeHeavyTeam = matchup.teamB.id;
+      } else {
+        homeHeavyTeam = attempt % 2 === 0 ? matchup.teamA.id : matchup.teamB.id;
+      }
 
-    games.push({
-      id: uuidv4(),
-      home_team_id: matchup.home,
-      away_team_id: matchup.away,
-      game_date: gameDate.toISOString().split('T')[0],
-      game_day: gameDay,
-      is_preseason: false,
-    });
+      attemptMap.set(matchup.pairKey, homeHeavyTeam);
+      homeHeavyCount.set(homeHeavyTeam, homeHeavyCount.get(homeHeavyTeam)! + 1);
+    }
 
-    if ((i + 1) % gamesPerDay === 0) {
-      gameDay++;
+    let imbalance = 0;
+    for (const [, count] of homeHeavyCount) {
+      imbalance += Math.abs(count - 2);
+    }
+
+    if (imbalance === 0) {
+      return attemptMap;
+    }
+
+    if (imbalance < bestImbalance) {
+      bestImbalance = imbalance;
+      bestAttempt = attemptMap;
     }
   }
 
-  return games;
+  return bestAttempt!;
 }
 
-/**
- * Generates all regular season matchups by iterating through team pairs.
- * Each pair gets the appropriate number of games based on their relationship.
- */
-function generateMatchups(teams: Team[]): Array<{ home: string; away: string }> {
-  const matchups: Array<{ home: string; away: string }> = [];
-
-  // Sort teams for consistent ordering
-  const sortedTeams = [...teams].sort((a, b) => a.id.localeCompare(b.id));
-
-  // Track 3-game opponents for each team (for conference non-division)
-  const threeGameOpponents: Map<string, Set<string>> = new Map();
-  for (const team of teams) {
-    threeGameOpponents.set(team.id, new Set());
+function balanceHomeHeavyAssignments(
+  teams: Team[],
+  homeHeavyMap: Map<string, string>
+): void {
+  const homeHeavyCount = createTeamCounterMap(teams);
+  for (const [, teamId] of homeHeavyMap) {
+    homeHeavyCount.set(teamId, homeHeavyCount.get(teamId)! + 1);
   }
 
-  // Assign 3-game opponents for conference non-division
-  // Each team plays 4 teams only 3 times (from the other 2 divisions in their conference)
-  assignThreeGameOpponents(sortedTeams, threeGameOpponents);
+  for (let iteration = 0; iteration < 200; iteration++) {
+    const overTeams: string[] = [];
+    const underTeams: string[] = [];
 
-  // Iterate through all unique team pairs
-  for (let i = 0; i < sortedTeams.length; i++) {
-    for (let j = i + 1; j < sortedTeams.length; j++) {
-      const teamA = sortedTeams[i];
-      const teamB = sortedTeams[j];
+    for (const [teamId, count] of homeHeavyCount) {
+      if (count > 2) overTeams.push(teamId);
+      if (count < 2) underTeams.push(teamId);
+    }
 
-      const sameConference = teamA.conference === teamB.conference;
-      const sameDivision = sameConference && teamA.division === teamB.division;
+    if (overTeams.length === 0 && underTeams.length === 0) return;
 
-      if (sameDivision) {
-        // Division rivals: 4 games (2 home each)
-        matchups.push({ home: teamA.id, away: teamB.id });
-        matchups.push({ home: teamA.id, away: teamB.id });
-        matchups.push({ home: teamB.id, away: teamA.id });
-        matchups.push({ home: teamB.id, away: teamA.id });
-      } else if (sameConference) {
-        // Conference non-division: 3 or 4 games
-        const isThreeGame =
-          threeGameOpponents.get(teamA.id)!.has(teamB.id) ||
-          threeGameOpponents.get(teamB.id)!.has(teamA.id);
+    let swapped = false;
 
-        if (isThreeGame) {
-          // 3 games: one team gets 2 home, other gets 1
-          // Use ID comparison for consistency
-          if (teamA.id < teamB.id) {
-            matchups.push({ home: teamA.id, away: teamB.id });
-            matchups.push({ home: teamA.id, away: teamB.id });
-            matchups.push({ home: teamB.id, away: teamA.id });
-          } else {
-            matchups.push({ home: teamA.id, away: teamB.id });
-            matchups.push({ home: teamB.id, away: teamA.id });
-            matchups.push({ home: teamB.id, away: teamA.id });
-          }
-        } else {
-          // 4 games: 2 home each
-          matchups.push({ home: teamA.id, away: teamB.id });
-          matchups.push({ home: teamA.id, away: teamB.id });
-          matchups.push({ home: teamB.id, away: teamA.id });
-          matchups.push({ home: teamB.id, away: teamA.id });
+    // Try direct swap between over and under teams
+    for (const overTeam of overTeams) {
+      if (swapped) break;
+      for (const underTeam of underTeams) {
+        const pairKey = getPairKey(overTeam, underTeam);
+        if (homeHeavyMap.get(pairKey) === overTeam) {
+          homeHeavyMap.set(pairKey, underTeam);
+          homeHeavyCount.set(overTeam, homeHeavyCount.get(overTeam)! - 1);
+          homeHeavyCount.set(underTeam, homeHeavyCount.get(underTeam)! + 1);
+          swapped = true;
+          break;
         }
+      }
+    }
+
+    // Try neutral swap (swap through a balanced team)
+    if (!swapped) {
+      for (const overTeam of overTeams) {
+        if (swapped) break;
+        for (const underTeam of underTeams) {
+          if (swapped) break;
+          for (const [neutralId, count] of homeHeavyCount) {
+            if (count !== 2) continue;
+
+            const overKey = getPairKey(overTeam, neutralId);
+            const underKey = getPairKey(underTeam, neutralId);
+
+            if (homeHeavyMap.get(overKey) === overTeam && homeHeavyMap.get(underKey) === neutralId) {
+              homeHeavyMap.set(overKey, neutralId);
+              homeHeavyMap.set(underKey, underTeam);
+              homeHeavyCount.set(overTeam, homeHeavyCount.get(overTeam)! - 1);
+              homeHeavyCount.set(underTeam, homeHeavyCount.get(underTeam)! + 1);
+              swapped = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Try chain swap (find any under-balanced partner)
+    if (!swapped) {
+      for (const overTeam of overTeams) {
+        if (swapped) break;
+        for (const [pairKey, homeHeavy] of homeHeavyMap) {
+          if (homeHeavy !== overTeam) continue;
+
+          const [t1, t2] = pairKey.split('|');
+          const otherTeam = t1 === overTeam ? t2 : t1;
+          const otherCount = homeHeavyCount.get(otherTeam)!;
+
+          if (otherCount < 2) {
+            homeHeavyMap.set(pairKey, otherTeam);
+            homeHeavyCount.set(overTeam, homeHeavyCount.get(overTeam)! - 1);
+            homeHeavyCount.set(otherTeam, otherCount + 1);
+            swapped = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!swapped) return;
+  }
+}
+
+function buildConferenceNonDivisionGameCounts(
+  teamsByConference: Map<string, Team[]>
+): Map<string, number> {
+  const gameCount = new Map<string, number>();
+
+  for (const [, confTeams] of teamsByConference) {
+    const divisions = Array.from(new Set(confTeams.map(t => t.division))).sort();
+
+    for (let d1 = 0; d1 < divisions.length; d1++) {
+      for (let d2 = d1 + 1; d2 < divisions.length; d2++) {
+        const div1Teams = confTeams
+          .filter(t => t.division === divisions[d1])
+          .sort((a, b) => a.id.localeCompare(b.id));
+        const div2Teams = confTeams
+          .filter(t => t.division === divisions[d2])
+          .sort((a, b) => a.id.localeCompare(b.id));
+
+        // 5x5 balanced matrix: (i+j) mod 5 < 3 gets 4 games, else 3 games
+        for (let i = 0; i < div1Teams.length; i++) {
+          for (let j = 0; j < div2Teams.length; j++) {
+            const pairKey = getPairKey(div1Teams[i].id, div2Teams[j].id);
+            const games = ((i + j) % 5) < 3 ? 4 : 3;
+            gameCount.set(pairKey, games);
+          }
+        }
+      }
+    }
+  }
+
+  return gameCount;
+}
+
+function generateAllMatchups(teams: Team[]): Matchup[] {
+  const matchups: Matchup[] = [];
+  const teamsByConference = groupTeamsBy(teams, 'conference');
+  const processedPairs = new Set<string>();
+
+  const confNonDivGameCount = buildConferenceNonDivisionGameCounts(teamsByConference);
+
+  const threeGameMatchups: ThreeGameMatchup[] = [];
+  for (const [pairKey, games] of confNonDivGameCount) {
+    if (games === 3) {
+      const [t1Id, t2Id] = pairKey.split('|');
+      const t1 = teams.find(t => t.id === t1Id)!;
+      const t2 = teams.find(t => t.id === t2Id)!;
+      threeGameMatchups.push({ pairKey, teamA: t1, teamB: t2 });
+    }
+  }
+
+  const threeGameHomeHeavyMap = assignHomeHeavyStatus(teams, threeGameMatchups);
+  balanceHomeHeavyAssignments(teams, threeGameHomeHeavyMap);
+
+  for (const teamA of teams) {
+    for (const teamB of teams) {
+      if (teamA.id >= teamB.id) continue;
+
+      const pairKey = getPairKey(teamA.id, teamB.id);
+      if (processedPairs.has(pairKey)) continue;
+      processedPairs.add(pairKey);
+
+      const sameDiv = teamA.division === teamB.division;
+      const sameConf = teamA.conference === teamB.conference;
+
+      let totalGames: number;
+      let isThreeGameMatchup = false;
+
+      if (sameDiv) {
+        totalGames = 4;
+      } else if (sameConf) {
+        totalGames = confNonDivGameCount.get(pairKey) || 3;
+        isThreeGameMatchup = totalGames === 3;
       } else {
-        // Inter-conference: 2 games (1 home each)
+        totalGames = 2;
+      }
+
+      let homeForA: number;
+      let homeForB: number;
+
+      if (isThreeGameMatchup) {
+        const aIsHomeHeavy = threeGameHomeHeavyMap.get(pairKey) === teamA.id;
+        homeForA = aIsHomeHeavy ? 2 : 1;
+        homeForB = aIsHomeHeavy ? 1 : 2;
+      } else {
+        homeForA = totalGames / 2;
+        homeForB = totalGames / 2;
+      }
+
+      for (let i = 0; i < homeForA; i++) {
         matchups.push({ home: teamA.id, away: teamB.id });
+      }
+      for (let i = 0; i < homeForB; i++) {
         matchups.push({ home: teamB.id, away: teamA.id });
       }
     }
@@ -152,153 +310,264 @@ function generateMatchups(teams: Team[]): Array<{ home: string; away: string }> 
   return matchups;
 }
 
-/**
- * Assigns which conference non-division opponents each team plays only 3 times.
- * Each team plays 4 opponents (from the other 2 divisions) only 3 times.
- */
-function assignThreeGameOpponents(
+export function generateSchedule(
   teams: Team[],
-  threeGameOpponents: Map<string, Set<string>>
-): void {
-  // Group teams by conference and division
-  const conferences = new Map<string, Map<string, Team[]>>();
+  config: ScheduleConfig = DEFAULT_CONFIG
+): ScheduledGame[] {
+  const allMatchups = generateAllMatchups(teams);
+  const seasonDays = 174;
 
-  for (const team of teams) {
-    if (!conferences.has(team.conference)) {
-      conferences.set(team.conference, new Map());
+  // Try scheduling with progressively relaxed gap constraints
+  const gapAttempts = [7, 5, 3, 1, 0];
+
+  for (const minGap of gapAttempts) {
+    const result = attemptSchedule(teams, allMatchups, seasonDays, config, minGap);
+    if (result) {
+      if (minGap < 7) {
+        console.log(`Schedule generated with relaxed gap constraint: ${minGap} days`);
+      }
+      return result;
     }
-    const divs = conferences.get(team.conference)!;
-    if (!divs.has(team.division)) {
-      divs.set(team.division, []);
-    }
-    divs.get(team.division)!.push(team);
   }
 
-  // For each conference, assign 3-game matchups
-  for (const [, divisions] of conferences) {
-    const divNames = Array.from(divisions.keys()).sort();
-
-    // Each division has 5 teams, conference has 3 divisions = 15 teams
-    // Each team plays 10 non-division conference opponents
-    // 6 get 4 games, 4 get 3 games
-
-    for (const divName of divNames) {
-      const divTeams = divisions.get(divName)!;
-      const otherDivTeams: Team[] = [];
-
-      for (const [otherDiv, otherTeams] of divisions) {
-        if (otherDiv !== divName) {
-          otherDivTeams.push(...otherTeams);
-        }
-      }
-
-      // Sort for consistency
-      otherDivTeams.sort((a, b) => a.id.localeCompare(b.id));
-
-      // Each team in this division picks 4 opponents from other divisions for 3-game series
-      // We rotate which opponents to ensure balance
-      for (let i = 0; i < divTeams.length; i++) {
-        const team = divTeams[i];
-        // Pick 4 opponents starting at offset based on team index
-        for (let j = 0; j < 4; j++) {
-          const opponentIdx = (i * 2 + j) % otherDivTeams.length;
-          const opponent = otherDivTeams[opponentIdx];
-          threeGameOpponents.get(team.id)!.add(opponent.id);
-        }
-      }
-    }
-  }
+  throw new Error('Failed to generate valid 82-game schedule after all gap constraint attempts');
 }
 
-/**
- * Generates 8 preseason games per team (120 total games)
- */
-function generatePreseasonGames(teams: Team[], seasonStartDate: Date): ScheduledGame[] {
-  const games: ScheduledGame[] = [];
-  const teamGames: Map<string, number> = new Map();
+function attemptSchedule(
+  teams: Team[],
+  allMatchups: Matchup[],
+  seasonDays: number,
+  config: ScheduleConfig,
+  minMatchupGap: number
+): ScheduledGame[] | null {
+  const teamGamesOnDate = new Map<string, Set<string>>();
+  const gameCountByTeam = createTeamCounterMap(teams);
+  const lastMatchupDay = new Map<string, number>();
 
-  for (const team of teams) {
-    teamGames.set(team.id, 0);
+  const schedule: ScheduledGame[] = [];
+
+  const dates: Date[] = [];
+  const startDate = new Date(config.season_start);
+  for (let i = 0; i < seasonDays; i++) {
+    const date = new Date(startDate);
+    date.setDate(date.getDate() + i);
+    dates.push(date);
+    teamGamesOnDate.set(getDateKey(date), new Set());
   }
 
-  // 4 rounds, each team plays 2 games per round = 8 total
-  for (let round = 0; round < 4; round++) {
-    const shuffled = [...teams].sort(() => Math.random() - 0.5);
+  const unscheduledMatchups = [...allMatchups];
 
-    for (let i = 0; i < shuffled.length; i += 2) {
-      const home = shuffled[i];
-      const away = shuffled[i + 1];
+  for (let dayIndex = 0; dayIndex < seasonDays && unscheduledMatchups.length > 0; dayIndex++) {
+    const date = dates[dayIndex];
+    const dateKey = getDateKey(date);
+    const teamsOnDate = teamGamesOnDate.get(dateKey)!;
 
-      if (teamGames.get(home.id)! < 8 && teamGames.get(away.id)! < 8) {
-        const gameDay = round * 2 + 1;
-        const gameDate = new Date(seasonStartDate);
-        gameDate.setDate(gameDate.getDate() - (8 - gameDay));
+    const remainingDays = seasonDays - dayIndex;
+    const gamesPerDay = Math.ceil(unscheduledMatchups.length / remainingDays);
 
-        games.push({
-          id: uuidv4(),
-          home_team_id: home.id,
-          away_team_id: away.id,
-          game_date: gameDate.toISOString().split('T')[0],
-          game_day: gameDay,
-          is_preseason: true,
+    unscheduledMatchups.sort((a, b) => {
+      const aTotal = gameCountByTeam.get(a.home)! + gameCountByTeam.get(a.away)!;
+      const bTotal = gameCountByTeam.get(b.home)! + gameCountByTeam.get(b.away)!;
+      return aTotal - bTotal;
+    });
+
+    let gamesScheduledToday = 0;
+    const matchupsToRemove: number[] = [];
+
+    for (let i = 0; i < unscheduledMatchups.length && gamesScheduledToday < gamesPerDay; i++) {
+      const matchup = unscheduledMatchups[i];
+      const { home: homeTeamId, away: awayTeamId } = matchup;
+
+      const pairKey = getPairKey(homeTeamId, awayTeamId);
+      const lastDay = lastMatchupDay.get(pairKey) ?? -minMatchupGap;
+      if (!teamsOnDate.has(homeTeamId) && !teamsOnDate.has(awayTeamId) && (dayIndex - lastDay) >= minMatchupGap) {
+        const homeGameNum = gameCountByTeam.get(homeTeamId)! + 1;
+        const awayGameNum = gameCountByTeam.get(awayTeamId)! + 1;
+
+        schedule.push({
+          home_team_id: homeTeamId,
+          away_team_id: awayTeamId,
+          game_date: new Date(date),
+          game_number_home: homeGameNum,
+          game_number_away: awayGameNum,
         });
 
-        teamGames.set(home.id, teamGames.get(home.id)! + 1);
-        teamGames.set(away.id, teamGames.get(away.id)! + 1);
+        teamsOnDate.add(homeTeamId);
+        teamsOnDate.add(awayTeamId);
+        gameCountByTeam.set(homeTeamId, homeGameNum);
+        gameCountByTeam.set(awayTeamId, awayGameNum);
+        lastMatchupDay.set(pairKey, dayIndex);
+        matchupsToRemove.push(i);
+        gamesScheduledToday++;
       }
     }
+
+    for (let i = matchupsToRemove.length - 1; i >= 0; i--) {
+      unscheduledMatchups.splice(matchupsToRemove[i], 1);
+    }
   }
 
-  return games;
+  // If any matchups remain unscheduled, this gap constraint failed
+  if (unscheduledMatchups.length > 0) {
+    return null;
+  }
+
+  // Assert every team has exactly 82 games
+  for (const team of teams) {
+    const count = gameCountByTeam.get(team.id)!;
+    if (count !== 82) {
+      console.error(`Schedule assertion failed: team ${team.id} has ${count} games (expected 82)`);
+      return null;
+    }
+  }
+
+  schedule.sort((a, b) => a.game_date.getTime() - b.game_date.getTime());
+
+  // Assign game_day based on actual calendar date (all games on same date = same game_day)
+  // This ensures all teams have proportional games played at any point in the season
+  const uniqueDates = [...new Set(schedule.map(g => getDateKey(g.game_date)))].sort();
+  const dateToGameDay = new Map<string, number>();
+  uniqueDates.forEach((dateKey, index) => {
+    dateToGameDay.set(dateKey, index + 1);
+  });
+
+  schedule.forEach((game) => {
+    game.game_day = dateToGameDay.get(getDateKey(game.game_date))!;
+  });
+
+  return schedule;
 }
 
-/**
- * Validates that the generated schedule is correct
- */
-export function validateSchedule(schedule: ScheduledGame[], teams: Team[]): ValidationResult {
-  const issues: string[] = [];
-  const teamStats: Map<string, { home: number; away: number; total: number }> = new Map();
+export function generatePreseasonSchedule(
+  teams: Team[],
+  regularSeasonStart: Date = new Date('2024-10-22')
+): ScheduledGame[] {
+  const preseasonGames: ScheduledGame[] = [];
+  const gameCountByTeam = createTeamCounterMap(teams);
+
+  const dates: Date[] = [];
+  for (let i = -7; i <= 0; i++) {
+    const date = new Date(regularSeasonStart);
+    date.setDate(date.getDate() + i);
+    dates.push(date);
+  }
+
+  const sortedTeams = [...teams].sort((a, b) => a.id.localeCompare(b.id));
+  const teamCount = sortedTeams.length;
+
+  for (let day = 0; day < 8; day++) {
+    const date = dates[day];
+
+    const rotation: number[] = [0];
+    for (let i = 0; i < teamCount - 1; i++) {
+      rotation.push(1 + ((i + day) % (teamCount - 1)));
+    }
+
+    for (let i = 0; i < teamCount / 2; i++) {
+      const team1Idx = rotation[i];
+      const team2Idx = rotation[teamCount - 1 - i];
+
+      const teamA = sortedTeams[team1Idx];
+      const teamB = sortedTeams[team2Idx];
+
+      const homeTeam = day % 2 === 0 ? teamA : teamB;
+      const awayTeam = day % 2 === 0 ? teamB : teamA;
+
+      const homeGameNum = gameCountByTeam.get(homeTeam.id)! + 1;
+      const awayGameNum = gameCountByTeam.get(awayTeam.id)! + 1;
+
+      preseasonGames.push({
+        home_team_id: homeTeam.id,
+        away_team_id: awayTeam.id,
+        game_date: new Date(date),
+        game_number_home: homeGameNum,
+        game_number_away: awayGameNum,
+        is_preseason: true,
+      });
+
+      gameCountByTeam.set(homeTeam.id, homeGameNum);
+      gameCountByTeam.set(awayTeam.id, awayGameNum);
+    }
+  }
 
   for (const team of teams) {
-    teamStats.set(team.id, { home: 0, away: 0, total: 0 });
+    const count = gameCountByTeam.get(team.id)!;
+    if (count !== 8) {
+      throw new Error(`Team ${team.id} has ${count} preseason games (expected 8)`);
+    }
   }
 
-  const regularGames = schedule.filter((g) => !g.is_preseason);
+  preseasonGames.sort((a, b) => a.game_date.getTime() - b.game_date.getTime());
 
-  for (const game of regularGames) {
-    const homeStats = teamStats.get(game.home_team_id);
-    const awayStats = teamStats.get(game.away_team_id);
+  // Assign game_day for preseason: negative values based on actual calendar date
+  // -8 for first day, -7 for second day, ..., -1 for last day before regular season
+  const uniqueDates = [...new Set(preseasonGames.map(g => getDateKey(g.game_date)))].sort();
+  const dateToGameDay = new Map<string, number>();
+  uniqueDates.forEach((dateKey, index) => {
+    // Days count from -8 to -1 (8 preseason days before day 1 of regular season)
+    dateToGameDay.set(dateKey, index - uniqueDates.length);
+  });
 
-    if (homeStats) {
-      homeStats.home++;
-      homeStats.total++;
+  preseasonGames.forEach((game) => {
+    game.game_day = dateToGameDay.get(getDateKey(game.game_date))!;
+  });
+
+  return preseasonGames;
+}
+
+export function generateFullSchedule(
+  teams: Team[],
+  config: ScheduleConfig = DEFAULT_CONFIG
+): { preseason: ScheduledGame[]; regularSeason: ScheduledGame[] } {
+  const preseason = generatePreseasonSchedule(teams, config.season_start);
+  const regularSeason = generateSchedule(teams, config);
+
+  return { preseason, regularSeason };
+}
+
+export function validateSchedule(schedule: ScheduledGame[], teams: Team[]): boolean {
+  const gamesByTeam = createTeamCounterMap(teams);
+  const homeGamesByTeam = createTeamCounterMap(teams);
+  const gamesByTeamByDate = new Map<string, Map<string, number>>();
+
+  for (const game of schedule) {
+    gamesByTeam.set(game.home_team_id, gamesByTeam.get(game.home_team_id)! + 1);
+    gamesByTeam.set(game.away_team_id, gamesByTeam.get(game.away_team_id)! + 1);
+    homeGamesByTeam.set(game.home_team_id, homeGamesByTeam.get(game.home_team_id)! + 1);
+
+    const dateKey = getDateKey(game.game_date);
+    if (!gamesByTeamByDate.has(dateKey)) {
+      gamesByTeamByDate.set(dateKey, new Map());
     }
+    const dateMap = gamesByTeamByDate.get(dateKey)!;
 
-    if (awayStats) {
-      awayStats.away++;
-      awayStats.total++;
+    dateMap.set(game.home_team_id, (dateMap.get(game.home_team_id) || 0) + 1);
+    dateMap.set(game.away_team_id, (dateMap.get(game.away_team_id) || 0) + 1);
+
+    if (dateMap.get(game.home_team_id)! > 1) {
+      console.error(`Team ${game.home_team_id} has multiple games on ${dateKey}`);
+      return false;
+    }
+    if (dateMap.get(game.away_team_id)! > 1) {
+      console.error(`Team ${game.away_team_id} has multiple games on ${dateKey}`);
+      return false;
     }
   }
 
   for (const team of teams) {
-    const stats = teamStats.get(team.id)!;
+    const total = gamesByTeam.get(team.id)!;
+    const home = homeGamesByTeam.get(team.id)!;
 
-    if (stats.total !== 82) {
-      issues.push(`${team.abbreviation} has ${stats.total} games instead of 82`);
+    if (total !== 82) {
+      console.error(`Team ${team.id} has ${total} games (expected exactly 82)`);
+      return false;
     }
 
-    if (stats.home !== 41) {
-      issues.push(`${team.abbreviation} has ${stats.home} home games instead of 41`);
+    if (home !== 41) {
+      console.error(`Team ${team.id} has ${home} home games (expected exactly 41)`);
+      return false;
     }
   }
 
-  const expectedTotal = 1230;
-  if (regularGames.length !== expectedTotal) {
-    issues.push(`Expected ${expectedTotal} regular season games, got ${regularGames.length}`);
-  }
-
-  return {
-    valid: issues.length === 0,
-    issues,
-  };
+  return true;
 }

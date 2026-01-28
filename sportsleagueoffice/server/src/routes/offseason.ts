@@ -1,163 +1,589 @@
-import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
-import pool from '../db/pool.js';
-import { generateSchedule, validateSchedule } from '../schedule/generator.js';
-import { assertValidSchedule } from '../schedule/validation.js';
+import { Router } from 'express';
+import { pool } from '../db/pool';
+import { developPlayer, agePlayer, shouldRetire, DevelopmentResult } from '../development';
+import { authMiddleware } from '../auth';
+import { generateSchedule, generatePreseasonSchedule } from '../schedule/generator';
+import { getUserActiveFranchise } from '../db/queries';
+import { withTransaction, withAdvisoryLock, lockUserActiveFranchise } from '../db/transactions';
+import { OFFSEASON_PHASES, OFFSEASON_PHASE_LABELS } from '../constants';
 
 const router = Router();
 
-interface AuthRequest extends Request {
-  userId?: string;
+const PLAYER_ATTRIBUTES = [
+  'work_ethic', 'basketball_iq', 'speed', 'acceleration', 'vertical',
+  'stamina', 'strength', 'lateral_quickness', 'hustle',
+  'inside_scoring', 'close_shot', 'mid_range', 'three_point', 'free_throw',
+  'layup', 'standing_dunk', 'driving_dunk', 'post_moves', 'post_control',
+  'ball_handling', 'passing_accuracy', 'passing_vision', 'steal', 'block',
+  'shot_iq', 'offensive_iq', 'passing_iq', 'defensive_iq',
+  'help_defense_iq', 'offensive_consistency', 'defensive_consistency',
+  'interior_defense', 'perimeter_defense', 'offensive_rebound', 'defensive_rebound'
+] as const;
+
+function buildPlayerAttributes(player: Record<string, any>): Record<string, number> {
+  const attributes: Record<string, number> = {};
+  for (const attr of PLAYER_ATTRIBUTES) {
+    attributes[attr] = player[attr] ?? 60;
+  }
+  return attributes;
 }
 
-// POST /api/offseason/new - Start a new season
-router.post('/new', async (req: AuthRequest, res: Response) => {
-  const userId = req.userId;
+interface DevelopmentOutput {
+  developmentResults: DevelopmentResult[];
+  retirements: Array<{ player_id: string; player_name: string; age: number; overall: number; years_pro: number }>;
+}
 
-  if (!userId) {
-    return res.status(401).json({ error: 'Unauthorized' });
+async function processPlayerDevelopment(client: any, seasonId: string): Promise<DevelopmentOutput> {
+  const playersResult = await client.query(
+    `SELECT p.*,
+            pa.work_ethic, pa.basketball_iq, pa.speed, pa.acceleration, pa.vertical,
+            pa.stamina, pa.strength, pa.lateral_quickness, pa.hustle,
+            pa.inside_scoring, pa.close_shot, pa.mid_range, pa.three_point, pa.free_throw,
+            pa.layup, pa.standing_dunk, pa.driving_dunk, pa.post_moves, pa.post_control,
+            pa.ball_handling, pa.passing_accuracy, pa.passing_vision, pa.steal, pa.block,
+            pa.shot_iq, pa.offensive_iq, pa.passing_iq, pa.defensive_iq,
+            pa.help_defense_iq, pa.offensive_consistency, pa.defensive_consistency,
+            pa.interior_defense, pa.perimeter_defense, pa.offensive_rebound, pa.defensive_rebound,
+            pss.minutes as season_minutes
+     FROM players p
+     LEFT JOIN player_attributes pa ON p.id = pa.player_id
+     LEFT JOIN player_season_stats pss ON p.id = pss.player_id AND pss.season_id = $1`,
+    [seasonId]
+  );
+
+  const developmentResults: DevelopmentResult[] = [];
+  const retirements: DevelopmentOutput['retirements'] = [];
+  const retiringPlayerIds: string[] = [];
+  const playerUpdates: Array<{ id: string; age: number; overall: number }> = [];
+  const attrChanges: Map<string, Array<{ playerId: string; change: number }>> = new Map();
+
+  for (const player of playersResult.rows) {
+    if (shouldRetire(player.age, player.overall, player.years_pro || 0)) {
+      retirements.push({
+        player_id: player.id,
+        player_name: `${player.first_name} ${player.last_name}`,
+        age: player.age,
+        overall: player.overall,
+        years_pro: player.years_pro || 0
+      });
+      retiringPlayerIds.push(player.id);
+      continue;
+    }
+
+    const newAge = agePlayer(player.age);
+    const devResult = developPlayer({
+      id: player.id,
+      first_name: player.first_name,
+      last_name: player.last_name,
+      position: player.position,
+      age: newAge,
+      overall: player.overall,
+      potential: player.potential,
+      peak_age: player.peak_age || 28,
+      archetype: player.archetype,
+      work_ethic: player.work_ethic || 60,
+      coachability: player.coachability || 60,
+      attributes: buildPlayerAttributes(player),
+      season_minutes: player.season_minutes || undefined
+    });
+    developmentResults.push(devResult);
+    playerUpdates.push({ id: player.id, age: newAge, overall: devResult.new_overall });
+
+    for (const [attr, change] of Object.entries(devResult.changes)) {
+      if (change !== 0) {
+        if (!attrChanges.has(attr)) attrChanges.set(attr, []);
+        attrChanges.get(attr)!.push({ playerId: player.id, change });
+      }
+    }
   }
 
-  const client = await pool.connect();
+  if (retiringPlayerIds.length > 0) {
+    await client.query(`UPDATE players SET team_id = NULL WHERE id = ANY($1)`, [retiringPlayerIds]);
+  }
 
-  try {
-    await client.query('BEGIN');
-
-    // Get user's franchise
-    const franchiseResult = await client.query(
-      `SELECT f.*, s.year as current_year
-       FROM franchises f
-       JOIN seasons s ON f.current_season_id = s.id
-       WHERE f.user_id = $1`,
-      [userId]
-    );
-
-    if (franchiseResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'No franchise found' });
-    }
-
-    const franchise = franchiseResult.rows[0];
-    const newYear = franchise.current_year + 1;
-
-    // Create new season
-    const newSeasonId = uuidv4();
+  if (playerUpdates.length > 0) {
+    const updateValues = playerUpdates.map((p, i) =>
+      `($${i * 3 + 1}::uuid, $${i * 3 + 2}::integer, $${i * 3 + 3}::integer)`
+    ).join(', ');
+    const updateParams = playerUpdates.flatMap(p => [p.id, p.age, p.overall]);
 
     await client.query(
-      `INSERT INTO seasons (id, year, phase, current_day)
-       VALUES ($1, $2, 'preseason', 1)`,
-      [newSeasonId, newYear]
+      `UPDATE players p SET
+         age = v.age,
+         overall = GREATEST(40, LEAST(99, v.overall)),
+         years_pro = COALESCE(p.years_pro, 0) + 1
+       FROM (VALUES ${updateValues}) AS v(id, age, overall)
+       WHERE p.id = v.id`,
+      updateParams
     );
+  }
 
-    // Get all teams for schedule generation
-    const teamsResult = await client.query('SELECT * FROM teams ORDER BY conference, division');
-    const teams = teamsResult.rows;
+  for (const [attr, changes] of attrChanges) {
+    if (changes.length === 0) continue;
+    const caseStatements = changes.map((c, i) =>
+      `WHEN player_id = $${i * 2 + 1} THEN GREATEST(30, LEAST(99, COALESCE(${attr}, 60) + $${i * 2 + 2}))`
+    ).join(' ');
+    const params = changes.flatMap(c => [c.playerId, c.change]);
+    const playerIds = changes.map(c => c.playerId);
+    await client.query(
+      `UPDATE player_attributes SET ${attr} = CASE ${caseStatements} ELSE ${attr} END
+       WHERE player_id = ANY($${params.length + 1})`,
+      [...params, playerIds]
+    );
+  }
 
-    if (teams.length !== 30) {
-      throw new Error(`Expected 30 teams for schedule generation, found ${teams.length}`);
-    }
+  return { developmentResults, retirements };
+}
 
-    // Generate schedule
-    const schedule = generateSchedule(teams, newSeasonId);
+async function processContracts(client: any, seasonId: string): Promise<number> {
+  await client.query(
+    `UPDATE contracts SET years_remaining = years_remaining - 1, updated_at = NOW()
+     WHERE status = 'active' AND years_remaining > 0`
+  );
+  await client.query(
+    `UPDATE players p SET salary = COALESCE(
+       CASE (c.total_years - c.years_remaining)
+         WHEN 1 THEN c.year_1_salary WHEN 2 THEN c.year_2_salary
+         WHEN 3 THEN c.year_3_salary WHEN 4 THEN c.year_4_salary
+         WHEN 5 THEN c.year_5_salary ELSE c.base_salary
+       END, c.base_salary)
+     FROM contracts c
+     WHERE c.player_id = p.id AND c.status = 'active' AND c.years_remaining > 0`
+  );
+  await client.query(
+    `UPDATE contracts SET status = 'expired', updated_at = NOW()
+     WHERE status = 'active' AND years_remaining <= 0`
+  );
 
-    // Validate schedule before inserting
-    const validation = validateSchedule(schedule, teams);
-    if (!validation.valid) {
-      throw new Error(`Schedule generation failed validation: ${validation.issues.join('; ')}`);
-    }
+  const expiredContracts = await client.query(
+    `SELECT c.player_id, c.base_salary, p.overall
+     FROM contracts c
+     JOIN players p ON c.player_id = p.id
+     WHERE c.status = 'expired' AND c.updated_at > NOW() - INTERVAL '1 minute'`
+  );
 
-    // Batch insert schedule
-    const batchSize = 100;
-    for (let i = 0; i < schedule.length; i += batchSize) {
-      const batch = schedule.slice(i, i + batchSize);
-      const insertValues: string[] = [];
-      const insertParams: unknown[] = [];
-      let paramIndex = 1;
+  for (const row of expiredContracts.rows) {
+    await client.query(`UPDATE players SET team_id = NULL, salary = 0 WHERE id = $1`, [row.player_id]);
+    await client.query(
+      `INSERT INTO free_agents (player_id, season_id, asking_salary, market_value, status)
+       VALUES ($1, $2, $3, $4, 'available')
+       ON CONFLICT (player_id, season_id) DO UPDATE SET status = 'available', asking_salary = $3`,
+      [row.player_id, seasonId, row.base_salary || 5000000, (row.overall || 70) * 100000]
+    );
+  }
 
-      for (const game of batch) {
-        insertValues.push(
-          `($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`
-        );
-        insertParams.push(
-          game.id,
-          newSeasonId,
-          game.home_team_id,
-          game.away_team_id,
-          game.game_date,
-          game.game_day,
-          game.is_preseason
-        );
+  return expiredContracts.rows.length;
+}
+
+router.post('/offseason', authMiddleware(true), async (req: any, res) => {
+  try {
+    const franchise = await getUserActiveFranchise(req.user.userId);
+    if (!franchise) return res.status(404).json({ error: 'No franchise found' });
+
+    const result = await withAdvisoryLock(`offseason-${franchise.id}`, async (client) => {
+      const franchiseCheck = await client.query(
+        `SELECT phase FROM franchises WHERE id = $1 FOR UPDATE`,
+        [franchise.id]
+      );
+      if (franchiseCheck.rows[0]?.phase === 'offseason') {
+        throw { status: 400, message: 'Offseason already processed' };
       }
 
-      await client.query(
-        `INSERT INTO schedule (id, season_id, home_team_id, away_team_id, game_date, game_day, is_preseason)
-         VALUES ${insertValues.join(', ')}`,
-        insertParams
-      );
-    }
+      const { developmentResults, retirements } = await processPlayerDevelopment(client, franchise.season_id);
+      const contractsExpired = await processContracts(client, franchise.season_id);
 
-    // Validate schedule was inserted correctly
-    await assertValidSchedule(newSeasonId, client);
+      await Promise.all([
+        client.query(
+          `UPDATE franchises SET phase = 'offseason', offseason_phase = 'review', last_played_at = NOW() WHERE id = $1`,
+          [franchise.id]
+        ),
+        client.query(
+          `UPDATE seasons SET status = 'offseason' WHERE id = $1`,
+          [franchise.season_id]
+        )
+      ]);
 
-    // Update franchise to point to new season
-    await client.query(
-      `UPDATE franchises SET current_season_id = $1 WHERE id = $2`,
-      [newSeasonId, franchise.id]
-    );
+      const improved = developmentResults.filter(r => r.new_overall > r.previous_overall).length;
+      const declined = developmentResults.filter(r => r.new_overall < r.previous_overall).length;
 
-    await client.query('COMMIT');
-
-    return res.json({
-      success: true,
-      season_id: newSeasonId,
-      year: newYear,
-      total_games: schedule.length,
-      regular_season_games: schedule.filter((g) => !g.is_preseason).length,
-      preseason_games: schedule.filter((g) => g.is_preseason).length,
+      return {
+        message: 'Offseason processed',
+        summary: {
+          total_players: developmentResults.length,
+          improved,
+          declined,
+          unchanged: developmentResults.length - improved - declined,
+          retirements: retirements.length,
+          contracts_expired: contractsExpired
+        },
+        top_improvers: developmentResults
+          .filter(r => r.new_overall > r.previous_overall)
+          .sort((a, b) => (b.new_overall - b.previous_overall) - (a.new_overall - a.previous_overall))
+          .slice(0, 10),
+        biggest_declines: developmentResults
+          .filter(r => r.new_overall < r.previous_overall)
+          .sort((a, b) => (a.new_overall - a.previous_overall) - (b.new_overall - b.previous_overall))
+          .slice(0, 10),
+        retirements
+      };
     });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Start new season error:', error);
-    return res.status(500).json({
-      error: 'Failed to start new season',
-      details: (error as Error).message,
-    });
-  } finally {
-    client.release();
+
+    res.json(result);
+  } catch (error: any) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    console.error('Offseason error:', error);
+    res.status(500).json({ error: 'Failed to process offseason' });
   }
 });
 
-// GET /api/offseason/status - Get offseason status
-router.get('/status', async (req: AuthRequest, res: Response) => {
-  const userId = req.userId;
-
-  if (!userId) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
+router.post('/finalize-playoffs', authMiddleware(true), async (req: any, res) => {
   try {
-    const result = await pool.query(
-      `SELECT s.phase, s.year
-       FROM franchises f
-       JOIN seasons s ON f.current_season_id = s.id
-       WHERE f.user_id = $1`,
-      [userId]
+    const franchise = await getUserActiveFranchise(req.user.userId);
+    if (!franchise) return res.status(404).json({ error: 'No franchise found' });
+    if (franchise.phase !== 'playoffs') return res.status(400).json({ error: 'Not in playoffs phase' });
+
+    const finalsResult = await pool.query(
+      `SELECT winner_id FROM playoff_series WHERE season_id = $1 AND round = 4 AND status = 'completed'`,
+      [franchise.season_id]
     );
+    if (finalsResult.rows.length === 0) return res.status(400).json({ error: 'Playoffs not complete yet' });
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'No franchise found' });
-    }
+    const champion = finalsResult.rows[0].winner_id;
+    if (!champion) return res.status(400).json({ error: 'Finals completed but no winner determined' });
 
-    const season = result.rows[0];
+    const userIsChampion = champion === franchise.team_id;
 
-    return res.json({
-      phase: season.phase,
-      year: season.year,
-      can_start_new_season: season.phase === 'offseason',
+    await withTransaction(async (client) => {
+      await processPlayerDevelopment(client, franchise.season_id);
+      await processContracts(client, franchise.season_id);
+
+      if (userIsChampion) {
+        await client.query(`UPDATE teams SET championships = championships + 1 WHERE id = $1`, [franchise.team_id]);
+        await client.query(`UPDATE franchises SET championships = championships + 1 WHERE id = $1`, [franchise.id]);
+      }
+      await client.query(
+        `UPDATE franchises SET phase = 'offseason', offseason_phase = 'review', last_played_at = NOW() WHERE id = $1`,
+        [franchise.id]
+      );
+      await client.query(`UPDATE seasons SET status = 'offseason' WHERE id = $1`, [franchise.season_id]);
+    });
+
+    res.json({
+      message: 'Season complete!',
+      champion_id: champion,
+      user_is_champion: userIsChampion,
+      phase: 'offseason',
+      offseason_phase: 'review'
     });
   } catch (error) {
-    console.error('Get offseason status error:', error);
-    return res.status(500).json({ error: 'Failed to get offseason status' });
+    console.error('Finalize playoffs error:', error);
+    res.status(500).json({ error: 'Failed to finalize playoffs' });
+  }
+});
+
+const ROUND_NAMES: Record<number, string> = {
+  0: 'Play-In Tournament',
+  1: 'First Round',
+  2: 'Conference Semifinals',
+  3: 'Conference Finals',
+  4: 'NBA Finals'
+};
+
+function getPlayoffFinish(series: any, teamId: string): string {
+  if (!series) return 'Did not make playoffs';
+  const userWon = series.winner_id === teamId;
+  if (userWon && series.round === 4) return 'CHAMPIONS!';
+  if (userWon) return `Won ${ROUND_NAMES[series.round]}`;
+  return `Lost in ${ROUND_NAMES[series.round]}`;
+}
+
+router.get('/summary', authMiddleware(true), async (req: any, res) => {
+  try {
+    const franchise = await getUserActiveFranchise(req.user.userId);
+    if (!franchise) return res.status(404).json({ error: 'No franchise found' });
+
+    const [finalsResult, userStandingsResult, userPlayoffResult, topStandingsResult] = await Promise.all([
+      pool.query(
+        `SELECT ps.*, ht.name as higher_seed_name, ht.abbreviation as higher_abbrev, ht.city as higher_city,
+                lt.name as lower_seed_name, lt.abbreviation as lower_abbrev, lt.city as lower_city,
+                wt.name as winner_name, wt.abbreviation as winner_abbrev, wt.city as winner_city, wt.id as winner_id
+         FROM playoff_series ps
+         JOIN teams ht ON ps.higher_seed_id = ht.id
+         JOIN teams lt ON ps.lower_seed_id = lt.id
+         LEFT JOIN teams wt ON ps.winner_id = wt.id
+         WHERE ps.season_id = $1 AND ps.round = 4`,
+        [franchise.season_id]
+      ),
+      pool.query(
+        `SELECT s.wins, s.losses, t.name, t.abbreviation, t.conference
+         FROM standings s JOIN teams t ON s.team_id = t.id
+         WHERE s.season_id = $1 AND s.team_id = $2`,
+        [franchise.season_id, franchise.team_id]
+      ),
+      pool.query(
+        `SELECT ps.round, ps.winner_id FROM playoff_series ps
+         WHERE ps.season_id = $1 AND (ps.higher_seed_id = $2 OR ps.lower_seed_id = $2)
+         ORDER BY ps.round DESC LIMIT 1`,
+        [franchise.season_id, franchise.team_id]
+      ),
+      pool.query(
+        `SELECT s.wins, s.losses, t.name, t.abbreviation, t.conference
+         FROM standings s JOIN teams t ON s.team_id = t.id
+         WHERE s.season_id = $1 ORDER BY s.wins DESC LIMIT 8`,
+        [franchise.season_id]
+      )
+    ]);
+
+    const finals = finalsResult.rows[0] || null;
+    const champion = finals?.winner_id ? {
+      team_id: finals.winner_id,
+      name: finals.winner_name,
+      abbreviation: finals.winner_abbrev,
+      city: finals.winner_city,
+      series_score: finals.winner_id === finals.higher_seed_id
+        ? `${finals.higher_seed_wins}-${finals.lower_seed_wins}`
+        : `${finals.lower_seed_wins}-${finals.higher_seed_wins}`
+    } : null;
+
+    const userRecord = userStandingsResult.rows[0] || null;
+
+    res.json({
+      season_number: franchise.season_number || 1,
+      champion,
+      user_team: {
+        name: userRecord?.name,
+        abbreviation: userRecord?.abbreviation,
+        wins: userRecord?.wins || 0,
+        losses: userRecord?.losses || 0,
+        playoff_finish: getPlayoffFinish(userPlayoffResult.rows[0], franchise.team_id),
+        is_champion: champion?.team_id === franchise.team_id
+      },
+      top_standings: topStandingsResult.rows,
+      playoffs_complete: !!champion
+    });
+  } catch (error) {
+    console.error('Season summary error:', error);
+    res.status(500).json({ error: 'Failed to fetch season summary' });
+  }
+});
+
+router.get('/offseason', authMiddleware(true), async (req: any, res) => {
+  try {
+    const franchise = await getUserActiveFranchise(req.user.userId);
+    if (!franchise) return res.status(404).json({ error: 'No franchise found' });
+    if (franchise.phase !== 'offseason') return res.status(400).json({ error: 'Not in offseason' });
+
+    const offseasonPhase = (franchise.offseason_phase || 'review') as typeof OFFSEASON_PHASES[number];
+    const currentIndex = OFFSEASON_PHASES.indexOf(offseasonPhase);
+
+    res.json({
+      phase: 'offseason',
+      offseason_phase: offseasonPhase,
+      next_phase: currentIndex < OFFSEASON_PHASES.length - 1 ? OFFSEASON_PHASES[currentIndex + 1] : null,
+      can_start_new_season: offseasonPhase === 'training_camp'
+    });
+  } catch (error) {
+    console.error('Get offseason state error:', error);
+    res.status(500).json({ error: 'Failed to get offseason state' });
+  }
+});
+
+router.post('/offseason/advance', authMiddleware(true), async (req: any, res) => {
+  try {
+    const result = await withTransaction(async (client) => {
+      const franchise = await lockUserActiveFranchise(client, req.user.userId);
+      if (!franchise) throw { status: 404, message: 'No franchise found' };
+      if (franchise.phase !== 'offseason') throw { status: 400, message: 'Not in offseason' };
+
+      const currentPhase = (franchise.offseason_phase || 'review') as typeof OFFSEASON_PHASES[number];
+      const currentIndex = OFFSEASON_PHASES.indexOf(currentPhase);
+      if (currentIndex >= OFFSEASON_PHASES.length - 1) {
+        throw { status: 400, message: 'Already at final offseason phase. Start new season.' };
+      }
+
+      const nextPhase = OFFSEASON_PHASES[currentIndex + 1];
+      await client.query(
+        `UPDATE franchises SET offseason_phase = $1, last_played_at = NOW() WHERE id = $2`,
+        [nextPhase, franchise.id]
+      );
+
+      return {
+        message: `Advanced to ${OFFSEASON_PHASE_LABELS[nextPhase]}`,
+        previous_phase: currentPhase,
+        offseason_phase: nextPhase,
+        phase_label: OFFSEASON_PHASE_LABELS[nextPhase],
+        can_start_new_season: nextPhase === 'training_camp'
+      };
+    });
+
+    res.json(result);
+  } catch (error: any) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    console.error('Advance offseason phase error:', error);
+    res.status(500).json({ error: 'Failed to advance offseason phase' });
+  }
+});
+
+router.post('/offseason/skip-to', authMiddleware(true), async (req: any, res) => {
+  try {
+    const { target_phase } = req.body;
+    if (!OFFSEASON_PHASES.includes(target_phase)) {
+      return res.status(400).json({ error: 'Invalid target phase' });
+    }
+
+    const result = await withTransaction(async (client) => {
+      const franchise = await lockUserActiveFranchise(client, req.user.userId);
+      if (!franchise) throw { status: 404, message: 'No franchise found' };
+      if (franchise.phase !== 'offseason') throw { status: 400, message: 'Not in offseason' };
+
+      // Only allow skipping forward, not backward
+      const currentPhase = franchise.offseason_phase || 'review';
+      const currentIndex = OFFSEASON_PHASES.indexOf(currentPhase);
+      const targetIndex = OFFSEASON_PHASES.indexOf(target_phase);
+      if (targetIndex <= currentIndex) {
+        throw { status: 400, message: 'Can only skip forward to a later phase' };
+      }
+
+      await client.query(
+        `UPDATE franchises SET offseason_phase = $1, last_played_at = NOW() WHERE id = $2`,
+        [target_phase, franchise.id]
+      );
+
+      const label = OFFSEASON_PHASE_LABELS[target_phase as keyof typeof OFFSEASON_PHASE_LABELS];
+      return {
+        message: `Skipped to ${label}`,
+        offseason_phase: target_phase,
+        phase_label: label,
+        can_start_new_season: target_phase === 'training_camp'
+      };
+    });
+
+    res.json(result);
+  } catch (error: any) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    console.error('Skip to offseason phase error:', error);
+    res.status(500).json({ error: 'Failed to skip to phase' });
+  }
+});
+
+router.post('/new', authMiddleware(true), async (req: any, res) => {
+  try {
+    const franchise = await getUserActiveFranchise(req.user.userId);
+    if (!franchise) return res.status(404).json({ error: 'No franchise found' });
+    if (franchise.phase !== 'offseason') {
+      return res.status(400).json({ error: 'Must be in offseason to start new season' });
+    }
+    if (franchise.offseason_phase !== 'training_camp') {
+      return res.status(400).json({
+        error: 'Complete offseason activities first',
+        current_phase: franchise.offseason_phase,
+        required_phase: 'training_camp'
+      });
+    }
+
+    // Trim all rosters to 15 players before starting new season
+    const cutPlayersResult = await pool.query(`
+      WITH ranked AS (
+        SELECT id, team_id, overall, salary,
+               ROW_NUMBER() OVER (PARTITION BY team_id ORDER BY overall DESC) as rank
+        FROM players WHERE team_id IS NOT NULL
+      ),
+      cut AS (
+        UPDATE players SET team_id = NULL, salary = 0
+        WHERE id IN (SELECT id FROM ranked WHERE rank > 15)
+        RETURNING id, overall, salary
+      )
+      SELECT id, overall, salary FROM cut
+    `);
+    const cutPlayerIds = cutPlayersResult.rows;
+
+    const newSeasonNumber = (franchise.season_number || 0) + 1;
+
+    const newSeasonId = await pool.query(
+      `INSERT INTO seasons (season_number, status) VALUES ($1, 'preseason') RETURNING id`,
+      [newSeasonNumber]
+    );
+    const newSeason = newSeasonId.rows[0];
+
+    // Create free agent records for roster-trimmed players
+    if (cutPlayerIds.length > 0) {
+      const faValues = cutPlayerIds.map((p: any, i: number) =>
+        `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4}, 'available')`
+      ).join(', ');
+      const faParams = cutPlayerIds.flatMap((p: any) => [
+        p.id, newSeason.id,
+        Math.max(p.salary || 1_500_000, 1_500_000),
+        (p.overall || 60) * 100_000
+      ]);
+      await pool.query(
+        `INSERT INTO free_agents (player_id, season_id, asking_salary, market_value, status)
+         VALUES ${faValues}
+         ON CONFLICT (player_id, season_id) DO UPDATE SET status = 'available'`,
+        faParams
+      );
+
+      // Expire contracts for cut players
+      await pool.query(
+        `UPDATE contracts SET status = 'expired', updated_at = NOW()
+         WHERE player_id = ANY($1) AND status = 'active'`,
+        [cutPlayerIds.map((p: any) => p.id)]
+      );
+    }
+
+    const teamsResult = await pool.query('SELECT id, conference, division FROM teams');
+    const teams = teamsResult.rows;
+
+    for (const t of teams) {
+      await pool.query(
+        `INSERT INTO standings (season_id, team_id, wins, losses, home_wins, home_losses,
+         away_wins, away_losses, conference_wins, conference_losses, division_wins, division_losses,
+         points_for, points_against, streak, last_10_wins)
+         VALUES ($1, $2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+         ON CONFLICT (season_id, team_id) DO NOTHING`,
+        [newSeason.id, t.id]
+      );
+    }
+
+    const allGames = [
+      ...generatePreseasonSchedule(teams).map(g => ({ ...g, is_preseason: true })),
+      ...generateSchedule(teams).map(g => ({ ...g, is_preseason: false }))
+    ];
+
+    const batchSize = 100;
+    for (let i = 0; i < allGames.length; i += batchSize) {
+      const batch = allGames.slice(i, i + batchSize);
+      const values: any[] = [];
+      const placeholders: string[] = [];
+
+      batch.forEach((game, idx) => {
+        const isUserGame = game.home_team_id === franchise.team_id || game.away_team_id === franchise.team_id;
+        const offset = idx * 8;
+        placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8})`);
+        values.push(newSeason.id, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, isUserGame, game.is_preseason, game.game_day);
+      });
+
+      await pool.query(
+        `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, is_user_game, is_preseason, game_day)
+         VALUES ${placeholders.join(', ')}`,
+        values
+      );
+    }
+
+    await pool.query(
+      `UPDATE franchises SET season_id = $1, current_day = -7, phase = 'preseason', offseason_phase = NULL, all_star_complete = FALSE, season_number = $2, mle_used = false, last_played_at = NOW() WHERE id = $3`,
+      [newSeason.id, newSeasonNumber, franchise.id]
+    );
+
+    res.json({
+      message: 'New season started',
+      season_id: newSeason.id,
+      season_number: newSeasonNumber,
+      phase: 'preseason',
+      current_day: -7
+    });
+  } catch (error) {
+    console.error('New season error:', error);
+    res.status(500).json({ error: 'Failed to create new season' });
   }
 });
 

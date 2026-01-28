@@ -1,0 +1,91 @@
+import { PoolClient } from 'pg';
+import { pool } from '../../db/pool';
+import { getTeamsInfo } from '../../db/queries';
+import { GameResult, DbConnection } from './types';
+
+interface StandingUpdate {
+  won: boolean;
+  isHome: boolean;
+  pointsFor: number;
+  pointsAgainst: number;
+  conferenceGame: number;
+  divisionGame: number;
+}
+
+export async function updateStandingsAfterGame(
+  result: GameResult,
+  seasonId: string,
+  client?: PoolClient
+): Promise<void> {
+  const db = client || pool;
+
+  const teamsInfo = await getTeamsInfo([result.home_team_id, result.away_team_id], client);
+  const homeInfo = teamsInfo.get(result.home_team_id);
+  const awayInfo = teamsInfo.get(result.away_team_id);
+
+  const homeWon = result.winner_id === result.home_team_id;
+  const sameConference = homeInfo?.conference === awayInfo?.conference ? 1 : 0;
+  const sameDivision = homeInfo?.division === awayInfo?.division ? 1 : 0;
+
+  await updateTeamStanding(db, seasonId, result.home_team_id, {
+    won: homeWon,
+    isHome: true,
+    pointsFor: result.home_score,
+    pointsAgainst: result.away_score,
+    conferenceGame: sameConference,
+    divisionGame: sameDivision
+  });
+
+  await updateTeamStanding(db, seasonId, result.away_team_id, {
+    won: !homeWon,
+    isHome: false,
+    pointsFor: result.away_score,
+    pointsAgainst: result.home_score,
+    conferenceGame: sameConference,
+    divisionGame: sameDivision
+  });
+}
+
+async function updateTeamStanding(
+  db: DbConnection,
+  seasonId: string,
+  teamId: string,
+  update: StandingUpdate
+): Promise<void> {
+  const { won, isHome, pointsFor, pointsAgainst, conferenceGame, divisionGame } = update;
+
+  const winField = won ? 'wins' : 'losses';
+  const locationWinField = isHome ? 'home_wins' : 'away_wins';
+  const locationLossField = isHome ? 'home_losses' : 'away_losses';
+  const locationField = won ? locationWinField : locationLossField;
+  const confField = won ? 'conference_wins' : 'conference_losses';
+  const divField = won ? 'division_wins' : 'division_losses';
+
+  await db.query(
+    `UPDATE standings SET
+       ${winField} = ${winField} + 1,
+       ${locationField} = COALESCE(${locationField}, 0) + 1,
+       points_for = COALESCE(points_for, 0) + $3,
+       points_against = COALESCE(points_against, 0) + $4,
+       ${confField} = ${confField} + $5,
+       ${divField} = ${divField} + $6,
+       streak = CASE
+         WHEN $7 AND COALESCE(streak, 0) >= 0 THEN COALESCE(streak, 0) + 1
+         WHEN $7 THEN 1
+         WHEN NOT $7 AND COALESCE(streak, 0) <= 0 THEN COALESCE(streak, 0) - 1
+         ELSE -1
+       END,
+       last_10_wins = (
+         SELECT COUNT(*) FROM (
+           SELECT winner_id FROM games
+           WHERE season_id = $1 AND is_playoff = false
+             AND (home_team_id = $2 OR away_team_id = $2)
+             AND status = 'completed'
+           ORDER BY completed_at DESC
+           LIMIT 10
+         ) recent WHERE winner_id = $2
+       )
+     WHERE season_id = $1 AND team_id = $2`,
+    [seasonId, teamId, pointsFor, pointsAgainst, conferenceGame, divisionGame, won]
+  );
+}
