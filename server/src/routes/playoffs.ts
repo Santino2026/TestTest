@@ -19,6 +19,22 @@ import {
   generateNextRoundIfReady
 } from '../playoffs';
 
+
+// Reinitialize on_court after JSON deep copy (fixes broken object references)
+function initializeOnCourt(team: any): void {
+  // Reset all players
+  for (const p of team.roster) {
+    p.is_on_court = false;
+  }
+  // Set first 5 (or starters) to on court
+  const starters = team.roster.slice(0, 5);
+  for (const p of starters) {
+    p.is_on_court = true;
+  }
+  team.on_court = team.roster.filter((p: any) => p.is_on_court);
+  team.starters = starters;
+}
+
 const router = Router();
 
 interface GameResult {
@@ -43,6 +59,9 @@ async function simulateSeriesGame(
   if (teamCache) {
     homeTeam = JSON.parse(JSON.stringify(teamCache.get(homeTeamId)));
     awayTeam = JSON.parse(JSON.stringify(teamCache.get(awayTeamId)));
+    // Reinitialize on_court after deep copy (JSON breaks object references)
+    initializeOnCourt(homeTeam);
+    initializeOnCourt(awayTeam);
   } else {
     homeTeam = await loadTeamForSimulation(homeTeamId);
     awayTeam = await loadTeamForSimulation(awayTeamId);
