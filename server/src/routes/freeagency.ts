@@ -565,4 +565,214 @@ router.post('/simulate', authMiddleware(true), async (req: any, res) => {
   }
 });
 
+// Auto-sign free agents to fill team needs
+router.post("/auto-sign", authMiddleware(true), async (req: any, res) => {
+  try {
+    const franchise = await getUserActiveFranchise(req.user.userId);
+    if (!franchise) return res.status(404).json({ error: "No franchise found" });
+
+    const { allowed, reason } = isFreeAgencyAllowed(franchise);
+    if (!allowed) return res.status(400).json({ error: reason });
+
+    const teamId = franchise.team_id;
+    const seasonId = franchise.season_id;
+
+    // Get current roster
+    const rosterResult = await pool.query(
+      "SELECT id, position, overall, salary FROM players WHERE team_id = $1",
+      [teamId]
+    );
+    const roster = rosterResult.rows;
+
+    // Check roster space
+    if (roster.length >= 15) {
+      return res.json({ message: "Roster is full (15 players)", signed: [] });
+    }
+
+    // Get team payroll
+    const payrollResult = await pool.query(
+      "SELECT COALESCE(SUM(salary), 0) as payroll FROM players WHERE team_id = $1",
+      [teamId]
+    );
+    const payroll = parseInt(payrollResult.rows[0].payroll);
+    const capSpace = SALARY_CAP.cap - payroll;
+
+    // Analyze position needs (count by position)
+    const positionCounts: Record<string, number> = { PG: 0, SG: 0, SF: 0, PF: 0, C: 0 };
+    const positionOveralls: Record<string, number[]> = { PG: [], SG: [], SF: [], PF: [], C: [] };
+    for (const p of roster) {
+      if (positionCounts[p.position] !== undefined) {
+        positionCounts[p.position]++;
+        positionOveralls[p.position].push(p.overall);
+      }
+    }
+
+    // Calculate needs: prioritize positions with < 3 players or low average overall
+    const positionNeeds: { position: string; priority: number }[] = [];
+    for (const pos of ["PG", "SG", "SF", "PF", "C"]) {
+      const count = positionCounts[pos];
+      const avgOverall = positionOveralls[pos].length > 0 
+        ? positionOveralls[pos].reduce((a, b) => a + b, 0) / positionOveralls[pos].length 
+        : 0;
+      
+      let priority = 0;
+      if (count === 0) priority = 100;
+      else if (count === 1) priority = 80;
+      else if (count === 2) priority = 50;
+      else if (avgOverall < 65) priority = 30;
+      
+      if (priority > 0) positionNeeds.push({ position: pos, priority });
+    }
+    positionNeeds.sort((a, b) => b.priority - a.priority);
+
+    // Get available free agents
+    const freeAgentsResult = await pool.query(
+      `SELECT p.id, p.first_name, p.last_name, p.position, p.overall, p.age, p.years_pro,
+              fa.asking_salary, fa.market_value
+       FROM free_agents fa
+       JOIN players p ON fa.player_id = p.id
+       WHERE fa.season_id = $1 AND fa.status = 'available' AND p.team_id IS NULL
+       ORDER BY p.overall DESC`,
+      [seasonId]
+    );
+    const freeAgents = freeAgentsResult.rows;
+
+    const signed: any[] = [];
+    let currentPayroll = payroll;
+    let currentRosterSize = roster.length;
+
+    // Try to sign players for each need
+    for (const need of positionNeeds) {
+      if (currentRosterSize >= 15) break;
+
+      // Find best available FA for this position
+      const candidates = freeAgents.filter(fa => 
+        fa.position === need.position && 
+        !signed.find(s => s.player_id === fa.id)
+      );
+
+      for (const fa of candidates) {
+        if (currentRosterSize >= 15) break;
+
+        const askingSalary = fa.asking_salary || fa.market_value || 2_000_000;
+        const minSalary = getMinSalary(fa.years_pro || 0);
+        
+        // Determine what we can offer
+        let offerSalary = askingSalary;
+        let canSign = false;
+
+        if (currentPayroll + offerSalary <= SALARY_CAP.cap) {
+          canSign = true;
+        } else if (currentPayroll + minSalary <= SALARY_CAP.cap + MID_LEVEL_EXCEPTION) {
+          offerSalary = minSalary;
+          canSign = true;
+        }
+
+        if (!canSign) continue;
+
+        // Determine contract years based on age
+        let years = 2;
+        if (fa.age < 25) years = 3;
+        else if (fa.age >= 30) years = 1;
+
+        // Sign the player
+        const success = await withAdvisoryLock(`sign-player-${fa.id}`, async (client) => {
+          const player = await lockPlayer(client, fa.id);
+          if (!player || player.team_id !== null) return false;
+
+          await client.query("UPDATE players SET team_id = $1, salary = $2 WHERE id = $3", 
+            [teamId, offerSalary, fa.id]);
+          await createContract(client, fa.id, teamId, years, offerSalary, seasonId);
+          await client.query(
+            "UPDATE free_agents SET status = 'signed', signed_at = NOW() WHERE player_id = $1 AND season_id = $2",
+            [fa.id, seasonId]
+          );
+          return true;
+        });
+
+        if (success) {
+          signed.push({
+            player_id: fa.id,
+            name: `${fa.first_name} ${fa.last_name}`,
+            position: fa.position,
+            overall: fa.overall,
+            salary: offerSalary,
+            years: years
+          });
+          currentPayroll += offerSalary;
+          currentRosterSize++;
+          break; // Move to next position need
+        }
+      }
+    }
+
+    // If roster still under 15 and we have cap space, sign best available regardless of position
+    while (currentRosterSize < 15) {
+      const remaining = freeAgents.filter(fa => !signed.find(s => s.player_id === fa.id));
+      if (remaining.length === 0) break;
+
+      const fa = remaining[0]; // Best available by overall
+      const askingSalary = fa.asking_salary || fa.market_value || 2_000_000;
+      const minSalary = getMinSalary(fa.years_pro || 0);
+
+      let offerSalary = askingSalary;
+      let canSign = false;
+
+      if (currentPayroll + offerSalary <= SALARY_CAP.cap) {
+        canSign = true;
+      } else if (currentPayroll + minSalary <= SALARY_CAP.cap + MID_LEVEL_EXCEPTION) {
+        offerSalary = minSalary;
+        canSign = true;
+      }
+
+      if (!canSign) break;
+
+      let years = 2;
+      if (fa.age < 25) years = 3;
+      else if (fa.age >= 30) years = 1;
+
+      const success = await withAdvisoryLock(`sign-player-${fa.id}`, async (client) => {
+        const player = await lockPlayer(client, fa.id);
+        if (!player || player.team_id !== null) return false;
+
+        await client.query("UPDATE players SET team_id = $1, salary = $2 WHERE id = $3", 
+          [teamId, offerSalary, fa.id]);
+        await createContract(client, fa.id, teamId, years, offerSalary, seasonId);
+        await client.query(
+          "UPDATE free_agents SET status = 'signed', signed_at = NOW() WHERE player_id = $1 AND season_id = $2",
+          [fa.id, seasonId]
+        );
+        return true;
+      });
+
+      if (success) {
+        signed.push({
+          player_id: fa.id,
+          name: `${fa.first_name} ${fa.last_name}`,
+          position: fa.position,
+          overall: fa.overall,
+          salary: offerSalary,
+          years: years
+        });
+        currentPayroll += offerSalary;
+        currentRosterSize++;
+      } else {
+        break;
+      }
+    }
+
+    res.json({
+      message: signed.length > 0 ? `Signed ${signed.length} free agent(s)` : "No suitable free agents found",
+      signed,
+      roster_size: currentRosterSize,
+      payroll: currentPayroll,
+      cap_space: SALARY_CAP.cap - currentPayroll
+    });
+  } catch (error: any) {
+    console.error("Auto-sign error:", error);
+    res.status(500).json({ error: "Failed to auto-sign free agents" });
+  }
+});
+
+
 export default router;
