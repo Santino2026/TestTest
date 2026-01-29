@@ -17,6 +17,16 @@ router.post('/', authMiddleware(true), async (req: any, res) => {
       if (!locked || locked.phase !== 'preseason') throw { status: 400, message: 'Not in preseason' };
 
       const { gameDateStr, results, userGameResult } = await simulatePreseasonDayGames(locked);
+
+      // Update preseason record using the transaction client (avoids deadlock)
+      if (userGameResult) {
+        const column = userGameResult.won ? 'preseason_wins' : 'preseason_losses';
+        await client.query(
+          `UPDATE franchises SET ${column} = COALESCE(${column}, 0) + 1 WHERE id = $1`,
+          [locked.id]
+        );
+      }
+
       const newDay = locked.current_day + 1;
       const preseasonComplete = newDay > 0;
       const newPhase = preseasonComplete ? 'regular_season' : 'preseason';
