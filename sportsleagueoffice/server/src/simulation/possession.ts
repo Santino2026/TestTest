@@ -79,9 +79,9 @@ export function simulatePossession(context: PossessionContext): PossessionResult
         // NBA averages ~5 blocks per team per game on ~85 shots = ~6% overall
         // But blocks mostly happen on interior shots (within 10 feet)
         const isInteriorShot = distance < 10;
-        const blockBaseChance = isInteriorShot ? 0.10 : 0.015; // 10% base for interior, 1.5% for perimeter
-        const blockerBonus = (defender.attributes.block / 99) * (isInteriorShot ? 0.08 : 0.015);
-        const shooterPenalty = (ballHandler.attributes.inside_scoring / 99) * 0.03; // Good finishers avoid blocks
+        const blockBaseChance = isInteriorShot ? 0.14 : 0.02; // 14% base for interior, 2% for perimeter
+        const blockerBonus = (defender.attributes.block / 99) * (isInteriorShot ? 0.12 : 0.02);
+        const shooterPenalty = (ballHandler.attributes.inside_scoring / 99) * 0.05; // Good finishers avoid blocks
         const blockChance = blockBaseChance + blockerBonus - shooterPenalty;
 
         if (Math.random() < blockChance) {
@@ -283,9 +283,9 @@ export function simulatePossession(context: PossessionContext): PossessionResult
         const rimProtector = context.defenders.reduce((best, d) =>
           d.attributes.block > best.attributes.block ? d : best
         );
-        const blockBaseChance = 0.12; // 12% base for drives to rim
-        const blockerBonus = (rimProtector.attributes.block / 99) * 0.10;
-        const finisherPenalty = (ballHandler.attributes.inside_scoring / 99) * 0.05;
+        const blockBaseChance = 0.16; // 16% base for drives to rim
+        const blockerBonus = (rimProtector.attributes.block / 99) * 0.14;
+        const finisherPenalty = (ballHandler.attributes.inside_scoring / 99) * 0.08;
         const driveBlockChance = blockBaseChance + blockerBonus - finisherPenalty;
 
         if (Math.random() < driveBlockChance) {
