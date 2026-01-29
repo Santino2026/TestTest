@@ -31,11 +31,17 @@ export function simulatePossession(context: PossessionContext): PossessionResult
   let lastPasser: SimPlayer | null = null; // Track passer for assists
   let iteration = 0;
 
-  // Simulate inbound/setup pass from PG for assist tracking
-  if (ballHandler.position !== 'PG' && Math.random() < 0.4) {
+  // Simulate inbound/setup pass for assist tracking
+  // NBA has ~25 assists per team per game, with ~45 made field goals = ~55% assisted
+  if (Math.random() < 0.65) {
+    // PG most likely to make entry pass, but others can too
     const pg = context.players_on_court.find(p => p.position === 'PG');
-    if (pg) {
+    const sg = context.players_on_court.find(p => p.position === 'SG');
+    if (ballHandler.position !== 'PG' && pg && Math.random() < 0.7) {
       lastPasser = pg;
+      passCount = 1;
+    } else if (ballHandler.position !== 'SG' && sg && Math.random() < 0.4) {
+      lastPasser = sg;
       passCount = 1;
     }
   }
@@ -69,6 +75,44 @@ export function simulatePossession(context: PossessionContext): PossessionResult
         const contestLevel = determineContestLevel(ballHandler, defender, shotType, context.is_fast_break);
         const timeUsed = SHOT_CLOCK - shotClock;
 
+        // Check for block BEFORE shot - interior shots have much higher block rate
+        // NBA averages ~5 blocks per team per game on ~85 shots = ~6% overall
+        // But blocks mostly happen on interior shots (within 10 feet)
+        const isInteriorShot = distance < 10;
+        const blockBaseChance = isInteriorShot ? 0.10 : 0.015; // 10% base for interior, 1.5% for perimeter
+        const blockerBonus = (defender.attributes.block / 99) * (isInteriorShot ? 0.08 : 0.015);
+        const shooterPenalty = (ballHandler.attributes.inside_scoring / 99) * 0.03; // Good finishers avoid blocks
+        const blockChance = blockBaseChance + blockerBonus - shooterPenalty;
+
+        if (Math.random() < blockChance) {
+          plays.push({
+            id: uuidv4(),
+            type: 'block',
+            quarter: context.quarter,
+            game_clock: context.game_clock - timeUsed,
+            shot_clock: shotClock,
+            primary_player_id: ballHandler.id,
+            secondary_player_id: defender.id,
+            team_id: context.opponent.id,
+            points: 0,
+            home_score: 0,
+            away_score: 0,
+            description: generateDescription('block', ballHandler, defender)
+          });
+
+          // After block, ball often goes out or defense recovers
+          const reboundResult = simulateRebound(context.players_on_court, context.defenders);
+          plays.push(createReboundPlay(reboundResult, context, context.game_clock - timeUsed - 1));
+
+          if (reboundResult.offensive) {
+            shotClock = 14;
+            ballHandler = reboundResult.rebounder;
+            continue;
+          }
+
+          return { plays, points_scored: 0, time_elapsed: timeUsed + 2, possession_ended: true, ending: 'missed_shot' };
+        }
+
         const shotResult = executeShot({
           shooter: ballHandler,
           defender,
@@ -86,24 +130,6 @@ export function simulatePossession(context: PossessionContext): PossessionResult
         });
 
         ballHandler.hot_cold_state = updateHotColdState(ballHandler, shotResult.made);
-
-        if (!shotResult.made && Math.random() < (defender.attributes.block / 99) * 0.08) {
-          plays.push({
-            id: uuidv4(),
-            type: 'block',
-            quarter: context.quarter,
-            game_clock: context.game_clock - timeUsed,
-            shot_clock: shotClock,
-            primary_player_id: ballHandler.id,
-            secondary_player_id: defender.id,
-            team_id: context.opponent.id,
-            points: 0,
-            home_score: 0,
-            away_score: 0,
-            description: generateDescription('block', ballHandler, defender)
-          });
-          return { plays, points_scored: 0, time_elapsed: timeUsed + 2, possession_ended: true, ending: 'missed_shot' };
-        }
 
         plays.push({
           id: uuidv4(),
@@ -231,6 +257,44 @@ export function simulatePossession(context: PossessionContext): PossessionResult
         }
 
         const shotType: ShotType = ballHandler.attributes.vertical > 70 && Math.random() < 0.4 ? 'dunk' : 'layup';
+
+        // Drives to rim have high block potential - find best rim protector
+        const rimProtector = context.defenders.reduce((best, d) =>
+          d.attributes.block > best.attributes.block ? d : best
+        );
+        const blockBaseChance = 0.12; // 12% base for drives to rim
+        const blockerBonus = (rimProtector.attributes.block / 99) * 0.10;
+        const finisherPenalty = (ballHandler.attributes.inside_scoring / 99) * 0.05;
+        const driveBlockChance = blockBaseChance + blockerBonus - finisherPenalty;
+
+        if (Math.random() < driveBlockChance) {
+          plays.push({
+            id: uuidv4(),
+            type: 'block',
+            quarter: context.quarter,
+            game_clock: context.game_clock - timeUsed,
+            shot_clock: shotClock,
+            primary_player_id: ballHandler.id,
+            secondary_player_id: rimProtector.id,
+            team_id: context.opponent.id,
+            points: 0,
+            home_score: 0,
+            away_score: 0,
+            description: generateDescription('block', ballHandler, rimProtector)
+          });
+
+          const reboundResult = simulateRebound(context.players_on_court, context.defenders);
+          plays.push(createReboundPlay(reboundResult, context, context.game_clock - timeUsed - 1));
+
+          if (reboundResult.offensive) {
+            shotClock = 14;
+            ballHandler = reboundResult.rebounder;
+            continue;
+          }
+
+          return { plays, points_scored: 0, time_elapsed: timeUsed + 2, possession_ended: true, ending: 'missed_shot' };
+        }
+
         const contestLevel = determineContestLevel(ballHandler, defender, shotType, context.is_fast_break);
 
         const shotResult = executeShot({
