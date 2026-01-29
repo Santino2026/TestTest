@@ -121,14 +121,20 @@ export async function simulateRisingStars(seasonId: string): Promise<EventResult
   const baseScore = 150;
   const variance = 30;
 
-  const team1Score = clamp(
+  let team1Score = clamp(
     baseScore + Math.floor((team1Strength - 70) * 2) + randomVariance(0, variance),
     120, 180
   );
-  const team2Score = clamp(
+  let team2Score = clamp(
     baseScore + Math.floor((team2Strength - 70) * 2) + randomVariance(0, variance),
     120, 180
   );
+
+  // Ensure no ties
+  if (team1Score === team2Score) {
+    if (Math.random() > 0.5) team1Score += 1 + Math.floor(Math.random() * 3);
+    else team2Score += 1 + Math.floor(Math.random() * 3);
+  }
 
   const team1Won = team1Score > team2Score;
   const winningTeam = team1Won ? team1Name : team2Name;
@@ -483,14 +489,20 @@ export async function simulateAllStarGame(seasonId: string): Promise<EventResult
   const baseScore = 170;
   const variance = 25;
 
-  const eastScore = clamp(
+  let eastScore = clamp(
     baseScore + Math.floor((eastStrength - 80) * 3) + randomVariance(0, variance),
     150, 200
   );
-  const westScore = clamp(
+  let westScore = clamp(
     baseScore + Math.floor((westStrength - 80) * 3) + randomVariance(0, variance),
     150, 200
   );
+
+  // Ensure no ties - add overtime points to random team
+  if (eastScore === westScore) {
+    if (Math.random() > 0.5) eastScore += 1 + Math.floor(Math.random() * 3);
+    else westScore += 1 + Math.floor(Math.random() * 3);
+  }
 
   const eastWon = eastScore > westScore;
   const winningTeam = eastWon ? 'east' : 'west';
