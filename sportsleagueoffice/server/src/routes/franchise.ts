@@ -20,6 +20,27 @@ async function createNewFranchise(
   team: Team,
   franchiseName: string
 ): Promise<any> {
+  // Reset all rosters to fresh state for new franchise
+  await pool.query(`UPDATE players SET team_id = NULL, salary = 0`);
+
+  // Fill each team with 15 players (3 per position)
+  const teamsForRoster = await pool.query('SELECT id FROM teams');
+  const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
+
+  for (const t of teamsForRoster.rows) {
+    for (const pos of positions) {
+      await pool.query(`
+        UPDATE players SET team_id = $1
+        WHERE id IN (
+          SELECT id FROM players
+          WHERE team_id IS NULL AND position = $2
+          ORDER BY overall DESC
+          LIMIT 3
+        )
+      `, [t.id, pos]);
+    }
+  }
+
   const newSeason = await pool.query(
     `INSERT INTO seasons (season_number, status) VALUES (1, 'preseason') RETURNING id`
   );
