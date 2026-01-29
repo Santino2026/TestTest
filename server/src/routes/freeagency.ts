@@ -51,6 +51,12 @@ async function createContract(
   const salaries = generateYearlySalaries(salaryPerYear, years);
   const contractId = uuidv4();
 
+  // Delete any existing contract for this player
+  await client.query(
+    `DELETE FROM contracts WHERE player_id = $1`,
+    [playerId]
+  );
+
   await client.query(
     `INSERT INTO contracts
      (id, player_id, team_id, total_years, years_remaining, base_salary,
