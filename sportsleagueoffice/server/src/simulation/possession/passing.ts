@@ -9,10 +9,10 @@ export function executePass(
   const defender = Math.random() < 0.6 ? sortedDefenders[0] : defenders[Math.floor(Math.random() * defenders.length)];
 
   // NBA averages ~7-8 steals per team per game, ~14 total
-  // Need much higher steal rates since few passes happen per game
-  const baseStealChance = 0.12; // 12% base
-  const defenderBonus = (defender.attributes.steal / 99) * 0.18; // Up to 18% more for elite defenders
-  const passerPenalty = ((passer.attributes.passing_accuracy || 70) / 99) * 0.08; // Good passers reduce steal chance
+  // Tuned for realistic steal rates
+  const baseStealChance = 0.04; // 4% base
+  const defenderBonus = (defender.attributes.steal / 99) * 0.06; // Up to 6% more for elite defenders
+  const passerPenalty = ((passer.attributes.passing_accuracy || 70) / 99) * 0.03; // Good passers reduce steal chance
   const stealChance = baseStealChance + defenderBonus - passerPenalty;
 
   if (Math.random() < stealChance) {
@@ -33,9 +33,9 @@ export function checkDribbleSteal(
   const defender = Math.random() < 0.5 ? sortedDefenders[0] : defenders[Math.floor(Math.random() * defenders.length)];
 
   // Ball handling vs steal matchup
-  const handleBonus = (ballHandler.attributes.ball_handling / 99) * 0.10;
-  const stealBonus = (defender.attributes.steal / 99) * 0.16;
-  const baseChance = 0.06; // 6% base chance per dribble action
+  const handleBonus = (ballHandler.attributes.ball_handling / 99) * 0.04;
+  const stealBonus = (defender.attributes.steal / 99) * 0.06;
+  const baseChance = 0.02; // 2% base chance per dribble action
   const stealChance = baseChance + stealBonus - handleBonus;
 
   if (Math.random() < stealChance) {
