@@ -1,7 +1,7 @@
 import { pool } from '../db/pool';
 import { simulateGame, simulateGameFast } from '../simulation';
-import { loadTeamForSimulation, loadTeamsForSimulationBulk } from './simulation';
-import { saveCompleteGameResult, GameResult } from './gamePersistence';
+import { loadTeamForSimulation } from './simulation';
+import { saveCompleteGameResult, savePreseasonGameMinimal, GameResult } from './gamePersistence';
 import { SEASON_START_DATE } from '../constants';
 import { withTransaction } from '../db/transactions';
 
@@ -120,16 +120,20 @@ async function simulateGamesForDay(
       const gameResult = buildGameResult(simResult);
 
       await withTransaction(async (client) => {
-        await saveCompleteGameResult(
-          gameResult,
-          seasonId,
-          { id: homeTeam.id, starters: homeTeam.starters },
-          { id: awayTeam.id, starters: awayTeam.starters },
-          updateStandings,
-          client,
-          isPreseason,
-          gameDateStr
-        );
+        if (isPreseason) {
+          await savePreseasonGameMinimal(gameResult, seasonId, client, gameDateStr);
+        } else {
+          await saveCompleteGameResult(
+            gameResult,
+            seasonId,
+            { id: homeTeam.id, starters: homeTeam.starters },
+            { id: awayTeam.id, starters: awayTeam.starters },
+            updateStandings,
+            client,
+            false,
+            gameDateStr
+          );
+        }
 
         await client.query(
           `UPDATE schedule SET status = 'completed', game_id = $1, is_user_game = $2
@@ -225,7 +229,7 @@ async function updatePreseasonRecord(franchiseId: string, won: boolean): Promise
 }
 
 // Bulk preseason simulation - simulates all games then bulk inserts
-export async function simulateAllPreseasonGames(
+export async function simulateAllPreseasonGamesBulk(
   franchise: FranchiseContext
 ): Promise<{ games_played: number; user_wins: number; user_losses: number }> {
   const { season_id: seasonId, team_id: userTeamId } = franchise;
@@ -245,14 +249,20 @@ export async function simulateAllPreseasonGames(
     return { games_played: 0, user_wins: 0, user_losses: 0 };
   }
 
-  // Batch load all teams upfront (3 queries instead of 48)
+  // Batch load all teams upfront
   const teamIds = new Set<string>();
   for (const game of gamesResult.rows) {
     teamIds.add(game.home_team_id);
     teamIds.add(game.away_team_id);
   }
 
-  const teamCache = await loadTeamsForSimulationBulk(Array.from(teamIds));
+  const teamCache = new Map<string, Awaited<ReturnType<typeof loadTeamForSimulation>>>();
+  await Promise.all(
+    Array.from(teamIds).map(async (teamId) => {
+      const team = await loadTeamForSimulation(teamId);
+      teamCache.set(teamId, team);
+    })
+  );
 
   // Simulate all games (CPU work - fast with simulateGameFast)
   const simulatedGames: Array<{
@@ -262,8 +272,6 @@ export async function simulateAllPreseasonGames(
     homeTeamId: string;
     awayTeamId: string;
     isUserGame: boolean;
-    homeStarters: string[];
-    awayStarters: string[];
   }> = [];
 
   for (const game of gamesResult.rows) {
@@ -278,9 +286,7 @@ export async function simulateAllPreseasonGames(
       result: buildGameResult(simResult),
       homeTeamId: homeTeam.id,
       awayTeamId: awayTeam.id,
-      isUserGame,
-      homeStarters: homeTeam.starters.map(s => s.id),
-      awayStarters: awayTeam.starters.map(s => s.id)
+      isUserGame
     });
   }
 
@@ -289,7 +295,7 @@ export async function simulateAllPreseasonGames(
   let userLosses = 0;
 
   await withTransaction(async (client) => {
-    // Bulk insert games
+    // Bulk insert games only (skip quarters, team stats, player stats for preseason)
     if (simulatedGames.length > 0) {
       const gameValues: any[] = [];
       const gamePlaceholders: string[] = [];
@@ -305,91 +311,6 @@ export async function simulateAllPreseasonGames(
          VALUES ${gamePlaceholders.join(', ')}
          ON CONFLICT (id) DO NOTHING`,
         gameValues
-      );
-    }
-
-    // Bulk insert quarters
-    const quarterValues: any[] = [];
-    const quarterPlaceholders: string[] = [];
-    let qIdx = 0;
-    for (const g of simulatedGames) {
-      for (const q of g.result.quarters) {
-        const offset = qIdx * 4;
-        quarterPlaceholders.push(`($${offset+1}, $${offset+2}, $${offset+3}, $${offset+4})`);
-        quarterValues.push(g.result.id, q.quarter, q.home_points, q.away_points);
-        qIdx++;
-      }
-    }
-    if (quarterValues.length > 0) {
-      await client.query(
-        `INSERT INTO game_quarters (game_id, quarter, home_points, away_points)
-         VALUES ${quarterPlaceholders.join(', ')}
-         ON CONFLICT (game_id, quarter) DO NOTHING`,
-        quarterValues
-      );
-    }
-
-    // Bulk insert team stats
-    const teamStatValues: any[] = [];
-    const teamStatPlaceholders: string[] = [];
-    let tsIdx = 0;
-    for (const g of simulatedGames) {
-      for (const [stats, teamId, isHome] of [[g.result.home_stats, g.homeTeamId, true], [g.result.away_stats, g.awayTeamId, false]] as const) {
-        const offset = tsIdx * 24;
-        teamStatPlaceholders.push(`($${offset+1}, $${offset+2}, $${offset+3}, $${offset+4}, $${offset+5}, $${offset+6}, $${offset+7}, $${offset+8}, $${offset+9}, $${offset+10}, $${offset+11}, $${offset+12}, $${offset+13}, $${offset+14}, $${offset+15}, $${offset+16}, $${offset+17}, $${offset+18}, $${offset+19}, $${offset+20}, $${offset+21}, $${offset+22}, $${offset+23}, $${offset+24})`);
-        teamStatValues.push(
-          g.result.id, teamId, isHome, stats.points, stats.fgm, stats.fga, stats.fg_pct,
-          stats.three_pm, stats.three_pa, stats.three_pct, stats.ftm, stats.fta, stats.ft_pct,
-          stats.oreb, stats.dreb, stats.rebounds, stats.assists, stats.steals, stats.blocks,
-          stats.turnovers, stats.fouls, stats.fast_break_points || 0, stats.points_in_paint || 0, stats.second_chance_points || 0
-        );
-        tsIdx++;
-      }
-    }
-    if (teamStatValues.length > 0) {
-      await client.query(
-        `INSERT INTO team_game_stats (game_id, team_id, is_home, points, fgm, fga, fg_pct, three_pm, three_pa, three_pct, ftm, fta, ft_pct, oreb, dreb, rebounds, assists, steals, blocks, turnovers, fouls, fast_break_points, points_in_paint, second_chance_points)
-         VALUES ${teamStatPlaceholders.join(', ')}
-         ON CONFLICT (game_id, team_id) DO NOTHING`,
-        teamStatValues
-      );
-    }
-
-    // Bulk insert player stats (batch in chunks to avoid parameter limits)
-    const allPlayerStats: Array<{ gameId: string; ps: any; teamId: string; isStarter: boolean }> = [];
-    for (const g of simulatedGames) {
-      for (const ps of g.result.home_player_stats) {
-        if (ps.minutes > 0) {
-          allPlayerStats.push({ gameId: g.result.id, ps, teamId: g.homeTeamId, isStarter: g.homeStarters.includes(ps.player_id) });
-        }
-      }
-      for (const ps of g.result.away_player_stats) {
-        if (ps.minutes > 0) {
-          allPlayerStats.push({ gameId: g.result.id, ps, teamId: g.awayTeamId, isStarter: g.awayStarters.includes(ps.player_id) });
-        }
-      }
-    }
-
-    const PLAYER_BATCH_SIZE = 500;
-    for (let i = 0; i < allPlayerStats.length; i += PLAYER_BATCH_SIZE) {
-      const batch = allPlayerStats.slice(i, i + PLAYER_BATCH_SIZE);
-      const playerValues: any[] = [];
-      const playerPlaceholders: string[] = [];
-      for (let j = 0; j < batch.length; j++) {
-        const { gameId, ps, teamId, isStarter } = batch[j];
-        const offset = j * 21;
-        playerPlaceholders.push(`($${offset+1}, $${offset+2}, $${offset+3}, $${offset+4}, $${offset+5}, $${offset+6}, $${offset+7}, $${offset+8}, $${offset+9}, $${offset+10}, $${offset+11}, $${offset+12}, $${offset+13}, $${offset+14}, $${offset+15}, $${offset+16}, $${offset+17}, $${offset+18}, $${offset+19}, $${offset+20}, $${offset+21})`);
-        playerValues.push(
-          gameId, ps.player_id, teamId, ps.minutes, ps.points, ps.fgm, ps.fga, ps.three_pm, ps.three_pa,
-          ps.ftm, ps.fta, ps.oreb, ps.dreb, ps.rebounds, ps.assists, ps.steals, ps.blocks,
-          ps.turnovers, ps.fouls, ps.plus_minus, isStarter
-        );
-      }
-      await client.query(
-        `INSERT INTO player_game_stats (game_id, player_id, team_id, minutes, points, fgm, fga, three_pm, three_pa, ftm, fta, oreb, dreb, rebounds, assists, steals, blocks, turnovers, fouls, plus_minus, is_starter)
-         VALUES ${playerPlaceholders.join(', ')}
-         ON CONFLICT (game_id, player_id) DO NOTHING`,
-        playerValues
       );
     }
 

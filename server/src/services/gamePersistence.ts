@@ -1,25 +1,24 @@
 import { PoolClient } from 'pg';
-import { saveGameResult, savePlayoffGame, saveGameResultsBatch, BatchGameData } from './gamePersistence/gameStorage';
+import { saveGameResult, savePlayoffGame } from './gamePersistence/gameStorage';
 import { updateStandingsAfterGame } from './gamePersistence/standings';
-import { updateTeamSeasonStats, updateTeamSeasonStatsBatch } from './gamePersistence/teamStats';
-import { updatePlayerSeasonStats, updatePlayerSeasonStatsBatch } from './gamePersistence/playerStats';
+import { updateTeamSeasonStats } from './gamePersistence/teamStats';
+import { updatePlayerSeasonStats } from './gamePersistence/playerStats';
 
 // Re-export types
 export {
   GameResult,
   TeamStats,
   PlayerGameStats,
+  PlayRecord,
   SimulatedTeam,
   PlayoffGameResult
 } from './gamePersistence/types';
 
-export { BatchGameData } from './gamePersistence/gameStorage';
-
 // Re-export functions for external use
-export { saveGameResult, savePlayoffGame, saveGameResultsBatch } from './gamePersistence/gameStorage';
+export { saveGameResult, savePlayoffGame, savePreseasonGameMinimal } from './gamePersistence/gameStorage';
 export { updateStandingsAfterGame } from './gamePersistence/standings';
-export { updateTeamSeasonStats, updateTeamSeasonStatsBatch } from './gamePersistence/teamStats';
-export { updatePlayerSeasonStats, updatePlayerSeasonStatsBatch } from './gamePersistence/playerStats';
+export { updateTeamSeasonStats } from './gamePersistence/teamStats';
+export { updatePlayerSeasonStats } from './gamePersistence/playerStats';
 
 // Import types for local use
 import type { GameResult, SimulatedTeam } from './gamePersistence/types';
@@ -31,15 +30,15 @@ export async function saveCompleteGameResult(
   awayTeam: SimulatedTeam,
   updateStandings: boolean = true,
   client?: PoolClient,
-  isPreseason: boolean = false
+  isPreseason: boolean = false,
+  gameDate?: string
 ): Promise<void> {
-  await saveGameResult(result, seasonId, homeTeam, awayTeam, client);
+  await saveGameResult(result, seasonId, homeTeam, awayTeam, client, gameDate);
 
   if (updateStandings) {
     await updateStandingsAfterGame(result, seasonId, client);
   }
 
-  // Skip season stats for preseason games - they're not meaningful
   if (!isPreseason) {
     await updateTeamSeasonStats(result, seasonId, client);
     await updatePlayerSeasonStats(result, seasonId, homeTeam, awayTeam, client);
