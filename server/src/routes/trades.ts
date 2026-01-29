@@ -362,7 +362,7 @@ router.post('/:tradeId/accept', authMiddleware(true), async (req: any, res) => {
       // Batch update players - group by destination team
       if (playerAssets.length > 0) {
         // Build CASE statements for player team updates
-        const playerCases = playerAssets.map(a => `WHEN id = '${a.player_id}' THEN '${a.to_team_id}'::uuid`).join(' ');
+        const playerCases = playerAssets.map(a => `WHEN id = '${a.player_id}'::uuid THEN '${a.to_team_id}'::uuid`).join(' ');
         const playerIds = playerAssets.map(a => a.player_id);
 
         await client.query(
