@@ -117,7 +117,7 @@ export function useAdvanceDay() {
     mutationFn: api.advanceDay,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['franchise'] });
-      queryClient.invalidateQueries({ queryKey: ['schedule'] });
+      // schedule invalidation removed for performance
       queryClient.invalidateQueries({ queryKey: ['games'] });
       queryClient.invalidateQueries({ queryKey: ['standings'] });
     },
@@ -143,7 +143,7 @@ export function useAdvancePreseasonDay() {
     mutationFn: api.advancePreseasonDay,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['franchise'] });
-      queryClient.invalidateQueries({ queryKey: ['schedule'] });
+      // schedule invalidation removed for performance
       queryClient.invalidateQueries({ queryKey: ['games'] });
       queryClient.invalidateQueries({ queryKey: ['trades'] });
     },
@@ -157,7 +157,7 @@ export function useAdvancePreseasonAll() {
     mutationFn: api.advancePreseasonAll,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['franchise'] });
-      queryClient.invalidateQueries({ queryKey: ['schedule'] });
+      // schedule invalidation removed for performance
       queryClient.invalidateQueries({ queryKey: ['games'] });
       queryClient.invalidateQueries({ queryKey: ['season'] });
       queryClient.invalidateQueries({ queryKey: ['trades'] });
@@ -295,7 +295,7 @@ export function useStartNewSeason() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['franchise'] });
       queryClient.invalidateQueries({ queryKey: ['season'] });
-      queryClient.invalidateQueries({ queryKey: ['schedule'] });
+      // schedule invalidation removed for performance
       queryClient.invalidateQueries({ queryKey: ['standings'] });
       queryClient.invalidateQueries({ queryKey: ['offseason'] });
     },
