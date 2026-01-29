@@ -53,6 +53,29 @@ export async function saveGameResult(
   }
 }
 
+/**
+ * Minimal save for preseason games - only stores game record with scores.
+ * Skips quarters, team stats, player stats to improve performance.
+ */
+export async function savePreseasonGameMinimal(
+  result: GameResult,
+  seasonId: string,
+  client?: PoolClient,
+  gameDate?: string
+): Promise<void> {
+  const db = client || pool;
+
+  await db.query(
+    `INSERT INTO games (id, season_id, home_team_id, away_team_id, home_score, away_score,
+                       winner_id, is_overtime, overtime_periods, game_date, status, completed_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'completed', NOW())
+     ON CONFLICT (id) DO NOTHING`,
+    [result.id, seasonId, result.home_team_id, result.away_team_id,
+     result.home_score, result.away_score, result.winner_id,
+     result.is_overtime, result.overtime_periods, gameDate || null]
+  );
+}
+
 async function insertTeamGameStats(
   db: DbConnection,
   gameId: string,

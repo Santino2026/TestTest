@@ -15,7 +15,7 @@ export {
 } from './gamePersistence/types';
 
 // Re-export functions for external use
-export { saveGameResult, savePlayoffGame } from './gamePersistence/gameStorage';
+export { saveGameResult, savePlayoffGame, savePreseasonGameMinimal } from './gamePersistence/gameStorage';
 export { updateStandingsAfterGame } from './gamePersistence/standings';
 export { updateTeamSeasonStats } from './gamePersistence/teamStats';
 export { updatePlayerSeasonStats } from './gamePersistence/playerStats';
