@@ -305,10 +305,10 @@ export async function simulateAllPreseasonGamesBulk(
 
     // Bulk update schedule status
     const scheduleIds = simulatedGames.map(g => g.scheduleId);
-    const gameIdUpdates = simulatedGames.map(g => `WHEN id = '${g.scheduleId}' THEN '${g.result.id}'`).join(' ');
-    const userGameUpdates = simulatedGames.map(g => `WHEN id = '${g.scheduleId}' THEN ${g.isUserGame}`).join(' ');
+    const gameIdUpdates = simulatedGames.map(g => `WHEN id = '${g.scheduleId}'::uuid THEN '${g.result.id}'::uuid`).join(' ');
+    const userGameUpdates = simulatedGames.map(g => `WHEN id = '${g.scheduleId}'::uuid THEN ${g.isUserGame}`).join(' ');
     await client.query(
-      `UPDATE schedule SET status = 'completed', game_id = CASE ${gameIdUpdates} END, is_user_game = CASE ${userGameUpdates} END WHERE id = ANY($1)`,
+      `UPDATE schedule SET status = 'completed', game_id = CASE ${gameIdUpdates} END, is_user_game = CASE ${userGameUpdates} END WHERE id = ANY($1::uuid[])`,
       [scheduleIds]
     );
 
