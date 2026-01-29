@@ -997,6 +997,10 @@ export const api = {
       body: JSON.stringify(body),
     });
   },
+  autoSignFreeAgents: () =>
+    fetchAPI<{ message: string; signed: any[]; roster_size: number; payroll: number; cap_space: number }>("/freeagency/auto-sign", {
+      method: "POST",
+    }),
   releasePlayer: (playerId: string) =>
     fetchAPI<{ message: string }>('/freeagency/release', {
       method: 'POST',

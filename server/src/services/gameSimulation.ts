@@ -144,10 +144,6 @@ async function simulateGamesForDay(
 
       if (isUserGame) {
         userGameResult = buildUserGameResult(simResult, scheduledGame, userTeamId);
-
-        if (isPreseason) {
-          await updatePreseasonRecord(franchise.id, simResult.winner_id === userTeamId);
-        }
       }
 
       results.push({
@@ -220,13 +216,6 @@ function buildUserGameResult(
   };
 }
 
-async function updatePreseasonRecord(franchiseId: string, won: boolean): Promise<void> {
-  const column = won ? 'preseason_wins' : 'preseason_losses';
-  await pool.query(
-    `UPDATE franchises SET ${column} = COALESCE(${column}, 0) + 1 WHERE id = $1`,
-    [franchiseId]
-  );
-}
 
 // Bulk preseason simulation - simulates all games then bulk inserts
 export async function simulateAllPreseasonGamesBulk(
@@ -316,10 +305,10 @@ export async function simulateAllPreseasonGamesBulk(
 
     // Bulk update schedule status
     const scheduleIds = simulatedGames.map(g => g.scheduleId);
-    const gameIdUpdates = simulatedGames.map(g => `WHEN id = '${g.scheduleId}' THEN '${g.result.id}'`).join(' ');
-    const userGameUpdates = simulatedGames.map(g => `WHEN id = '${g.scheduleId}' THEN ${g.isUserGame}`).join(' ');
+    const gameIdUpdates = simulatedGames.map(g => `WHEN id = '${g.scheduleId}'::uuid THEN '${g.result.id}'::uuid`).join(' ');
+    const userGameUpdates = simulatedGames.map(g => `WHEN id = '${g.scheduleId}'::uuid THEN ${g.isUserGame}`).join(' ');
     await client.query(
-      `UPDATE schedule SET status = 'completed', game_id = CASE ${gameIdUpdates} END, is_user_game = CASE ${userGameUpdates} END WHERE id = ANY($1)`,
+      `UPDATE schedule SET status = 'completed', game_id = CASE ${gameIdUpdates} END, is_user_game = CASE ${userGameUpdates} END WHERE id = ANY($1::uuid[])`,
       [scheduleIds]
     );
 

@@ -44,6 +44,16 @@ export default function FreeAgencyPage() {
     },
   });
 
+  const autoSign = useMutation({
+    mutationFn: () => api.autoSignFreeAgents(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["freeAgents"] });
+      queryClient.invalidateQueries({ queryKey: ["teamSalary"] });
+      queryClient.invalidateQueries({ queryKey: ["faTransactions"] });
+      queryClient.invalidateQueries({ queryKey: ["roster"] });
+    },
+  });
+
   // Not the right phase - free agency only during regular_season or offseason free_agency phase
   const isFreeAgencyPhase = franchise?.phase === 'regular_season' ||
     (franchise?.phase === 'offseason' && franchise?.offseason_phase === 'free_agency');
@@ -104,6 +114,21 @@ export default function FreeAgencyPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Auto Sign Button */}
+      <div className="mb-4">
+        <Button
+          onClick={() => autoSign.mutate()}
+          disabled={autoSign.isPending || (teamSalary?.roster_count ?? 0) >= 15}
+          className="bg-green-600 hover:bg-green-700"
+        >
+          <Users className="w-4 h-4 mr-2" />
+          {autoSign.isPending ? "Signing..." : "Auto Sign Free Agents"}
+        </Button>
+        <p className="text-xs text-slate-400 mt-1">
+          Automatically sign free agents that fit your team needs and budget
+        </p>
+      </div>
 
       {/* Position Filter */}
       <div className="flex gap-2 overflow-x-auto pb-2 mb-4 -mx-4 px-4 md:mx-0 md:px-0">
