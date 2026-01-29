@@ -276,12 +276,23 @@ router.post('/calculate', authMiddleware(true), async (req: any, res) => {
         throw { status: 400, message: 'Awards already calculated for this season' };
       }
 
-      for (const award of awards) {
+      // Batch insert all awards in one query
+      if (awards.length > 0) {
+        const values: any[] = [];
+        const placeholders: string[] = [];
+
+        for (let i = 0; i < awards.length; i++) {
+          const award = awards[i];
+          const offset = i * 5;
+          placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`);
+          values.push(award.season_id, award.award_type, award.player_id, award.team_id, award.stat_value);
+        }
+
         await client.query(
           `INSERT INTO awards (season_id, award_type, player_id, team_id, stat_value)
-           VALUES ($1, $2, $3, $4, $5)
+           VALUES ${placeholders.join(', ')}
            ON CONFLICT (season_id, award_type, player_id) DO NOTHING`,
-          [award.season_id, award.award_type, award.player_id, award.team_id, award.stat_value]
+          values
         );
       }
     });

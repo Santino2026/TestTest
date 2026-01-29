@@ -37,11 +37,24 @@ router.post('/generate', authMiddleware(true), async (req: any, res) => {
         throw { status: 400, message: 'Schedule already exists for this season' };
       }
 
-      for (const game of schedule) {
+      // Batch insert all games in chunks of 100
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < schedule.length; i += BATCH_SIZE) {
+        const batch = schedule.slice(i, i + BATCH_SIZE);
+        const values: any[] = [];
+        const placeholders: string[] = [];
+
+        for (let j = 0; j < batch.length; j++) {
+          const game = batch[j];
+          const offset = j * 6;
+          placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`);
+          values.push(franchise.season_id, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, game.game_day);
+        }
+
         await client.query(
           `INSERT INTO schedule (season_id, home_team_id, away_team_id, game_number, game_date, game_day)
-           VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING`,
-          [franchise.season_id, game.home_team_id, game.away_team_id, game.game_number_home, game.game_date, game.game_day]
+           VALUES ${placeholders.join(', ')} ON CONFLICT (id) DO NOTHING`,
+          values
         );
       }
     });

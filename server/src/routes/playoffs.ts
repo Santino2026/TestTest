@@ -87,10 +87,13 @@ async function loadTeamCache(seriesList: any[]): Promise<Map<string, any>> {
     teamIds.add(s.lower_seed_id);
   }
 
+  // Load all teams in parallel
   const teamCache = new Map();
-  for (const teamId of teamIds) {
-    teamCache.set(teamId, await loadTeamForSimulation(teamId));
-  }
+  await Promise.all(
+    Array.from(teamIds).map(async (teamId) => {
+      teamCache.set(teamId, await loadTeamForSimulation(teamId));
+    })
+  );
   return teamCache;
 }
 
