@@ -111,8 +111,8 @@ export async function simulateRisingStars(seasonId: string): Promise<EventResult
     const allYoung = result.rows.slice(0, 20);
     team1 = allYoung.filter((_: any, i: number) => i % 2 === 0).slice(0, 10);
     team2 = allYoung.filter((_: any, i: number) => i % 2 === 1).slice(0, 10);
-    team1Name = 'team_a';
-    team2Name = 'team_b';
+    team1Name = 'rookies';
+    team2Name = 'sophomores';
   }
 
   const team1Strength = calculateTeamStrength(team1);
