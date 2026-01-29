@@ -260,7 +260,7 @@ export default function AllStarPage() {
       <div className="flex flex-wrap gap-3 mb-4 md:mb-6">
         {!state?.selections_made && (
           <Button
-            onClick={() => selectAllStars.mutate()}
+            onClick={() => selectAllStars.mutate({})}
             disabled={selectAllStars.isPending}
           >
             <Star className="w-4 h-4 mr-2" />
