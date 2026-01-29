@@ -8,6 +8,99 @@ import { withTransaction, withAdvisoryLock, lockUserActiveFranchise } from '../d
 import { OFFSEASON_PHASES, OFFSEASON_PHASE_LABELS } from '../constants';
 
 const router = Router();
+// Position transitions for balancing rosters
+const POSITION_TRANSITIONS: Record<string, string[]> = {
+  PG: ["SG"],
+  SG: ["PG", "SF"],
+  SF: ["SG", "PF"],
+  PF: ["SF", "C"],
+  C: ["PF"]
+};
+
+async function balanceTeamPositions(): Promise<void> {
+  const teams = await pool.query("SELECT id FROM teams");
+
+  for (const team of teams.rows) {
+    const roster = await pool.query(
+      `SELECT id, position, overall FROM players WHERE team_id = $1 ORDER BY overall ASC`,
+      [team.id]
+    );
+
+    const counts: Record<string, any[]> = { PG: [], SG: [], SF: [], PF: [], C: [] };
+    for (const p of roster.rows) {
+      if (counts[p.position]) counts[p.position].push(p);
+    }
+
+    // Fix empty positions first
+    for (const needPos of ["C", "PG", "SG", "SF", "PF"]) {
+      while (counts[needPos].length === 0) {
+        let found = false;
+        for (const fromPos of Object.keys(counts)) {
+          if (counts[fromPos].length >= 2 && POSITION_TRANSITIONS[fromPos]?.includes(needPos)) {
+            const player = counts[fromPos].shift();
+            counts[needPos].push(player);
+            await pool.query("UPDATE players SET position = $1 WHERE id = $2", [needPos, player.id]);
+            found = true;
+            break;
+          }
+        }
+        if (!found) break;
+      }
+    }
+
+    // Balance to target 3 per position
+    for (const needPos of ["PG", "SG", "SF", "PF", "C"]) {
+      while (counts[needPos].length < 3) {
+        let found = false;
+        for (const fromPos of Object.keys(counts)) {
+          if (counts[fromPos].length > 3 && POSITION_TRANSITIONS[fromPos]?.includes(needPos)) {
+            const player = counts[fromPos].shift();
+            counts[needPos].push(player);
+            await pool.query("UPDATE players SET position = $1 WHERE id = $2", [needPos, player.id]);
+            found = true;
+            break;
+          }
+        }
+        if (!found) break;
+      }
+    }
+  }
+}
+
+async function setTeamStarters(): Promise<void> {
+  const teams = await pool.query("SELECT id FROM teams");
+
+  for (const team of teams.rows) {
+    await pool.query("UPDATE players SET is_starter = false WHERE team_id = $1", [team.id]);
+
+    const roster = await pool.query(
+      `SELECT id, position, overall FROM players WHERE team_id = $1 ORDER BY overall DESC`,
+      [team.id]
+    );
+
+    const positions = ["PG", "SG", "SF", "PF", "C"];
+    const usedIds = new Set();
+
+    for (const pos of positions) {
+      const player = roster.rows.find((p) => p.position === pos && !usedIds.has(p.id));
+      if (player) {
+        usedIds.add(player.id);
+        await pool.query("UPDATE players SET is_starter = true WHERE id = $1", [player.id]);
+      }
+    }
+
+    // Fill remaining slots with best available if needed
+    for (const player of roster.rows) {
+      if (usedIds.size >= 5) break;
+      if (!usedIds.has(player.id)) {
+        usedIds.add(player.id);
+        await pool.query("UPDATE players SET is_starter = true WHERE id = $1", [player.id]);
+      }
+    }
+  }
+}
+
+
 
 const PLAYER_ATTRIBUTES = [
   'work_ethic', 'basketball_iq', 'speed', 'acceleration', 'vertical',
