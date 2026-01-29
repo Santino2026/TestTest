@@ -547,6 +547,8 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
       );
     }
 
+// Fill rosters to 15 players
+    await fillRostersTo15(pool);
     const teamsResult = await pool.query('SELECT id, conference, division FROM teams');
     const teams = teamsResult.rows;
 
@@ -612,5 +614,63 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
     res.status(500).json({ error: 'Failed to create new season' });
   }
 });
+
+
+// Fill all team rosters to exactly 15 players
+async function fillRostersTo15(db: any): Promise<void> {
+  const positions = ["PG", "SG", "SF", "PF", "C"];
+  const firstNames = ["Mike", "James", "Chris", "David", "John", "Marcus", "Tyler", "Brandon", "Eric", "Kevin"];
+  const lastNames = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Davis", "Miller", "Wilson", "Moore", "Taylor"];
+  
+  const teamsNeedingPlayers = await db.query(`
+    SELECT t.id, t.name, 15 - COUNT(p.id) as players_needed
+    FROM teams t LEFT JOIN players p ON p.team_id = t.id
+    GROUP BY t.id, t.name HAVING COUNT(p.id) < 15
+  `);
+  
+  for (const team of teamsNeedingPlayers.rows) {
+    const existingJerseys = await db.query("SELECT jersey_number FROM players WHERE team_id = $1", [team.id]);
+    const usedJerseys = new Set(existingJerseys.rows.map((r: any) => r.jersey_number));
+    
+    for (let i = 0; i < team.players_needed; i++) {
+      const position = positions[Math.floor(Math.random() * positions.length)];
+      const firstName = firstNames[Math.floor(Math.random() * firstNames.length)];
+      const lastName = lastNames[Math.floor(Math.random() * lastNames.length)];
+      const age = 22 + Math.floor(Math.random() * 8);
+      const overall = 55 + Math.floor(Math.random() * 10);
+      
+      let jersey = Math.floor(Math.random() * 99);
+      while (usedJerseys.has(jersey)) jersey = (jersey + 1) % 100;
+      usedJerseys.add(jersey);
+      
+      const playerResult = await db.query(`
+        INSERT INTO players (first_name, last_name, team_id, position, archetype, 
+          height_inches, weight_lbs, age, jersey_number, years_pro, overall, potential,
+          peak_age, durability, coachability, motor, salary)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 50, 50, 50, 1000000)
+        RETURNING id
+      `, [firstName, lastName, team.id, position, "balanced",
+          70 + Math.floor(Math.random() * 10), 190 + Math.floor(Math.random() * 40),
+          age, jersey, Math.max(0, age - 22), overall, overall + Math.floor(Math.random() * 10),
+          25 + Math.floor(Math.random() * 5)]);
+      
+      const playerId = playerResult.rows[0].id;
+      const baseAttr = overall - 10;
+      
+      await db.query(`
+        INSERT INTO player_attributes (player_id, 
+          inside_scoring, mid_range, three_point, free_throw, shot_iq, offensive_consistency,
+          layup, standing_dunk, driving_dunk, draw_foul, post_moves,
+          ball_handling, passing_accuracy, passing_vision, passing_iq,
+          interior_defense, perimeter_defense, steal, block, defensive_iq, defensive_consistency,
+          offensive_rebound, defensive_rebound, speed, acceleration, strength, vertical, stamina,
+          hustle, basketball_iq, clutch, consistency, work_ethic)
+        VALUES ($1, $2, $2, $2, $2, $2, $2, $2, $2, $2, $2, $2, $2, $2, $2, $2,
+                $2, $2, $2, $2, $2, $2, $2, $2, $2, $2, $2, $2, $2, $2, $2, $2, $2, $2)
+      `, [playerId, baseAttr]);
+    }
+  }
+}
+
 
 export default router;
