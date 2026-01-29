@@ -162,13 +162,30 @@ async function processContracts(client: any, seasonId: string): Promise<number> 
      WHERE c.status = 'expired' AND c.updated_at > NOW() - INTERVAL '1 minute'`
   );
 
-  for (const row of expiredContracts.rows) {
-    await client.query(`UPDATE players SET team_id = NULL, salary = 0 WHERE id = $1`, [row.player_id]);
+  if (expiredContracts.rows.length > 0) {
+    const playerIds = expiredContracts.rows.map((r: any) => r.player_id);
+
+    // Batch update all players
+    await client.query(
+      `UPDATE players SET team_id = NULL, salary = 0 WHERE id = ANY($1)`,
+      [playerIds]
+    );
+
+    // Batch insert all free agents
+    const faValues: any[] = [];
+    const faPlaceholders: string[] = [];
+    for (let i = 0; i < expiredContracts.rows.length; i++) {
+      const row = expiredContracts.rows[i];
+      const offset = i * 4;
+      faPlaceholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, 'available')`);
+      faValues.push(row.player_id, seasonId, row.base_salary || 5000000, (row.overall || 70) * 100000);
+    }
+
     await client.query(
       `INSERT INTO free_agents (player_id, season_id, asking_salary, market_value, status)
-       VALUES ($1, $2, $3, $4, 'available')
-       ON CONFLICT (player_id, season_id) DO UPDATE SET status = 'available', asking_salary = $3`,
-      [row.player_id, seasonId, row.base_salary || 5000000, (row.overall || 70) * 100000]
+       VALUES ${faPlaceholders.join(', ')}
+       ON CONFLICT (player_id, season_id) DO UPDATE SET status = 'available', asking_salary = EXCLUDED.asking_salary`,
+      faValues
     );
   }
 
@@ -533,14 +550,23 @@ router.post('/new', authMiddleware(true), async (req: any, res) => {
     const teamsResult = await pool.query('SELECT id, conference, division FROM teams');
     const teams = teamsResult.rows;
 
-    for (const t of teams) {
+    // Batch insert all standings in one query
+    if (teams.length > 0) {
+      const standingsValues: any[] = [];
+      const standingsPlaceholders: string[] = [];
+      for (let i = 0; i < teams.length; i++) {
+        const offset = i * 2;
+        standingsPlaceholders.push(`($${offset + 1}, $${offset + 2}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)`);
+        standingsValues.push(newSeason.id, teams[i].id);
+      }
+
       await pool.query(
         `INSERT INTO standings (season_id, team_id, wins, losses, home_wins, home_losses,
          away_wins, away_losses, conference_wins, conference_losses, division_wins, division_losses,
          points_for, points_against, streak, last_10_wins)
-         VALUES ($1, $2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+         VALUES ${standingsPlaceholders.join(', ')}
          ON CONFLICT (season_id, team_id) DO NOTHING`,
-        [newSeason.id, t.id]
+        standingsValues
       );
     }
 

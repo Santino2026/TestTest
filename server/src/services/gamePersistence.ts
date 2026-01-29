@@ -1,8 +1,8 @@
 import { PoolClient } from 'pg';
-import { saveGameResult, savePlayoffGame } from './gamePersistence/gameStorage';
+import { saveGameResult, savePlayoffGame, saveGameResultsBatch, BatchGameData } from './gamePersistence/gameStorage';
 import { updateStandingsAfterGame } from './gamePersistence/standings';
-import { updateTeamSeasonStats } from './gamePersistence/teamStats';
-import { updatePlayerSeasonStats } from './gamePersistence/playerStats';
+import { updateTeamSeasonStats, updateTeamSeasonStatsBatch } from './gamePersistence/teamStats';
+import { updatePlayerSeasonStats, updatePlayerSeasonStatsBatch } from './gamePersistence/playerStats';
 
 // Re-export types
 export {
@@ -14,11 +14,13 @@ export {
   PlayoffGameResult
 } from './gamePersistence/types';
 
+export { BatchGameData } from './gamePersistence/gameStorage';
+
 // Re-export functions for external use
-export { saveGameResult, savePlayoffGame } from './gamePersistence/gameStorage';
+export { saveGameResult, savePlayoffGame, saveGameResultsBatch } from './gamePersistence/gameStorage';
 export { updateStandingsAfterGame } from './gamePersistence/standings';
-export { updateTeamSeasonStats } from './gamePersistence/teamStats';
-export { updatePlayerSeasonStats } from './gamePersistence/playerStats';
+export { updateTeamSeasonStats, updateTeamSeasonStatsBatch } from './gamePersistence/teamStats';
+export { updatePlayerSeasonStats, updatePlayerSeasonStatsBatch } from './gamePersistence/playerStats';
 
 // Import types for local use
 import type { GameResult, SimulatedTeam } from './gamePersistence/types';

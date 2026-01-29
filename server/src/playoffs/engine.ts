@@ -252,18 +252,30 @@ export async function generateNextRound(seasonId: string, round: number): Promis
 }
 
 export async function saveSeries(series: PlayoffSeries[], client?: PoolClient): Promise<void> {
+  if (series.length === 0) return;
+
   const db = client || pool;
-  for (const s of series) {
-    await db.query(
-      `INSERT INTO playoff_series
-       (season_id, round, conference, series_number, higher_seed_id, lower_seed_id,
-        higher_seed_wins, lower_seed_wins, winner_id, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       ON CONFLICT DO NOTHING`,
-      [s.season_id, s.round, s.conference, s.series_number, s.higher_seed_id,
-       s.lower_seed_id, s.higher_seed_wins, s.lower_seed_wins, s.winner_id, s.status]
-    );
+
+  // Batch insert all series in one query
+  const values: any[] = [];
+  const placeholders: string[] = [];
+
+  for (let i = 0; i < series.length; i++) {
+    const s = series[i];
+    const offset = i * 10;
+    placeholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10})`);
+    values.push(s.season_id, s.round, s.conference, s.series_number, s.higher_seed_id,
+                s.lower_seed_id, s.higher_seed_wins, s.lower_seed_wins, s.winner_id, s.status);
   }
+
+  await db.query(
+    `INSERT INTO playoff_series
+     (season_id, round, conference, series_number, higher_seed_id, lower_seed_id,
+      higher_seed_wins, lower_seed_wins, winner_id, status)
+     VALUES ${placeholders.join(', ')}
+     ON CONFLICT DO NOTHING`,
+    values
+  );
 }
 
 export async function updateSeriesResult(

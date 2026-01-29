@@ -355,19 +355,43 @@ router.post('/:tradeId/accept', authMiddleware(true), async (req: any, res) => {
         }
       }
 
-      for (const asset of assetsResult.rows) {
-        if (asset.asset_type === 'player' && asset.player_id) {
-          await client.query(`UPDATE players SET team_id = $1, last_traded_at = NOW() WHERE id = $2`, [asset.to_team_id, asset.player_id]);
-          await client.query(`UPDATE contracts SET team_id = $1, updated_at = NOW() WHERE player_id = $2 AND status = 'active'`, [asset.to_team_id, asset.player_id]);
-          await client.query(`UPDATE player_season_stats SET team_id = $1 WHERE player_id = $2 AND season_id = $3`, [asset.to_team_id, asset.player_id, proposal.season_id]);
-          await client.query(`DELETE FROM free_agents WHERE player_id = $1`, [asset.player_id]);
-        } else if (asset.asset_type === 'draft_pick') {
-          await client.query(
-            `UPDATE draft_pick_ownership SET current_owner_id = $1, updated_at = NOW()
-             WHERE season_year = $2 AND round = $3 AND current_owner_id = $4`,
-            [asset.to_team_id, asset.pick_year, asset.pick_round, asset.from_team_id]
-          );
-        }
+      // Group assets by type for batch operations
+      const playerAssets = assetsResult.rows.filter(a => a.asset_type === 'player' && a.player_id);
+      const draftPickAssets = assetsResult.rows.filter(a => a.asset_type === 'draft_pick');
+
+      // Batch update players - group by destination team
+      if (playerAssets.length > 0) {
+        // Build CASE statements for player team updates
+        const playerCases = playerAssets.map(a => `WHEN id = '${a.player_id}' THEN '${a.to_team_id}'::uuid`).join(' ');
+        const playerIds = playerAssets.map(a => a.player_id);
+
+        await client.query(
+          `UPDATE players SET team_id = CASE ${playerCases} END, last_traded_at = NOW() WHERE id = ANY($1)`,
+          [playerIds]
+        );
+
+        await client.query(
+          `UPDATE contracts SET team_id = CASE player_id ${playerAssets.map(a => `WHEN '${a.player_id}'::uuid THEN '${a.to_team_id}'::uuid`).join(' ')} END, updated_at = NOW()
+           WHERE player_id = ANY($1) AND status = 'active'`,
+          [playerIds]
+        );
+
+        await client.query(
+          `UPDATE player_season_stats SET team_id = CASE player_id ${playerAssets.map(a => `WHEN '${a.player_id}'::uuid THEN '${a.to_team_id}'::uuid`).join(' ')} END
+           WHERE player_id = ANY($1) AND season_id = $2`,
+          [playerIds, proposal.season_id]
+        );
+
+        await client.query(`DELETE FROM free_agents WHERE player_id = ANY($1)`, [playerIds]);
+      }
+
+      // Batch update draft picks
+      for (const asset of draftPickAssets) {
+        await client.query(
+          `UPDATE draft_pick_ownership SET current_owner_id = $1, updated_at = NOW()
+           WHERE season_year = $2 AND round = $3 AND current_owner_id = $4`,
+          [asset.to_team_id, asset.pick_year, asset.pick_round, asset.from_team_id]
+        );
       }
 
       await client.query(
@@ -375,14 +399,21 @@ router.post('/:tradeId/accept', authMiddleware(true), async (req: any, res) => {
         [tradeId, proposal.season_id, JSON.stringify(assetsResult.rows)]
       );
 
-      for (const asset of assetsResult.rows) {
-        if (asset.asset_type === 'player' && asset.player_id) {
-          await client.query(
-            `INSERT INTO transactions (season_id, transaction_type, player_id, team_id, other_team_id, details)
-             VALUES ($1, 'trade', $2, $3, $4, $5)`,
-            [proposal.season_id, asset.player_id, asset.to_team_id, asset.from_team_id, JSON.stringify({ trade_id: tradeId })]
-          );
+      // Batch insert transactions
+      if (playerAssets.length > 0) {
+        const txnValues: any[] = [];
+        const txnPlaceholders: string[] = [];
+        for (let i = 0; i < playerAssets.length; i++) {
+          const asset = playerAssets[i];
+          const offset = i * 5;
+          txnPlaceholders.push(`($${offset + 1}, 'trade', $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`);
+          txnValues.push(proposal.season_id, asset.player_id, asset.to_team_id, asset.from_team_id, JSON.stringify({ trade_id: tradeId }));
         }
+        await client.query(
+          `INSERT INTO transactions (season_id, transaction_type, player_id, team_id, other_team_id, details)
+           VALUES ${txnPlaceholders.join(', ')}`,
+          txnValues
+        );
       }
 
       return { message: 'Trade accepted and executed' };
