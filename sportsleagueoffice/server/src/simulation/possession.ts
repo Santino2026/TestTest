@@ -18,7 +18,7 @@ import { updateHotColdState } from './hotcold';
 // Import from sub-modules
 import { selectBallHandler, getMatchupDefender } from './possession/ballHandling';
 import { calculateActionProbabilities, selectAction } from './possession/actions';
-import { executePass } from './possession/passing';
+import { executePass, checkDribbleSteal } from './possession/passing';
 import { simulateRebound } from './possession/rebounding';
 import { simulateFreeThrows } from './possession/freeThrows';
 import { generateDescription, createReboundPlay, createTurnoverPlay } from './possession/playGeneration';
@@ -233,6 +233,27 @@ export function simulatePossession(context: PossessionContext): PossessionResult
       case 'drive': {
         const defender = getMatchupDefender(ballHandler, context.defenders);
         const timeUsed = SHOT_CLOCK - shotClock;
+
+        // Check for steal during drive
+        const driveSteal = checkDribbleSteal(ballHandler, context.defenders);
+        if (driveSteal.stolen) {
+          plays.push({
+            id: uuidv4(),
+            type: 'steal',
+            quarter: context.quarter,
+            game_clock: context.game_clock - timeUsed,
+            shot_clock: shotClock,
+            primary_player_id: ballHandler.id,
+            secondary_player_id: driveSteal.stealer_id,
+            team_id: context.opponent.id,
+            points: 0,
+            home_score: 0,
+            away_score: 0,
+            description: generateDescription('steal', ballHandler, context.defenders.find(d => d.id === driveSteal.stealer_id))
+          });
+          return { plays, points_scored: 0, time_elapsed: timeUsed + 1, possession_ended: true, ending: 'turnover' };
+        }
+
         const drawFoulChance = ((ballHandler.attributes.draw_foul || 50) / 99) * 0.15;
 
         if (Math.random() < drawFoulChance) {
@@ -353,6 +374,27 @@ export function simulatePossession(context: PossessionContext): PossessionResult
       case 'iso':
       case 'post_up':
       case 'pick_and_roll': {
+        // Check for steal during dribble moves
+        const dribbleSteal = checkDribbleSteal(ballHandler, context.defenders);
+        if (dribbleSteal.stolen) {
+          const timeUsed = SHOT_CLOCK - shotClock;
+          plays.push({
+            id: uuidv4(),
+            type: 'steal',
+            quarter: context.quarter,
+            game_clock: context.game_clock - timeUsed,
+            shot_clock: shotClock,
+            primary_player_id: ballHandler.id,
+            secondary_player_id: dribbleSteal.stealer_id,
+            team_id: context.opponent.id,
+            points: 0,
+            home_score: 0,
+            away_score: 0,
+            description: generateDescription('steal', ballHandler, context.defenders.find(d => d.id === dribbleSteal.stealer_id))
+          });
+          return { plays, points_scored: 0, time_elapsed: timeUsed + 1, possession_ended: true, ending: 'turnover' };
+        }
+
         shotClock -= Math.floor(Math.random() * 3) + 3;
 
         if (shotClock <= 0) {
