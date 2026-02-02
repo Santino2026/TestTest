@@ -11,6 +11,7 @@ import {
   Calendar,
   TrendingUp,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const PHASE_LABELS: Record<string, string> = {
   preseason: 'Preseason',
@@ -40,10 +41,51 @@ export function HomeContent() {
     enabled: !!franchise?.team_id && !!franchise?.season_id,
   });
 
+  // Fetch recent games for the user's team
+  const { data: recentGames } = useQuery({
+    queryKey: ['recentGames', franchise?.team_id, franchise?.season_id],
+    queryFn: () => api.getGames({ team_id: franchise?.team_id, limit: 1 }),
+    enabled: !!franchise?.team_id && !!franchise?.season_id,
+  });
+
+  // Fetch last game with full details (including quarters)
+  const lastGameId = recentGames?.[0]?.id;
+  const { data: lastGameDetails } = useQuery({
+    queryKey: ['games', lastGameId],
+    queryFn: () => api.getGame(lastGameId!),
+    enabled: !!lastGameId,
+  });
+
   const nextGame = useMemo(() => {
     if (!schedule) return null;
     return schedule.find((g: ScheduledGame) => g.status === 'scheduled');
   }, [schedule]);
+
+  // Prepare last game data for display
+  const lastGameDisplay = useMemo(() => {
+    if (!lastGameDetails || !franchise) return null;
+    const userIsHome = lastGameDetails.home_team_id === franchise.team_id;
+    const userTeamAbbrev = userIsHome ? lastGameDetails.home_abbrev : lastGameDetails.away_abbrev;
+    const opponentAbbrev = userIsHome ? lastGameDetails.away_abbrev : lastGameDetails.home_abbrev;
+    const userScore = userIsHome ? lastGameDetails.home_score : lastGameDetails.away_score;
+    const opponentScore = userIsHome ? lastGameDetails.away_score : lastGameDetails.home_score;
+    const userWon = lastGameDetails.winner_id === franchise.team_id;
+    const quarters = lastGameDetails.quarters || [];
+
+    return {
+      id: lastGameDetails.id,
+      userTeamAbbrev,
+      opponentAbbrev,
+      userScore,
+      opponentScore,
+      userWon,
+      quarters: quarters.map((q: any) => ({
+        quarter: q.quarter,
+        userPoints: userIsHome ? q.home_points : q.away_points,
+        opponentPoints: userIsHome ? q.away_points : q.home_points,
+      })),
+    };
+  }, [lastGameDetails, franchise]);
 
   // Sim mutations
   const advancePreseasonDay = useMutation({
@@ -51,6 +93,8 @@ export function HomeContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['schedule'] });
       queryClient.invalidateQueries({ queryKey: ['standings'] });
+      queryClient.invalidateQueries({ queryKey: ['recentGames'] });
+      queryClient.invalidateQueries({ queryKey: ['games'] });
       refreshFranchise();
     },
   });
@@ -60,6 +104,8 @@ export function HomeContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['schedule'] });
       queryClient.invalidateQueries({ queryKey: ['standings'] });
+      queryClient.invalidateQueries({ queryKey: ['recentGames'] });
+      queryClient.invalidateQueries({ queryKey: ['games'] });
       refreshFranchise();
     },
   });
@@ -69,6 +115,8 @@ export function HomeContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['schedule'] });
       queryClient.invalidateQueries({ queryKey: ['standings'] });
+      queryClient.invalidateQueries({ queryKey: ['recentGames'] });
+      queryClient.invalidateQueries({ queryKey: ['games'] });
       refreshFranchise();
     },
   });
@@ -167,6 +215,59 @@ export function HomeContent() {
         onSimAll={isPreseason ? handleSimAll : undefined}
         isSimulating={isSimulating}
       />
+
+      {/* Last Game with Quarter Scores */}
+      {lastGameDisplay && lastGameDisplay.quarters.length > 0 && (
+        <Link to={`/basketball/games/${lastGameDisplay.id}`} className="block mt-4">
+          <Panel>
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Last Game</span>
+                <span className={cn(
+                  "text-xs font-bold px-2 py-1 rounded",
+                  lastGameDisplay.userWon ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
+                )}>
+                  {lastGameDisplay.userWon ? 'WIN' : 'LOSS'}
+                </span>
+              </div>
+              <div className="flex flex-col gap-1">
+                <div className="text-sm font-mono flex items-center gap-2">
+                  <span className="text-slate-200 font-medium w-10 text-right">{lastGameDisplay.userTeamAbbrev}</span>
+                  <span className="text-slate-400 flex-1">
+                    {lastGameDisplay.quarters.map((q: any, i: number) => (
+                      <span key={q.quarter}>
+                        <span className="inline-block w-6 text-center">{q.userPoints}</span>
+                        {i < lastGameDisplay.quarters.length - 1 && <span className="text-slate-600">|</span>}
+                      </span>
+                    ))}
+                  </span>
+                  <span className="text-slate-500">=</span>
+                  <span className={cn(
+                    "font-bold w-8 text-center",
+                    lastGameDisplay.userWon ? "text-green-400" : "text-white"
+                  )}>{lastGameDisplay.userScore}</span>
+                </div>
+                <div className="text-sm font-mono flex items-center gap-2">
+                  <span className="text-slate-200 font-medium w-10 text-right">{lastGameDisplay.opponentAbbrev}</span>
+                  <span className="text-slate-400 flex-1">
+                    {lastGameDisplay.quarters.map((q: any, i: number) => (
+                      <span key={q.quarter}>
+                        <span className="inline-block w-6 text-center">{q.opponentPoints}</span>
+                        {i < lastGameDisplay.quarters.length - 1 && <span className="text-slate-600">|</span>}
+                      </span>
+                    ))}
+                  </span>
+                  <span className="text-slate-500">=</span>
+                  <span className={cn(
+                    "font-bold w-8 text-center",
+                    !lastGameDisplay.userWon ? "text-red-400" : "text-white"
+                  )}>{lastGameDisplay.opponentScore}</span>
+                </div>
+              </div>
+            </div>
+          </Panel>
+        </Link>
+      )}
     </div>
   );
 }
