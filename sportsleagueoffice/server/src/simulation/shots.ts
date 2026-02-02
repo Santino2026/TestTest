@@ -76,7 +76,7 @@ export function calculateShotProbability(context: ShotContext): number {
 
   const attribute = getRelevantAttribute(shooter, shot_type);
   const base = BASE_PERCENTAGES[shot_type];
-  const floor = base * 0.78; // Higher floor for 114.7 PPG target
+  const floor = base * 0.82; // Higher floor for 114.7 PPG target
   let probability = floor + (attribute / 99) * (base - floor);
   probability *= CONTEST_MODIFIERS[context.contest_level];
 
