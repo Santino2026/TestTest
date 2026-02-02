@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, Trophy, Calendar, TrendingUp, Play, ChevronRight, FastForward, SkipForward, Loader2, Star, Award, AlertTriangle, Clock, X } from 'lucide-react';
 import { PageTemplate } from '@/components/layout/PageTemplate';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
@@ -18,6 +18,7 @@ export default function Dashboard() {
   );
   const { data: playersData } = usePlayers({ limit: 5 });
   const { data: tradeDeadline } = useTradeDeadlineStatus();
+  const queryClient = useQueryClient();
 
   const isPreseason = franchise?.phase === 'preseason';
 
@@ -111,6 +112,8 @@ export default function Dashboard() {
         setUserGameResult(null);
       }
       refreshFranchise();
+      queryClient.invalidateQueries({ queryKey: ['recentGames'] });
+      queryClient.invalidateQueries({ queryKey: ['games'] });
     } catch {
       setSimResult('Failed to advance day');
       setUserGameResult(null);
@@ -122,6 +125,8 @@ export default function Dashboard() {
       const result = await advancePreseasonAll.mutateAsync();
       setSimResult(`${result.message} ${result.games_played} games played.`);
       refreshFranchise();
+      queryClient.invalidateQueries({ queryKey: ['recentGames'] });
+      queryClient.invalidateQueries({ queryKey: ['games'] });
     } catch {
       setSimResult('Failed to simulate preseason');
     }
@@ -138,6 +143,8 @@ export default function Dashboard() {
         setUserGameResult(null);
       }
       refreshFranchise();
+      queryClient.invalidateQueries({ queryKey: ['recentGames'] });
+      queryClient.invalidateQueries({ queryKey: ['games'] });
     } catch {
       setSimResult('Failed to advance day');
       setUserGameResult(null);
@@ -149,6 +156,8 @@ export default function Dashboard() {
       const result = await simulatePlayoffRound.mutateAsync();
       setSimResult(`${result.round_name}: ${result.series_completed} series completed`);
       refreshFranchise();
+      queryClient.invalidateQueries({ queryKey: ['recentGames'] });
+      queryClient.invalidateQueries({ queryKey: ['games'] });
     } catch {
       setSimResult('Failed to simulate round');
     }
@@ -159,6 +168,8 @@ export default function Dashboard() {
       const result = await simulatePlayoffAll.mutateAsync();
       setSimResult(`Playoffs complete! Champion: ${result.champion_name || 'TBD'}`);
       refreshFranchise();
+      queryClient.invalidateQueries({ queryKey: ['recentGames'] });
+      queryClient.invalidateQueries({ queryKey: ['games'] });
     } catch {
       setSimResult('Failed to simulate playoffs');
     }
@@ -169,6 +180,8 @@ export default function Dashboard() {
       const result = await advanceOffseasonPhase.mutateAsync();
       setSimResult(`${result.message}`);
       refreshFranchise();
+      queryClient.invalidateQueries({ queryKey: ['recentGames'] });
+      queryClient.invalidateQueries({ queryKey: ['games'] });
     } catch {
       setSimResult('Failed to advance offseason phase');
     }
@@ -179,6 +192,8 @@ export default function Dashboard() {
       const result = await startNewSeason.mutateAsync();
       setSimResult(`Season ${result.season_number} started!`);
       refreshFranchise();
+      queryClient.invalidateQueries({ queryKey: ['recentGames'] });
+      queryClient.invalidateQueries({ queryKey: ['games'] });
     } catch {
       setSimResult('Failed to start new season');
     }
@@ -189,6 +204,8 @@ export default function Dashboard() {
       const result = await startPlayoffsFromAwards.mutateAsync();
       setSimResult(result.message);
       refreshFranchise();
+      queryClient.invalidateQueries({ queryKey: ['recentGames'] });
+      queryClient.invalidateQueries({ queryKey: ['games'] });
     } catch {
       setSimResult('Failed to start playoffs');
     }
