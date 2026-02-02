@@ -99,46 +99,35 @@ export default function GameDetailPage() {
             </div>
           </div>
 
-          {/* Quarter Scores */}
-          {game.quarters && (
-            <div className="mt-4 md:mt-6 overflow-x-auto">
-              <table className="text-xs md:text-sm mx-auto">
-                <thead>
-                  <tr className="text-slate-400">
-                    <th className="px-2 md:px-4 py-2"></th>
-                    {game.quarters.map((q: any) => (
-                      <th key={q.quarter} className="px-2 md:px-4 py-2 text-center">
-                        {q.quarter <= 4 ? `Q${q.quarter}` : `OT${q.quarter - 4}`}
-                      </th>
-                    ))}
-                    <th className="px-2 md:px-4 py-2 text-center font-bold border-l border-white/10">T</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-t border-white/5">
-                    <td className="px-2 md:px-4 py-2 font-medium text-slate-200">{homeTeam?.abbreviation}</td>
-                    {game.quarters.map((q: any) => (
-                      <td key={q.quarter} className="px-2 md:px-4 py-2 text-center text-slate-300">
-                        {q.home_points}
-                      </td>
-                    ))}
-                    <td className="px-2 md:px-4 py-2 text-center font-bold border-l border-white/10 text-white">
-                      {game.home_score}
-                    </td>
-                  </tr>
-                  <tr className="border-t border-white/5">
-                    <td className="px-2 md:px-4 py-2 font-medium text-slate-200">{awayTeam?.abbreviation}</td>
-                    {game.quarters.map((q: any) => (
-                      <td key={q.quarter} className="px-2 md:px-4 py-2 text-center text-slate-300">
-                        {q.away_points}
-                      </td>
-                    ))}
-                    <td className="px-2 md:px-4 py-2 text-center font-bold border-l border-white/10 text-white">
-                      {game.away_score}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+          {/* Quarter Scores - Inline */}
+          {game.quarters && game.quarters.length > 0 && (
+            <div className="mt-4 md:mt-6 flex flex-col items-center gap-1">
+              <div className="text-xs md:text-sm font-mono flex items-center gap-2">
+                <span className="text-slate-200 font-medium w-10 text-right">{homeTeam?.abbreviation}</span>
+                <span className="text-slate-400">
+                  {game.quarters.map((q: any, i: number) => (
+                    <span key={q.quarter}>
+                      <span className="inline-block w-6 text-center">{q.home_points}</span>
+                      {i < game.quarters.length - 1 && <span className="text-slate-600">|</span>}
+                    </span>
+                  ))}
+                </span>
+                <span className="text-slate-500">=</span>
+                <span className="text-white font-bold w-8 text-center">{game.home_score}</span>
+              </div>
+              <div className="text-xs md:text-sm font-mono flex items-center gap-2">
+                <span className="text-slate-200 font-medium w-10 text-right">{awayTeam?.abbreviation}</span>
+                <span className="text-slate-400">
+                  {game.quarters.map((q: any, i: number) => (
+                    <span key={q.quarter}>
+                      <span className="inline-block w-6 text-center">{q.away_points}</span>
+                      {i < game.quarters.length - 1 && <span className="text-slate-600">|</span>}
+                    </span>
+                  ))}
+                </span>
+                <span className="text-slate-500">=</span>
+                <span className="text-white font-bold w-8 text-center">{game.away_score}</span>
+              </div>
             </div>
           )}
         </CardContent>
