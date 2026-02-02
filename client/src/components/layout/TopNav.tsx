@@ -43,6 +43,7 @@ export function TopNav(): JSX.Element {
     preseason: 'Preseason',
     regular_season: 'Regular Season',
     all_star: 'All-Star',
+    awards: 'Season Awards',
     playoffs: 'Playoffs',
     offseason: 'Offseason',
   };

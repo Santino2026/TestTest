@@ -295,6 +295,13 @@ router.post('/calculate', authMiddleware(true), async (req: any, res) => {
           values
         );
       }
+
+      // Set phase to 'awards' if not already in playoffs or offseason
+      await client.query(
+        `UPDATE franchises SET phase = 'awards', last_played_at = NOW()
+         WHERE id = $1 AND phase NOT IN ('playoffs', 'offseason')`,
+        [franchise.id]
+      );
     });
 
     res.json({

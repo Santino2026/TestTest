@@ -83,7 +83,7 @@ export function AwardsContent(): JSX.Element {
         </Card>
       )}
 
-      {hasAwards && franchise?.phase === 'awards' && (
+      {hasAwards && franchise?.phase && !['playoffs', 'offseason'].includes(franchise.phase) && (
         <Card className="mb-4 border-amber-500/30 bg-amber-900/20">
           <CardContent className="py-4">
             <div className="flex items-center justify-between gap-4">
