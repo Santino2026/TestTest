@@ -253,7 +253,7 @@ export function simulatePossession(context: PossessionContext): PossessionResult
           return { plays, points_scored: 0, time_elapsed: timeUsed + 1, possession_ended: true, ending: 'turnover' };
         }
 
-        const drawFoulChance = ((ballHandler.attributes.draw_foul || 50) / 99) * 0.15;
+        const drawFoulChance = ((ballHandler.attributes.draw_foul || 50) / 99) * 0.20; // More FT attempts
 
         if (Math.random() < drawFoulChance) {
           plays.push({
