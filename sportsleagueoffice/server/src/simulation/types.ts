@@ -342,9 +342,9 @@ export const POSITION_REBOUND_MODS: Record<string, number> = {
 
 export const FATIGUE_EFFECTS = {
   30: { shooting: 0, speed: 0, defense: 0 },
-  50: { shooting: -0.03, speed: -0.05, defense: 0 },
-  70: { shooting: -0.08, speed: -0.10, defense: -0.05 },
-  90: { shooting: -0.15, speed: -0.20, defense: -0.12 }
+  50: { shooting: -0.01, speed: -0.02, defense: 0 },
+  70: { shooting: -0.03, speed: -0.05, defense: -0.02 },
+  90: { shooting: -0.06, speed: -0.10, defense: -0.05 }
 };
 
 export const TRAIT_SHOT_MODIFIERS: Record<string, { applies_to: (type: ShotType) => boolean; modifier: number }> = {
