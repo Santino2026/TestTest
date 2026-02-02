@@ -329,11 +329,11 @@ export const BASE_PERCENTAGES: Record<ShotType, number> = {
 };
 
 export const CONTEST_MODIFIERS: Record<ContestLevel, number> = {
-  open: 1.22,
-  light: 1.12,
-  moderate: 0.97,
-  heavy: 0.85,
-  smothered: 0.70
+  open: 1.25,
+  light: 1.15,
+  moderate: 1.00,
+  heavy: 0.90,
+  smothered: 0.75
 };
 
 export const POSITION_REBOUND_MODS: Record<string, number> = {

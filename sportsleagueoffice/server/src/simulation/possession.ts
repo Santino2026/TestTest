@@ -75,12 +75,11 @@ export function simulatePossession(context: PossessionContext): PossessionResult
         const contestLevel = determineContestLevel(ballHandler, defender, shotType, context.is_fast_break);
         const timeUsed = SHOT_CLOCK - shotClock;
 
-        // Check for block BEFORE shot - interior shots have higher block rate
-        // NBA averages ~5 blocks per team per game on ~85 shots = ~6% overall
+        // Check for block BEFORE shot - reduced for higher scoring
         const isInteriorShot = distance < 10;
-        const blockBaseChance = isInteriorShot ? 0.05 : 0.008; // 5% base for interior, 0.8% for perimeter
-        const blockerBonus = (defender.attributes.block / 99) * (isInteriorShot ? 0.04 : 0.007);
-        const shooterPenalty = (ballHandler.attributes.inside_scoring / 99) * 0.025;
+        const blockBaseChance = isInteriorShot ? 0.02 : 0.004; // 2% base for interior
+        const blockerBonus = (defender.attributes.block / 99) * (isInteriorShot ? 0.02 : 0.003);
+        const shooterPenalty = (ballHandler.attributes.inside_scoring / 99) * 0.015;
         const blockChance = blockBaseChance + blockerBonus - shooterPenalty;
 
         if (Math.random() < blockChance) {
@@ -253,7 +252,7 @@ export function simulatePossession(context: PossessionContext): PossessionResult
           return { plays, points_scored: 0, time_elapsed: timeUsed + 1, possession_ended: true, ending: 'turnover' };
         }
 
-        const drawFoulChance = ((ballHandler.attributes.draw_foul || 50) / 99) * 0.20; // More FT attempts
+        const drawFoulChance = ((ballHandler.attributes.draw_foul || 50) / 99) * 0.28; // High FT attempts for 114.7 PPG
 
         if (Math.random() < drawFoulChance) {
           plays.push({
@@ -278,13 +277,13 @@ export function simulatePossession(context: PossessionContext): PossessionResult
 
         const shotType: ShotType = ballHandler.attributes.vertical > 70 && Math.random() < 0.4 ? 'dunk' : 'layup';
 
-        // Drives to rim have block potential - find best rim protector
+        // Drives to rim have block potential - reduced for higher scoring
         const rimProtector = context.defenders.reduce((best, d) =>
           d.attributes.block > best.attributes.block ? d : best
         );
-        const blockBaseChance = 0.05; // 5% base for drives to rim
-        const blockerBonus = (rimProtector.attributes.block / 99) * 0.05;
-        const finisherPenalty = (ballHandler.attributes.inside_scoring / 99) * 0.03;
+        const blockBaseChance = 0.02; // 2% base for drives to rim
+        const blockerBonus = (rimProtector.attributes.block / 99) * 0.02;
+        const finisherPenalty = (ballHandler.attributes.inside_scoring / 99) * 0.015;
         const driveBlockChance = blockBaseChance + blockerBonus - finisherPenalty;
 
         if (Math.random() < driveBlockChance) {

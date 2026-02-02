@@ -8,18 +8,17 @@ export function executePass(
   const sortedDefenders = [...defenders].sort((a, b) => b.attributes.steal - a.attributes.steal);
   const defender = Math.random() < 0.6 ? sortedDefenders[0] : defenders[Math.floor(Math.random() * defenders.length)];
 
-  // NBA averages ~7-8 steals per team per game, ~14 total
-  // Tuned for realistic steal rates
-  const baseStealChance = 0.03; // 3% base
-  const defenderBonus = (defender.attributes.steal / 99) * 0.05; // Up to 5% more for elite defenders
-  const passerPenalty = ((passer.attributes.passing_accuracy || 70) / 99) * 0.025;
+  // Reduced steal rates for higher scoring
+  const baseStealChance = 0.015; // 1.5% base
+  const defenderBonus = (defender.attributes.steal / 99) * 0.025;
+  const passerPenalty = ((passer.attributes.passing_accuracy || 70) / 99) * 0.02;
   const stealChance = baseStealChance + defenderBonus - passerPenalty;
 
   if (Math.random() < stealChance) {
     return { success: false, stolen: true, stealer_id: defender.id };
   }
 
-  const successRate = 0.95 + ((passer.attributes.passing_accuracy || 70) / 99) * 0.04; // Fewer bad passes
+  const successRate = 0.98 + ((passer.attributes.passing_accuracy || 70) / 99) * 0.02; // Very few bad passes
   return { success: Math.random() < successRate, stolen: false };
 }
 
@@ -32,10 +31,10 @@ export function checkDribbleSteal(
   const sortedDefenders = [...defenders].sort((a, b) => b.attributes.steal - a.attributes.steal);
   const defender = Math.random() < 0.5 ? sortedDefenders[0] : defenders[Math.floor(Math.random() * defenders.length)];
 
-  // Ball handling vs steal matchup
-  const handleBonus = (ballHandler.attributes.ball_handling / 99) * 0.035;
-  const stealBonus = (defender.attributes.steal / 99) * 0.045;
-  const baseChance = 0.015; // 1.5% base chance per dribble action
+  // Ball handling vs steal matchup - reduced for higher scoring
+  const handleBonus = (ballHandler.attributes.ball_handling / 99) * 0.03;
+  const stealBonus = (defender.attributes.steal / 99) * 0.02;
+  const baseChance = 0.008; // 0.8% base chance per dribble action
   const stealChance = baseChance + stealBonus - handleBonus;
 
   if (Math.random() < stealChance) {
