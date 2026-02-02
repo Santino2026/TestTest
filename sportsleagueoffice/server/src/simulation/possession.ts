@@ -222,7 +222,7 @@ export function simulatePossession(context: PossessionContext): PossessionResult
         lastPasser = ballHandler; // Track passer for potential assist
         ballHandler = receiver;
         passCount++;
-        shotClock -= Math.floor(Math.random() * 3) + 2;
+        shotClock -= Math.floor(Math.random() * 2) + 1; // 1-2s per pass (faster ball movement)
 
         if (passCount >= 6) {
           shotClock = Math.min(shotClock, 4);
@@ -395,7 +395,7 @@ export function simulatePossession(context: PossessionContext): PossessionResult
           return { plays, points_scored: 0, time_elapsed: timeUsed + 1, possession_ended: true, ending: 'turnover' };
         }
 
-        shotClock -= Math.floor(Math.random() * 3) + 3;
+        shotClock -= Math.floor(Math.random() * 2) + 2; // 2-3s for iso/post/pnr setup
 
         if (shotClock <= 0) {
           plays.push(createTurnoverPlay(ballHandler, context, context.game_clock - SHOT_CLOCK, 'Shot clock violation'));

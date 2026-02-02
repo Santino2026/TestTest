@@ -19,7 +19,7 @@ export function executePass(
     return { success: false, stolen: true, stealer_id: defender.id };
   }
 
-  const successRate = 0.92 + ((passer.attributes.passing_accuracy || 70) / 99) * 0.06;
+  const successRate = 0.95 + ((passer.attributes.passing_accuracy || 70) / 99) * 0.04; // Fewer bad passes
   return { success: Math.random() < successRate, stolen: false };
 }
 

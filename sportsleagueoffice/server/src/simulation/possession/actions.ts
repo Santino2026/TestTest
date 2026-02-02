@@ -14,12 +14,12 @@ export function calculateActionProbabilities(
   const attrs = ballHandler.attributes;
 
   if (shotClock <= 6) {
-    probs.shoot *= 2.0;
-    probs.pass *= 0.5;
-    probs.drive *= 1.5;
-  } else if (shotClock <= 14) {
-    probs.shoot *= 1.3;
-    probs.drive *= 1.2;
+    probs.shoot *= 2.5; // More likely to shoot with low shot clock
+    probs.pass *= 0.3;
+    probs.drive *= 1.8;
+  } else if (shotClock <= 10) {
+    probs.shoot *= 1.5;
+    probs.drive *= 1.4;
   }
 
   const shootingAbility = (attrs.three_point + attrs.mid_range + attrs.inside_scoring) / 3;
