@@ -311,29 +311,29 @@ export const OVERTIME_LENGTH = 300;
 
 export const BASE_PERCENTAGES: Record<ShotType, number> = {
   dunk: 0.97,
-  layup: 0.80,
-  floater: 0.60,
-  hook_shot: 0.62,
-  post_fadeaway: 0.56,
-  mid_range_pull_up: 0.55,
-  mid_range_catch_shoot: 0.58,
-  three_point_catch_shoot: 0.50,
-  three_point_pull_up: 0.45,
-  three_point_step_back: 0.43,
-  three_point_corner: 0.52,
-  three_point_deep: 0.39,
+  layup: 0.82,
+  floater: 0.62,
+  hook_shot: 0.64,
+  post_fadeaway: 0.58,
+  mid_range_pull_up: 0.57,
+  mid_range_catch_shoot: 0.60,
+  three_point_catch_shoot: 0.52,
+  three_point_pull_up: 0.47,
+  three_point_step_back: 0.45,
+  three_point_corner: 0.54,
+  three_point_deep: 0.41,
   free_throw: 0.88,
-  alley_oop: 0.90,
-  putback: 0.70,
-  tip_in: 0.60
+  alley_oop: 0.92,
+  putback: 0.72,
+  tip_in: 0.62
 };
 
 export const CONTEST_MODIFIERS: Record<ContestLevel, number> = {
-  open: 1.15,
-  light: 1.05,
-  moderate: 0.92,
-  heavy: 0.78,
-  smothered: 0.60
+  open: 1.18,
+  light: 1.08,
+  moderate: 0.94,
+  heavy: 0.80,
+  smothered: 0.62
 };
 
 export const POSITION_REBOUND_MODS: Record<string, number> = {
