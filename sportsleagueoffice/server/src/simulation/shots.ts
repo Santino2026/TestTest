@@ -76,7 +76,7 @@ export function calculateShotProbability(context: ShotContext): number {
 
   const attribute = getRelevantAttribute(shooter, shot_type);
   const base = BASE_PERCENTAGES[shot_type];
-  const floor = base * 0.85; // Higher floor for 114.7 PPG target
+  const floor = base * 0.88; // Higher floor for 114.7 PPG target
   let probability = floor + (attribute / 99) * (base - floor);
   probability *= CONTEST_MODIFIERS[context.contest_level];
 
@@ -184,9 +184,9 @@ export function calculateShotDistance(shooter: SimPlayer, _action: string): numb
     baseBias -= 5;
   }
 
-  const threePointBias = (attrs.three_point - 50) / 6; // Modern NBA ~35 3PA per game
-  const insideBias = (attrs.inside_scoring - 50) / 14;
-  const distance = baseBias + 2 + Math.random() * 12 + threePointBias - insideBias;
+  const threePointBias = (attrs.three_point - 50) / 4; // More 3s for higher PPG
+  const insideBias = (attrs.inside_scoring - 50) / 16;
+  const distance = baseBias + 4 + Math.random() * 12 + threePointBias - insideBias;
 
   return Math.max(2, Math.min(30, distance));
 }
