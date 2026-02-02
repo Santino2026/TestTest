@@ -76,7 +76,7 @@ export function calculateShotProbability(context: ShotContext): number {
 
   const attribute = getRelevantAttribute(shooter, shot_type);
   const base = BASE_PERCENTAGES[shot_type];
-  const floor = base * 0.57;
+  const floor = base * 0.65; // Higher floor for weaker shooters
   let probability = floor + (attribute / 99) * (base - floor);
   probability *= CONTEST_MODIFIERS[context.contest_level];
 
@@ -84,7 +84,7 @@ export function calculateShotProbability(context: ShotContext): number {
     const defenseRating = isPerimeterShot(shot_type)
       ? defender.attributes.perimeter_defense
       : defender.attributes.interior_defense;
-    probability *= 1 - ((defenseRating - 50) / 99) * 0.15;
+    probability *= 1 - ((defenseRating - 50) / 99) * 0.12; // Less defensive impact
   }
 
   probability *= getFatigueModifier(context.shooter_fatigue);
