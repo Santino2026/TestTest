@@ -76,7 +76,7 @@ export function calculateShotProbability(context: ShotContext): number {
 
   const attribute = getRelevantAttribute(shooter, shot_type);
   const base = BASE_PERCENTAGES[shot_type];
-  const floor = base * 0.65; // Higher floor for weaker shooters
+  const floor = base * 0.72; // Higher floor for NBA-level scoring
   let probability = floor + (attribute / 99) * (base - floor);
   probability *= CONTEST_MODIFIERS[context.contest_level];
 
