@@ -1,12 +1,12 @@
 export type HotColdState = 'ice_cold' | 'cold' | 'normal' | 'warm' | 'hot' | 'on_fire';
 
 export const HOT_COLD_MODIFIERS: Record<HotColdState, number> = {
-  ice_cold: -0.08,
-  cold: -0.04,
+  ice_cold: -0.06,
+  cold: -0.03,
   normal: 0.02,
-  warm: +0.10,
-  hot: +0.18,
-  on_fire: +0.30
+  warm: +0.08,
+  hot: +0.14,
+  on_fire: +0.22
 };
 
 export interface PlayerHotColdState {
@@ -310,30 +310,30 @@ export const SHOT_CLOCK = 24;
 export const OVERTIME_LENGTH = 300;
 
 export const BASE_PERCENTAGES: Record<ShotType, number> = {
-  dunk: 0.99,
-  layup: 0.99,
-  floater: 0.92,
-  hook_shot: 0.94,
-  post_fadeaway: 0.88,
-  mid_range_pull_up: 0.87,
-  mid_range_catch_shoot: 0.90,
-  three_point_catch_shoot: 0.85,
-  three_point_pull_up: 0.80,
-  three_point_step_back: 0.78,
-  three_point_corner: 0.87,
-  three_point_deep: 0.74,
-  free_throw: 0.92,
-  alley_oop: 0.99,
-  putback: 0.97,
-  tip_in: 0.92
+  dunk: 0.95,
+  layup: 0.69,
+  floater: 0.49,
+  hook_shot: 0.52,
+  post_fadeaway: 0.46,
+  mid_range_pull_up: 0.45,
+  mid_range_catch_shoot: 0.48,
+  three_point_catch_shoot: 0.41,
+  three_point_pull_up: 0.37,
+  three_point_step_back: 0.35,
+  three_point_corner: 0.43,
+  three_point_deep: 0.31,
+  free_throw: 0.85,
+  alley_oop: 0.85,
+  putback: 0.59,
+  tip_in: 0.49
 };
 
 export const CONTEST_MODIFIERS: Record<ContestLevel, number> = {
-  open: 1.25,
-  light: 1.18,
-  moderate: 1.05,
-  heavy: 0.95,
-  smothered: 0.82
+  open: 1.10,
+  light: 1.02,
+  moderate: 0.92,
+  heavy: 0.82,
+  smothered: 0.65
 };
 
 export const POSITION_REBOUND_MODS: Record<string, number> = {
@@ -342,9 +342,9 @@ export const POSITION_REBOUND_MODS: Record<string, number> = {
 
 export const FATIGUE_EFFECTS = {
   30: { shooting: 0, speed: 0, defense: 0 },
-  50: { shooting: -0.01, speed: -0.02, defense: 0 },
-  70: { shooting: -0.03, speed: -0.05, defense: -0.02 },
-  90: { shooting: -0.06, speed: -0.10, defense: -0.05 }
+  50: { shooting: -0.02, speed: -0.03, defense: 0 },
+  70: { shooting: -0.05, speed: -0.08, defense: -0.03 },
+  90: { shooting: -0.10, speed: -0.15, defense: -0.08 }
 };
 
 export const TRAIT_SHOT_MODIFIERS: Record<string, { applies_to: (type: ShotType) => boolean; modifier: number }> = {
