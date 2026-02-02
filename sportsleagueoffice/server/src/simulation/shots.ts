@@ -184,8 +184,8 @@ export function calculateShotDistance(shooter: SimPlayer, _action: string): numb
     baseBias -= 5;
   }
 
-  const threePointBias = (attrs.three_point - 50) / 10;
-  const insideBias = (attrs.inside_scoring - 50) / 10;
+  const threePointBias = (attrs.three_point - 50) / 8; // More 3-point attempts (modern NBA)
+  const insideBias = (attrs.inside_scoring - 50) / 12;
   const distance = baseBias + Math.random() * 12 + threePointBias - insideBias;
 
   return Math.max(2, Math.min(30, distance));
