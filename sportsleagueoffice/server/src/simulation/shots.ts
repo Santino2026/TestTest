@@ -91,7 +91,7 @@ export function calculateShotProbability(context: ShotContext): number {
   probability *= getClutchModifier(context, shooter);
 
   const consistencyMod = (shooter.attributes.consistency - 50) / 100;
-  const variance = (1 - Math.abs(consistencyMod)) * 0.1;
+  const variance = (1 - Math.abs(consistencyMod)) * 0.05; // Less variance for consistent scoring
   probability *= 1 + (Math.random() - 0.5) * 2 * variance;
 
   for (const trait of shooter.traits) {
@@ -104,7 +104,7 @@ export function calculateShotProbability(context: ShotContext): number {
 
   probability *= 1 + getHotColdModifier(shooter);
 
-  return Math.max(0.02, Math.min(0.98, probability));
+  return Math.max(0.15, Math.min(0.98, probability)); // Higher minimum for NBA-level players
 }
 
 export function executeShot(context: ShotContext): ShotResult {
