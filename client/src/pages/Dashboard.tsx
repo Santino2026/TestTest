@@ -89,6 +89,14 @@ export default function Dashboard() {
     enabled: !!franchise?.team_id && !!franchise?.season_id,
   });
 
+  // Fetch last game with full details (including quarters)
+  const lastGameId = recentGames?.[0]?.id;
+  const { data: lastGameDetails } = useQuery({
+    queryKey: ['games', lastGameId],
+    queryFn: () => api.getGame(lastGameId),
+    enabled: !!lastGameId,
+  });
+
   const handleAdvancePreseasonDay = async () => {
     try {
       const result = await advancePreseasonDay.mutateAsync();
@@ -226,6 +234,32 @@ export default function Dashboard() {
     return phaseLabels[franchise?.phase || 'preseason'] || 'Preseason';
   };
 
+  // Prepare last game data for display
+  const lastGameDisplay = useMemo(() => {
+    if (!lastGameDetails || !franchise) return null;
+    const userIsHome = lastGameDetails.home_team_id === franchise.team_id;
+    const userTeamAbbrev = userIsHome ? lastGameDetails.home_abbrev : lastGameDetails.away_abbrev;
+    const opponentAbbrev = userIsHome ? lastGameDetails.away_abbrev : lastGameDetails.home_abbrev;
+    const userScore = userIsHome ? lastGameDetails.home_score : lastGameDetails.away_score;
+    const opponentScore = userIsHome ? lastGameDetails.away_score : lastGameDetails.home_score;
+    const userWon = lastGameDetails.winner_id === franchise.team_id;
+    const quarters = lastGameDetails.quarters || [];
+
+    return {
+      id: lastGameDetails.id,
+      userTeamAbbrev,
+      opponentAbbrev,
+      userScore,
+      opponentScore,
+      userWon,
+      quarters: quarters.map((q: any) => ({
+        quarter: q.quarter,
+        userPoints: userIsHome ? q.home_points : q.away_points,
+        opponentPoints: userIsHome ? q.away_points : q.home_points,
+      })),
+    };
+  }, [lastGameDetails, franchise]);
+
   return (
     <PageTemplate
       title={`${franchise?.city} ${franchise?.team_name}`}
@@ -320,42 +354,57 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Recent Games */}
-      {recentGames && recentGames.length > 0 && (
-        <Card className="mb-4">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Recent Games</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="divide-y divide-white/5">
-              {recentGames.map((game: any) => (
-                <Link
-                  key={game.id}
-                  to={`/basketball/games/${game.id}`}
-                  className="flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className={cn(
-                      "text-xs font-bold px-2 py-1 rounded",
-                      game.won ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
-                    )}>
-                      {game.won ? 'W' : 'L'}
-                    </span>
-                    <div>
-                      <span className="text-sm text-slate-300">vs {game.opponent}</span>
-                      {game.is_preseason && (
-                        <span className="text-xs text-slate-500 ml-2">(Pre)</span>
-                      )}
-                    </div>
-                  </div>
-                  <span className="text-sm font-medium text-white">
-                    {game.user_score} - {game.opponent_score}
-                  </span>
-                </Link>
-              ))}
+      {/* Last Game with Quarter Scores */}
+      {lastGameDisplay && lastGameDisplay.quarters.length > 0 && (
+        <Link to={`/basketball/games/${lastGameDisplay.id}`} className="block mb-4">
+          <div className="p-4 rounded-lg border border-white/10 hover:border-white/20 transition-colors" style={{
+            background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%)',
+          }}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs text-slate-400 uppercase tracking-wider">Last Game</span>
+              <span className={cn(
+                "text-xs font-bold px-2 py-1 rounded",
+                lastGameDisplay.userWon ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
+              )}>
+                {lastGameDisplay.userWon ? 'WIN' : 'LOSS'}
+              </span>
             </div>
-          </CardContent>
-        </Card>
+            <div className="flex flex-col gap-1">
+              <div className="text-sm font-mono flex items-center gap-2">
+                <span className="text-slate-200 font-medium w-10 text-right">{lastGameDisplay.userTeamAbbrev}</span>
+                <span className="text-slate-400 flex-1">
+                  {lastGameDisplay.quarters.map((q: any, i: number) => (
+                    <span key={q.quarter}>
+                      <span className="inline-block w-6 text-center">{q.userPoints}</span>
+                      {i < lastGameDisplay.quarters.length - 1 && <span className="text-slate-600">|</span>}
+                    </span>
+                  ))}
+                </span>
+                <span className="text-slate-500">=</span>
+                <span className={cn(
+                  "font-bold w-8 text-center",
+                  lastGameDisplay.userWon ? "text-green-400" : "text-white"
+                )}>{lastGameDisplay.userScore}</span>
+              </div>
+              <div className="text-sm font-mono flex items-center gap-2">
+                <span className="text-slate-200 font-medium w-10 text-right">{lastGameDisplay.opponentAbbrev}</span>
+                <span className="text-slate-400 flex-1">
+                  {lastGameDisplay.quarters.map((q: any, i: number) => (
+                    <span key={q.quarter}>
+                      <span className="inline-block w-6 text-center">{q.opponentPoints}</span>
+                      {i < lastGameDisplay.quarters.length - 1 && <span className="text-slate-600">|</span>}
+                    </span>
+                  ))}
+                </span>
+                <span className="text-slate-500">=</span>
+                <span className={cn(
+                  "font-bold w-8 text-center",
+                  !lastGameDisplay.userWon ? "text-red-400" : "text-white"
+                )}>{lastGameDisplay.opponentScore}</span>
+              </div>
+            </div>
+          </div>
+        </Link>
       )}
 
       {/* Franchise Header Card */}
