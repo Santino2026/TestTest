@@ -55,7 +55,7 @@ export function simulatePossession(context: PossessionContext): PossessionResult
     }
 
     if (iteration === 0) {
-      shotClock -= Math.floor(Math.random() * 3) + 2; // 2-4s first action (NBA pace ~100 possessions)
+      shotClock -= Math.floor(Math.random() * 2) + 1; // 1-2s first action (faster pace)
     } else {
       shotClock -= 1;
     }
