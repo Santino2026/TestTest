@@ -104,7 +104,7 @@ export function calculateShotProbability(context: ShotContext): number {
 
   probability *= 1 + getHotColdModifier(shooter);
 
-  return Math.max(0.15, Math.min(0.98, probability)); // Higher minimum for NBA-level players
+  return Math.max(0.25, Math.min(0.98, probability)); // Higher minimum for consistent scoring
 }
 
 export function executeShot(context: ShotContext): ShotResult {
