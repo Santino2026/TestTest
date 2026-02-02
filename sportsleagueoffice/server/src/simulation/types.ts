@@ -1,12 +1,12 @@
 export type HotColdState = 'ice_cold' | 'cold' | 'normal' | 'warm' | 'hot' | 'on_fire';
 
 export const HOT_COLD_MODIFIERS: Record<HotColdState, number> = {
-  ice_cold: -0.20,
-  cold: -0.10,
-  normal: 0.00,
-  warm: +0.08,
-  hot: +0.15,
-  on_fire: +0.25
+  ice_cold: -0.08,
+  cold: -0.04,
+  normal: 0.02,
+  warm: +0.10,
+  hot: +0.18,
+  on_fire: +0.30
 };
 
 export interface PlayerHotColdState {
