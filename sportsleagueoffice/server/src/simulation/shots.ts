@@ -84,7 +84,7 @@ export function calculateShotProbability(context: ShotContext): number {
     const defenseRating = isPerimeterShot(shot_type)
       ? defender.attributes.perimeter_defense
       : defender.attributes.interior_defense;
-    probability *= 1 - ((defenseRating - 50) / 99) * 0.12; // Less defensive impact
+    probability *= 1 - ((defenseRating - 50) / 99) * 0.06; // Minimal defensive impact for high scoring
   }
 
   probability *= getFatigueModifier(context.shooter_fatigue);

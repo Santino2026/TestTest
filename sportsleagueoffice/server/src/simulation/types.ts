@@ -330,10 +330,10 @@ export const BASE_PERCENTAGES: Record<ShotType, number> = {
 
 export const CONTEST_MODIFIERS: Record<ContestLevel, number> = {
   open: 1.25,
-  light: 1.15,
-  moderate: 1.00,
-  heavy: 0.90,
-  smothered: 0.75
+  light: 1.18,
+  moderate: 1.05,
+  heavy: 0.95,
+  smothered: 0.82
 };
 
 export const POSITION_REBOUND_MODS: Record<string, number> = {
