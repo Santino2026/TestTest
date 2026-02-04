@@ -146,11 +146,10 @@ export function calculateOverall(attributes: Record<string, number>, position?: 
     }
   }
 
-  // Apply curve: boost lower overalls more, compress at the top
-  // This shifts the distribution upward while keeping stars special
-  overall = overall * 0.85 + 15; // 50 -> 57.5, 70 -> 74.5, 85 -> 87.25
+  // Flat boost to shift distribution up
+  overall = overall + 12;
 
-  return Math.round(Math.min(99, Math.max(55, overall)));
+  return Math.round(Math.min(99, Math.max(60, overall)));
 }
 
 function getMinutesModifier(seasonMinutes: number): number {
