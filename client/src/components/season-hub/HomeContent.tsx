@@ -75,13 +75,13 @@ export function HomeContent() {
     const quarters = lastGameDetails.quarters || [];
     const playerStats = lastGameDetails.player_stats || [];
 
-    // Get all players sorted by points for full box score
+    // Get all players sorted by points for full box score (use String comparison for type safety)
     const userPlayerStats = playerStats
-      .filter((p: PlayerGameStats) => p.team_id === userTeamId)
+      .filter((p: PlayerGameStats) => String(p.team_id) === String(userTeamId))
       .sort((a: PlayerGameStats, b: PlayerGameStats) => b.points - a.points);
 
     const opponentPlayerStats = playerStats
-      .filter((p: PlayerGameStats) => p.team_id === opponentTeamId)
+      .filter((p: PlayerGameStats) => String(p.team_id) === String(opponentTeamId))
       .sort((a: PlayerGameStats, b: PlayerGameStats) => b.points - a.points);
 
     return {
