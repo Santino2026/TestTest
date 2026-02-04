@@ -147,8 +147,8 @@ export function calculateOverall(attributes: Record<string, number>, position?: 
   }
 
   // Transform: realistic NBA distribution
-  // Raw 50 -> 70, Raw 60 -> 76, Raw 70 -> 82, Raw 80 -> 88, Raw 90 -> 94
-  overall = 70 + (overall - 50) * 0.6;
+  // Raw 50 -> 70, Raw 60 -> 75, Raw 70 -> 80, Raw 80 -> 85, Raw 90 -> 90
+  overall = 70 + (overall - 50) * 0.5;
 
   return Math.round(Math.min(99, Math.max(70, overall)));
 }

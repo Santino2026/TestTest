@@ -133,22 +133,22 @@ function pickRandom<T>(arr: T[]): T {
 
 function generateOverall(age: number, isPremium: boolean): number {
   if (isPremium) {
-    // Stars: 80-95 range, mean 85 (only ~1-2 per team will hit 90+)
-    return Math.max(80, Math.min(95, normalRandom(85, 4)));
+    // Stars: 75-92 range, mean 82 (few will hit 90+)
+    return Math.max(75, Math.min(92, normalRandom(82, 4)));
   }
 
   if (age <= 23) {
-    // Young developing: 50-72, mean 62
-    return Math.max(50, Math.min(72, normalRandom(62, 6)));
+    // Young developing: 48-68, mean 58
+    return Math.max(48, Math.min(68, normalRandom(58, 5)));
   }
 
   if (age <= 30) {
-    // Prime players: 55-80, mean 68
-    return Math.max(55, Math.min(80, normalRandom(68, 6)));
+    // Prime players: 50-75, mean 63
+    return Math.max(50, Math.min(75, normalRandom(63, 6)));
   }
 
-  // Veterans (31+): declining, 50-75, mean 64
-  return Math.max(50, Math.min(75, normalRandom(64, 6)));
+  // Veterans (31+): declining, 48-70, mean 60
+  return Math.max(48, Math.min(70, normalRandom(60, 5)));
 }
 
 function generatePotential(age: number, overall: number): number {
