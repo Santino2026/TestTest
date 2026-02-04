@@ -147,8 +147,8 @@ export function calculateOverall(attributes: Record<string, number>, position?: 
   }
 
   // Transform: shift baseline and spread
-  // Raw 55 -> 70, Raw 60 -> 76, Raw 65 -> 82, Raw 70 -> 88, Raw 75 -> 94
-  overall = 70 + (overall - 55) * 1.2;
+  // Raw 55 -> 70, Raw 60 -> 74, Raw 65 -> 78, Raw 70 -> 82, Raw 75 -> 86, Raw 80 -> 90
+  overall = 70 + (overall - 55) * 0.8;
 
   return Math.round(Math.min(99, Math.max(68, overall)));
 }
