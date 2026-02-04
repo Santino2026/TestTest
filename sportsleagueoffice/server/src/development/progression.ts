@@ -146,11 +146,11 @@ export function calculateOverall(attributes: Record<string, number>, position?: 
     }
   }
 
-  // Spread distribution: multiplier + offset
-  // 50 -> 65, 60 -> 77, 70 -> 89, 75+ capped at 99
-  overall = overall * 1.2 + 5;
+  // Spread distribution with aggressive multiplier
+  // 50 -> 70, 55 -> 77, 60 -> 84, 65+ capped at 91-99
+  overall = overall * 1.4;
 
-  return Math.round(Math.min(99, Math.max(65, overall)));
+  return Math.round(Math.min(99, Math.max(70, overall)));
 }
 
 function getMinutesModifier(seasonMinutes: number): number {
