@@ -257,10 +257,24 @@ export default function Dashboard() {
     const userIsHome = lastGameDetails.home_team_id === franchise.team_id;
     const userTeamAbbrev = userIsHome ? lastGameDetails.home_abbrev : lastGameDetails.away_abbrev;
     const opponentAbbrev = userIsHome ? lastGameDetails.away_abbrev : lastGameDetails.home_abbrev;
+    const userTeamId = franchise.team_id;
+    const opponentTeamId = userIsHome ? lastGameDetails.away_team_id : lastGameDetails.home_team_id;
     const userScore = userIsHome ? lastGameDetails.home_score : lastGameDetails.away_score;
     const opponentScore = userIsHome ? lastGameDetails.away_score : lastGameDetails.home_score;
     const userWon = lastGameDetails.winner_id === franchise.team_id;
     const quarters = lastGameDetails.quarters || [];
+    const playerStats = lastGameDetails.player_stats || [];
+
+    // Get top 3 performers per team sorted by points
+    const userTopPerformers = playerStats
+      .filter((p: any) => p.team_id === userTeamId)
+      .sort((a: any, b: any) => b.points - a.points)
+      .slice(0, 3);
+    
+    const opponentTopPerformers = playerStats
+      .filter((p: any) => p.team_id === opponentTeamId)
+      .sort((a: any, b: any) => b.points - a.points)
+      .slice(0, 3);
 
     return {
       id: lastGameDetails.id,
@@ -274,6 +288,8 @@ export default function Dashboard() {
         userPoints: userIsHome ? q.home_points : q.away_points,
         opponentPoints: userIsHome ? q.away_points : q.home_points,
       })),
+      userTopPerformers,
+      opponentTopPerformers,
     };
   }, [lastGameDetails, franchise]);
 
@@ -420,6 +436,51 @@ export default function Dashboard() {
                 )}>{lastGameDisplay.opponentScore}</span>
               </div>
             </div>
+
+            {/* Top Performers */}
+            {(lastGameDisplay.userTopPerformers?.length > 0 || lastGameDisplay.opponentTopPerformers?.length > 0) && (
+              <div className="mt-4 pt-4 border-t border-white/10">
+                <div className="text-xs text-slate-400 uppercase tracking-wider mb-3">Top Performers</div>
+                <div className="grid grid-cols-2 gap-4">
+                  {/* User Team */}
+                  <div>
+                    <div className="text-xs font-semibold text-slate-300 mb-2">{lastGameDisplay.userTeamAbbrev}</div>
+                    <div className="space-y-1.5">
+                      {lastGameDisplay.userTopPerformers?.map((p: any) => (
+                        <div key={p.player_id} className="flex items-center justify-between text-xs">
+                          <span className="text-slate-300 truncate max-w-[100px]">{p.first_name[0]}. {p.last_name}</span>
+                          <span className="text-slate-400 font-mono">
+                            <span className="text-white font-semibold">{p.points}</span> PTS
+                            <span className="mx-1 text-slate-600">·</span>
+                            {p.rebounds} REB
+                            <span className="mx-1 text-slate-600">·</span>
+                            {p.assists} AST
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Opponent Team */}
+                  <div>
+                    <div className="text-xs font-semibold text-slate-300 mb-2">{lastGameDisplay.opponentAbbrev}</div>
+                    <div className="space-y-1.5">
+                      {lastGameDisplay.opponentTopPerformers?.map((p: any) => (
+                        <div key={p.player_id} className="flex items-center justify-between text-xs">
+                          <span className="text-slate-300 truncate max-w-[100px]">{p.first_name[0]}. {p.last_name}</span>
+                          <span className="text-slate-400 font-mono">
+                            <span className="text-white font-semibold">{p.points}</span> PTS
+                            <span className="mx-1 text-slate-600">·</span>
+                            {p.rebounds} REB
+                            <span className="mx-1 text-slate-600">·</span>
+                            {p.assists} AST
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </Link>
       )}
