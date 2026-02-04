@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, ScheduledGame, Standing, Franchise } from '@/api/client';
+import { api, ScheduledGame, Standing, Franchise, PlayerGameStats } from '@/api/client';
 import { useFranchise } from '@/context/FranchiseContext';
 import { useStandings, useTradeDeadlineStatus } from '@/api/hooks';
 import {
@@ -48,7 +48,7 @@ export function HomeContent() {
     enabled: !!franchise?.team_id && !!franchise?.season_id,
   });
 
-  // Fetch last game with full details (including quarters)
+  // Fetch last game with full details (including quarters and player stats)
   const lastGameId = recentGames?.[0]?.id;
   const { data: lastGameDetails } = useQuery({
     queryKey: ['games', lastGameId],
@@ -61,29 +61,47 @@ export function HomeContent() {
     return schedule.find((g: ScheduledGame) => g.status === 'scheduled');
   }, [schedule]);
 
-  // Prepare last game data for display
+  // Prepare last game data for display with full box score
   const lastGameDisplay = useMemo(() => {
     if (!lastGameDetails || !franchise) return null;
     const userIsHome = lastGameDetails.home_team_id === franchise.team_id;
     const userTeamAbbrev = userIsHome ? lastGameDetails.home_abbrev : lastGameDetails.away_abbrev;
     const opponentAbbrev = userIsHome ? lastGameDetails.away_abbrev : lastGameDetails.home_abbrev;
+    const userTeamId = franchise.team_id;
+    const opponentTeamId = userIsHome ? lastGameDetails.away_team_id : lastGameDetails.home_team_id;
     const userScore = userIsHome ? lastGameDetails.home_score : lastGameDetails.away_score;
     const opponentScore = userIsHome ? lastGameDetails.away_score : lastGameDetails.home_score;
     const userWon = lastGameDetails.winner_id === franchise.team_id;
     const quarters = lastGameDetails.quarters || [];
+    const playerStats = lastGameDetails.player_stats || [];
+
+    // Get all players sorted by points for full box score
+    const userPlayerStats = playerStats
+      .filter((p: PlayerGameStats) => p.team_id === userTeamId)
+      .sort((a: PlayerGameStats, b: PlayerGameStats) => b.points - a.points);
+
+    const opponentPlayerStats = playerStats
+      .filter((p: PlayerGameStats) => p.team_id === opponentTeamId)
+      .sort((a: PlayerGameStats, b: PlayerGameStats) => b.points - a.points);
 
     return {
       id: lastGameDetails.id,
       userTeamAbbrev,
       opponentAbbrev,
+      userTeamId,
+      opponentTeamId,
       userScore,
       opponentScore,
       userWon,
+      isOvertime: lastGameDetails.is_overtime,
+      overtimePeriods: lastGameDetails.overtime_periods,
       quarters: quarters.map((q: any) => ({
         quarter: q.quarter,
         userPoints: userIsHome ? q.home_points : q.away_points,
         opponentPoints: userIsHome ? q.away_points : q.home_points,
       })),
+      userPlayerStats,
+      opponentPlayerStats,
     };
   }, [lastGameDetails, franchise]);
 
@@ -216,21 +234,30 @@ export function HomeContent() {
         isSimulating={isSimulating}
       />
 
-      {/* Last Game with Quarter Scores */}
+      {/* Last Game with Full Box Score */}
       {lastGameDisplay && lastGameDisplay.quarters.length > 0 && (
-        <Link to={`/basketball/games/${lastGameDisplay.id}`} className="block mt-4">
+        <div className="mt-4">
           <Panel>
             <div className="p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Last Game</span>
-                <span className={cn(
-                  "text-xs font-bold px-2 py-1 rounded",
-                  lastGameDisplay.userWon ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
-                )}>
-                  {lastGameDisplay.userWon ? 'WIN' : 'LOSS'}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={cn(
+                    "text-xs font-bold px-2 py-1 rounded",
+                    lastGameDisplay.userWon ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
+                  )}>
+                    {lastGameDisplay.userWon ? 'WIN' : 'LOSS'}
+                  </span>
+                  {lastGameDisplay.isOvertime && (
+                    <span className="text-xs font-bold px-2 py-1 rounded bg-amber-500/20 text-amber-400">
+                      {lastGameDisplay.overtimePeriods === 1 ? 'OT' : `${lastGameDisplay.overtimePeriods}OT`}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="flex flex-col gap-1">
+
+              {/* Quarter Scores */}
+              <div className="flex flex-col gap-1 mb-4">
                 <div className="text-sm font-mono flex items-center gap-2">
                   <span className="text-slate-200 font-medium w-10 text-right">{lastGameDisplay.userTeamAbbrev}</span>
                   <span className="text-slate-400 flex-1">
@@ -264,10 +291,96 @@ export function HomeContent() {
                   )}>{lastGameDisplay.opponentScore}</span>
                 </div>
               </div>
+
+              {/* Full Box Scores */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* User Team Box Score */}
+                <div>
+                  <div className="text-xs font-semibold text-slate-300 mb-2 flex items-center gap-2">
+                    <span className={cn(
+                      "w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold",
+                      lastGameDisplay.userWon ? "bg-green-500/30 text-green-400" : "bg-slate-700"
+                    )}>
+                      {lastGameDisplay.userWon ? 'W' : 'L'}
+                    </span>
+                    {lastGameDisplay.userTeamAbbrev}
+                  </div>
+                  <BoxScoreTable players={lastGameDisplay.userPlayerStats} />
+                </div>
+                {/* Opponent Team Box Score */}
+                <div>
+                  <div className="text-xs font-semibold text-slate-300 mb-2 flex items-center gap-2">
+                    <span className={cn(
+                      "w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold",
+                      !lastGameDisplay.userWon ? "bg-red-500/30 text-red-400" : "bg-slate-700"
+                    )}>
+                      {!lastGameDisplay.userWon ? 'W' : 'L'}
+                    </span>
+                    {lastGameDisplay.opponentAbbrev}
+                  </div>
+                  <BoxScoreTable players={lastGameDisplay.opponentPlayerStats} />
+                </div>
+              </div>
+
+              {/* View Full Game Link */}
+              <div className="mt-4 pt-3 border-t border-white/10 text-center">
+                <Link
+                  to={`/basketball/games/${lastGameDisplay.id}`}
+                  className="text-sm text-blue-400 hover:text-blue-300"
+                >
+                  View Full Game Details →
+                </Link>
+              </div>
             </div>
           </Panel>
-        </Link>
+        </div>
       )}
+    </div>
+  );
+}
+
+// Box Score Table Component
+function BoxScoreTable({ players }: { players: PlayerGameStats[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-slate-400 border-b border-slate-700/50">
+            <th className="text-left py-1.5 pr-2">Player</th>
+            <th className="text-center py-1.5 px-1">PTS</th>
+            <th className="text-center py-1.5 px-1">REB</th>
+            <th className="text-center py-1.5 px-1">AST</th>
+            <th className="text-center py-1.5 px-1 hidden sm:table-cell">FG</th>
+            <th className="text-center py-1.5 px-1 hidden md:table-cell">3PT</th>
+          </tr>
+        </thead>
+        <tbody>
+          {players.map((p) => (
+            <tr key={p.player_id} className="border-b border-slate-800/50">
+              <td className="py-1.5 pr-2">
+                <div className="flex items-center gap-1">
+                  <span className="text-slate-200 truncate max-w-[80px] md:max-w-[120px]">
+                    {p.first_name?.charAt(0)}. {p.last_name}
+                  </span>
+                  {p.is_starter && (
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/20 text-blue-400 hidden sm:inline">S</span>
+                  )}
+                </div>
+                <span className="text-[10px] text-slate-500">{p.position}</span>
+              </td>
+              <td className="text-center py-1.5 px-1 font-bold text-white">{p.points}</td>
+              <td className="text-center py-1.5 px-1 text-slate-300">{p.rebounds}</td>
+              <td className="text-center py-1.5 px-1 text-slate-300">{p.assists}</td>
+              <td className="text-center py-1.5 px-1 text-slate-400 hidden sm:table-cell">
+                {p.fgm}/{p.fga}
+              </td>
+              <td className="text-center py-1.5 px-1 text-slate-400 hidden md:table-cell">
+                {p.three_pm}/{p.three_pa}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

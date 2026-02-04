@@ -133,22 +133,22 @@ function pickRandom<T>(arr: T[]): T {
 
 function generateOverall(age: number, isPremium: boolean): number {
   if (isPremium) {
-    // Superstars/Legends: 87-99 range, mean 92
-    return Math.max(87, Math.min(99, normalRandom(92, 3)));
+    // Stars: 75-92 range, mean 82 (few will hit 90+)
+    return Math.max(75, Math.min(92, normalRandom(82, 4)));
   }
 
   if (age <= 23) {
-    // Young developing: 55-78, mean 67
-    return Math.max(55, Math.min(78, normalRandom(67, 6)));
+    // Young developing: 48-68, mean 58
+    return Math.max(48, Math.min(68, normalRandom(58, 5)));
   }
 
   if (age <= 30) {
-    // Prime starters: 65-87, mean 76
-    return Math.max(65, Math.min(87, normalRandom(76, 5)));
+    // Prime players: 50-75, mean 63
+    return Math.max(50, Math.min(75, normalRandom(63, 6)));
   }
 
-  // Veterans (31+): declining but experienced, 60-82, mean 72
-  return Math.max(60, Math.min(82, normalRandom(72, 5)));
+  // Veterans (31+): declining, 48-70, mean 60
+  return Math.max(48, Math.min(70, normalRandom(60, 5)));
 }
 
 function generatePotential(age: number, overall: number): number {
@@ -189,27 +189,27 @@ function generateAttributes(archetype: Archetype, overall: number): Record<strin
   ];
 
   const attrs: Record<string, number> = {};
-  const overallFactor = overall / 75; // Scale attributes based on overall
+  const overallFactor = overall / 65; // Scale attributes based on overall (boosted from /75)
 
   for (const attr of allAttributes) {
     const hasArchetypeBase = base[attr] !== undefined;
-    let value = base[attr] || random(40, 60); // Use archetype base or random default
+    let value = base[attr] || random(55, 75); // Use archetype base or random default (boosted)
     value = Math.round(value * overallFactor); // Scale by overall
-    // Wider variance for archetype skills (±14), tighter for non-archetype (±8)
-    const variance = hasArchetypeBase ? random(-14, 14) : random(-8, 8);
+    // Wider variance for archetype skills (±12), tighter for non-archetype (±6)
+    const variance = hasArchetypeBase ? random(-12, 12) : random(-6, 6);
     value += variance;
-    value = Math.max(25, Math.min(99, value)); // Allow lower floor for differentiation
+    value = Math.max(40, Math.min(99, value)); // Raised floor from 25 to 40
     attrs[attr] = value;
   }
 
   // Special handling for mental attributes - these should have wider variance
   // High streakiness = more volatile, low = steady
-  attrs['streakiness'] = random(25, 85); // Wide range, not tied to overall
+  attrs['streakiness'] = random(35, 85); // Wide range, not tied to overall
   // Aggression varies by player personality
-  attrs['aggression'] = base['aggression'] ? base['aggression'] + random(-15, 15) : random(35, 80);
-  attrs['aggression'] = Math.max(25, Math.min(95, attrs['aggression']));
+  attrs['aggression'] = base['aggression'] ? base['aggression'] + random(-15, 15) : random(40, 80);
+  attrs['aggression'] = Math.max(35, Math.min(95, attrs['aggression']));
   // Composure slightly correlated with experience (older players calmer)
-  attrs['composure'] = base['composure'] ? base['composure'] + random(-10, 10) : random(45, 80);
+  attrs['composure'] = base['composure'] ? base['composure'] + random(-10, 10) : random(50, 85);
 
   return attrs;
 }

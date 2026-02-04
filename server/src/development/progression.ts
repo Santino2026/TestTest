@@ -146,7 +146,11 @@ export function calculateOverall(attributes: Record<string, number>, position?: 
     }
   }
 
-  return Math.round(Math.min(99, Math.max(50, overall)));
+  // Transform: realistic NBA distribution
+  // Raw 50 -> 70, Raw 60 -> 75, Raw 70 -> 80, Raw 80 -> 85, Raw 90 -> 90
+  overall = 70 + (overall - 50) * 0.5;
+
+  return Math.round(Math.min(99, Math.max(70, overall)));
 }
 
 function getMinutesModifier(seasonMinutes: number): number {

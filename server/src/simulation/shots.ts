@@ -76,7 +76,7 @@ export function calculateShotProbability(context: ShotContext): number {
 
   const attribute = getRelevantAttribute(shooter, shot_type);
   const base = BASE_PERCENTAGES[shot_type];
-  const floor = base * 0.57;
+  const floor = base * 0.95; // Boosted floor for 111.5-114.7 PPG target
   let probability = floor + (attribute / 99) * (base - floor);
   probability *= CONTEST_MODIFIERS[context.contest_level];
 
@@ -84,14 +84,14 @@ export function calculateShotProbability(context: ShotContext): number {
     const defenseRating = isPerimeterShot(shot_type)
       ? defender.attributes.perimeter_defense
       : defender.attributes.interior_defense;
-    probability *= 1 - ((defenseRating - 50) / 99) * 0.15;
+    probability *= 1 - ((defenseRating - 50) / 99) * 0.06; // Minimal defensive impact for high scoring
   }
 
   probability *= getFatigueModifier(context.shooter_fatigue);
   probability *= getClutchModifier(context, shooter);
 
   const consistencyMod = (shooter.attributes.consistency - 50) / 100;
-  const variance = (1 - Math.abs(consistencyMod)) * 0.1;
+  const variance = (1 - Math.abs(consistencyMod)) * 0.05; // Less variance for consistent scoring
   probability *= 1 + (Math.random() - 0.5) * 2 * variance;
 
   for (const trait of shooter.traits) {
@@ -104,7 +104,7 @@ export function calculateShotProbability(context: ShotContext): number {
 
   probability *= 1 + getHotColdModifier(shooter);
 
-  return Math.max(0.02, Math.min(0.98, probability));
+  return Math.max(0.20, Math.min(0.99, probability)); // Allow high efficiency shots
 }
 
 export function executeShot(context: ShotContext): ShotResult {
@@ -184,9 +184,9 @@ export function calculateShotDistance(shooter: SimPlayer, _action: string): numb
     baseBias -= 5;
   }
 
-  const threePointBias = (attrs.three_point - 50) / 10;
-  const insideBias = (attrs.inside_scoring - 50) / 10;
-  const distance = baseBias + Math.random() * 12 + threePointBias - insideBias;
+  const threePointBias = (attrs.three_point - 50) / 4; // More 3s for higher PPG
+  const insideBias = (attrs.inside_scoring - 50) / 16;
+  const distance = baseBias + 4 + Math.random() * 12 + threePointBias - insideBias;
 
   return Math.max(2, Math.min(30, distance));
 }
