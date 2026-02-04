@@ -189,7 +189,7 @@ function generateAttributes(archetype: Archetype, overall: number): Record<strin
   ];
 
   const attrs: Record<string, number> = {};
-  const overallFactor = overall / 75; // Scale attributes based on overall
+  const overallFactor = overall / 70; // Scale attributes based on overall (boosted from /75)
 
   for (const attr of allAttributes) {
     const hasArchetypeBase = base[attr] !== undefined;
