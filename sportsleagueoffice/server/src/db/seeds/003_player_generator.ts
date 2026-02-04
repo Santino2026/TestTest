@@ -193,23 +193,23 @@ function generateAttributes(archetype: Archetype, overall: number): Record<strin
 
   for (const attr of allAttributes) {
     const hasArchetypeBase = base[attr] !== undefined;
-    let value = base[attr] || random(40, 60); // Use archetype base or random default
+    let value = base[attr] || random(55, 75); // Use archetype base or random default (boosted)
     value = Math.round(value * overallFactor); // Scale by overall
-    // Wider variance for archetype skills (±14), tighter for non-archetype (±8)
-    const variance = hasArchetypeBase ? random(-14, 14) : random(-8, 8);
+    // Wider variance for archetype skills (±12), tighter for non-archetype (±6)
+    const variance = hasArchetypeBase ? random(-12, 12) : random(-6, 6);
     value += variance;
-    value = Math.max(25, Math.min(99, value)); // Allow lower floor for differentiation
+    value = Math.max(40, Math.min(99, value)); // Raised floor from 25 to 40
     attrs[attr] = value;
   }
 
   // Special handling for mental attributes - these should have wider variance
   // High streakiness = more volatile, low = steady
-  attrs['streakiness'] = random(25, 85); // Wide range, not tied to overall
+  attrs['streakiness'] = random(35, 85); // Wide range, not tied to overall
   // Aggression varies by player personality
-  attrs['aggression'] = base['aggression'] ? base['aggression'] + random(-15, 15) : random(35, 80);
-  attrs['aggression'] = Math.max(25, Math.min(95, attrs['aggression']));
+  attrs['aggression'] = base['aggression'] ? base['aggression'] + random(-15, 15) : random(40, 80);
+  attrs['aggression'] = Math.max(35, Math.min(95, attrs['aggression']));
   // Composure slightly correlated with experience (older players calmer)
-  attrs['composure'] = base['composure'] ? base['composure'] + random(-10, 10) : random(45, 80);
+  attrs['composure'] = base['composure'] ? base['composure'] + random(-10, 10) : random(50, 85);
 
   return attrs;
 }
