@@ -146,8 +146,9 @@ export function calculateOverall(attributes: Record<string, number>, position?: 
     }
   }
 
-  // Flat boost to shift distribution up
-  overall = overall + 18;
+  // Spread distribution: multiplier + offset
+  // 50 -> 65, 60 -> 77, 70 -> 89, 75+ capped at 99
+  overall = overall * 1.2 + 5;
 
   return Math.round(Math.min(99, Math.max(65, overall)));
 }
