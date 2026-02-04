@@ -139,21 +139,16 @@ export function calculateOverall(attributes: Record<string, number>, position?: 
   }
 
   let overall = 0;
-  let starBonus = 0;
-
   for (const [attr, weight] of Object.entries(weights)) {
     const value = attributes[attr];
     if (typeof value === 'number') {
       overall += value * weight;
-      // Bonus for good attributes (lower thresholds)
-      if (value >= 85) starBonus += 2;
-      else if (value >= 75) starBonus += 1;
-      else if (value >= 65) starBonus += 0.5;
     }
   }
 
-  // Apply bonus (capped at 20) and base boost of 15
-  overall = overall + Math.min(starBonus, 20) + 15;
+  // Transform: shift baseline to 70 and expand differences
+  // Raw 50 -> 70, Raw 55 -> 77.5, Raw 60 -> 85, Raw 65 -> 92.5
+  overall = 70 + (overall - 50) * 1.5;
 
   return Math.round(Math.min(99, Math.max(70, overall)));
 }
