@@ -147,9 +147,9 @@ export function calculateOverall(attributes: Record<string, number>, position?: 
   }
 
   // Flat boost to shift distribution up
-  overall = overall + 12;
+  overall = overall + 18;
 
-  return Math.round(Math.min(99, Math.max(60, overall)));
+  return Math.round(Math.min(99, Math.max(65, overall)));
 }
 
 function getMinutesModifier(seasonMinutes: number): number {
