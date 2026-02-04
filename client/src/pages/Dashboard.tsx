@@ -3,12 +3,59 @@ import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, Trophy, Calendar, TrendingUp, Play, ChevronRight, FastForward, SkipForward, Loader2, Star, Award, AlertTriangle, Clock, X } from 'lucide-react';
 import { PageTemplate } from '@/components/layout/PageTemplate';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui';
+import { Card, CardContent, CardHeader, CardTitle, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Badge } from '@/components/ui';
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { useTeams, useStandings, usePlayers, useAdvancePreseasonDay, useAdvancePreseasonAll, useAdvanceDay, useSimulatePlayoffRound, useSimulatePlayoffAll, useAdvanceOffseasonPhase, useStartNewSeason, useStartPlayoffsFromAwards, useTradeDeadlineStatus } from '@/api/hooks';
 import { useFranchise } from '@/context/FranchiseContext';
 import { cn, getStatColor } from '@/lib/utils';
-import { api, ScheduledGame, UserGameResult } from '@/api/client';
+import { api, ScheduledGame, UserGameResult, PlayerGameStats } from '@/api/client';
+
+function BoxScoreTable({ players, compact = false }: { players: PlayerGameStats[]; compact?: boolean }) {
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="text-xs">Player</TableHead>
+            {!compact && <TableHead className="text-center text-xs hidden sm:table-cell">MIN</TableHead>}
+            <TableHead className="text-center text-xs">PTS</TableHead>
+            <TableHead className="text-center text-xs">REB</TableHead>
+            <TableHead className="text-center text-xs">AST</TableHead>
+            <TableHead className="text-center text-xs hidden sm:table-cell">FG</TableHead>
+            <TableHead className="text-center text-xs hidden md:table-cell">3PT</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {players.map((p) => (
+            <TableRow key={p.player_id}>
+              <TableCell className="py-1.5">
+                <div className="flex items-center gap-1">
+                  <span className="font-medium text-xs truncate max-w-[80px] md:max-w-none text-slate-200">
+                    {p.first_name?.charAt(0)}. {p.last_name}
+                  </span>
+                  {p.is_starter && (
+                    <Badge variant="info" className="text-[10px] hidden sm:inline-flex">S</Badge>
+                  )}
+                </div>
+                <span className="text-[10px] text-slate-500">{p.position}</span>
+              </TableCell>
+              {!compact && <TableCell className="text-center text-xs hidden sm:table-cell text-slate-300">{Math.round(Number(p.minutes) || 0)}</TableCell>}
+              <TableCell className="text-center font-bold text-xs text-white">{p.points}</TableCell>
+              <TableCell className="text-center text-xs text-slate-300">{p.rebounds}</TableCell>
+              <TableCell className="text-center text-xs text-slate-300">{p.assists}</TableCell>
+              <TableCell className="text-center text-xs hidden sm:table-cell text-slate-400">
+                {p.fgm}/{p.fga}
+              </TableCell>
+              <TableCell className="text-center text-xs hidden md:table-cell text-slate-400">
+                {p.three_pm}/{p.three_pa}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { franchise, refreshFranchise } = useFranchise();
@@ -251,7 +298,7 @@ export default function Dashboard() {
     return phaseLabels[franchise?.phase || 'preseason'] || 'Preseason';
   };
 
-  // Prepare last game data for display
+  // Prepare last game data for display with full box score
   const lastGameDisplay = useMemo(() => {
     if (!lastGameDetails || !franchise) return null;
     const userIsHome = lastGameDetails.home_team_id === franchise.team_id;
@@ -265,31 +312,33 @@ export default function Dashboard() {
     const quarters = lastGameDetails.quarters || [];
     const playerStats = lastGameDetails.player_stats || [];
 
-    // Get top 3 performers per team sorted by points
-    const userTopPerformers = playerStats
+    // Get all players sorted by points for full box score
+    const userPlayerStats = playerStats
       .filter((p: any) => p.team_id === userTeamId)
-      .sort((a: any, b: any) => b.points - a.points)
-      .slice(0, 3);
-    
-    const opponentTopPerformers = playerStats
+      .sort((a: any, b: any) => b.points - a.points);
+
+    const opponentPlayerStats = playerStats
       .filter((p: any) => p.team_id === opponentTeamId)
-      .sort((a: any, b: any) => b.points - a.points)
-      .slice(0, 3);
+      .sort((a: any, b: any) => b.points - a.points);
 
     return {
       id: lastGameDetails.id,
       userTeamAbbrev,
       opponentAbbrev,
+      userTeamId,
+      opponentTeamId,
       userScore,
       opponentScore,
       userWon,
+      isOvertime: lastGameDetails.is_overtime,
+      overtimePeriods: lastGameDetails.overtime_periods,
       quarters: quarters.map((q: any) => ({
         quarter: q.quarter,
         userPoints: userIsHome ? q.home_points : q.away_points,
         opponentPoints: userIsHome ? q.away_points : q.home_points,
       })),
-      userTopPerformers,
-      opponentTopPerformers,
+      userPlayerStats,
+      opponentPlayerStats,
     };
   }, [lastGameDetails, franchise]);
 
@@ -387,102 +436,104 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Last Game with Quarter Scores */}
+      {/* Last Game with Full Box Score */}
       {lastGameDisplay && lastGameDisplay.quarters.length > 0 && (
-        <Link to={`/basketball/games/${lastGameDisplay.id}`} className="block mb-4">
-          <div className="p-4 rounded-lg border border-white/10 hover:border-white/20 transition-colors" style={{
-            background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%)',
-          }}>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs text-slate-400 uppercase tracking-wider">Last Game</span>
+        <div className="mb-4 p-4 rounded-lg border border-white/10" style={{
+          background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%)',
+        }}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs text-slate-400 uppercase tracking-wider">Last Game</span>
+            <div className="flex items-center gap-2">
               <span className={cn(
                 "text-xs font-bold px-2 py-1 rounded",
                 lastGameDisplay.userWon ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"
               )}>
                 {lastGameDisplay.userWon ? 'WIN' : 'LOSS'}
               </span>
-            </div>
-            <div className="flex flex-col gap-1">
-              <div className="text-sm font-mono flex items-center gap-2">
-                <span className="text-slate-200 font-medium w-10 text-right">{lastGameDisplay.userTeamAbbrev}</span>
-                <span className="text-slate-400 flex-1">
-                  {lastGameDisplay.quarters.map((q: any, i: number) => (
-                    <span key={q.quarter}>
-                      <span className="inline-block w-6 text-center">{q.userPoints}</span>
-                      {i < lastGameDisplay.quarters.length - 1 && <span className="text-slate-600">|</span>}
-                    </span>
-                  ))}
+              {lastGameDisplay.isOvertime && (
+                <span className="text-xs font-bold px-2 py-1 rounded bg-amber-500/20 text-amber-400">
+                  {lastGameDisplay.overtimePeriods === 1 ? 'OT' : `${lastGameDisplay.overtimePeriods}OT`}
                 </span>
-                <span className="text-slate-500">=</span>
-                <span className={cn(
-                  "font-bold w-8 text-center",
-                  lastGameDisplay.userWon ? "text-green-400" : "text-white"
-                )}>{lastGameDisplay.userScore}</span>
-              </div>
-              <div className="text-sm font-mono flex items-center gap-2">
-                <span className="text-slate-200 font-medium w-10 text-right">{lastGameDisplay.opponentAbbrev}</span>
-                <span className="text-slate-400 flex-1">
-                  {lastGameDisplay.quarters.map((q: any, i: number) => (
-                    <span key={q.quarter}>
-                      <span className="inline-block w-6 text-center">{q.opponentPoints}</span>
-                      {i < lastGameDisplay.quarters.length - 1 && <span className="text-slate-600">|</span>}
-                    </span>
-                  ))}
-                </span>
-                <span className="text-slate-500">=</span>
-                <span className={cn(
-                  "font-bold w-8 text-center",
-                  !lastGameDisplay.userWon ? "text-red-400" : "text-white"
-                )}>{lastGameDisplay.opponentScore}</span>
-              </div>
+              )}
             </div>
-
-            {/* Top Performers */}
-            {(lastGameDisplay.userTopPerformers?.length > 0 || lastGameDisplay.opponentTopPerformers?.length > 0) && (
-              <div className="mt-4 pt-4 border-t border-white/10">
-                <div className="text-xs text-slate-400 uppercase tracking-wider mb-3">Top Performers</div>
-                <div className="grid grid-cols-2 gap-4">
-                  {/* User Team */}
-                  <div>
-                    <div className="text-xs font-semibold text-slate-300 mb-2">{lastGameDisplay.userTeamAbbrev}</div>
-                    <div className="space-y-1.5">
-                      {lastGameDisplay.userTopPerformers?.map((p: any) => (
-                        <div key={p.player_id} className="flex items-center justify-between text-xs">
-                          <span className="text-slate-300 truncate max-w-[100px]">{p.first_name[0]}. {p.last_name}</span>
-                          <span className="text-slate-400 font-mono">
-                            <span className="text-white font-semibold">{p.points}</span> PTS
-                            <span className="mx-1 text-slate-600">·</span>
-                            {p.rebounds} REB
-                            <span className="mx-1 text-slate-600">·</span>
-                            {p.assists} AST
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  {/* Opponent Team */}
-                  <div>
-                    <div className="text-xs font-semibold text-slate-300 mb-2">{lastGameDisplay.opponentAbbrev}</div>
-                    <div className="space-y-1.5">
-                      {lastGameDisplay.opponentTopPerformers?.map((p: any) => (
-                        <div key={p.player_id} className="flex items-center justify-between text-xs">
-                          <span className="text-slate-300 truncate max-w-[100px]">{p.first_name[0]}. {p.last_name}</span>
-                          <span className="text-slate-400 font-mono">
-                            <span className="text-white font-semibold">{p.points}</span> PTS
-                            <span className="mx-1 text-slate-600">·</span>
-                            {p.rebounds} REB
-                            <span className="mx-1 text-slate-600">·</span>
-                            {p.assists} AST
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
-        </Link>
+
+          {/* Quarter Scores */}
+          <div className="flex flex-col gap-1 mb-4">
+            <div className="text-sm font-mono flex items-center gap-2">
+              <span className="text-slate-200 font-medium w-10 text-right">{lastGameDisplay.userTeamAbbrev}</span>
+              <span className="text-slate-400 flex-1">
+                {lastGameDisplay.quarters.map((q: any, i: number) => (
+                  <span key={q.quarter}>
+                    <span className="inline-block w-6 text-center">{q.userPoints}</span>
+                    {i < lastGameDisplay.quarters.length - 1 && <span className="text-slate-600">|</span>}
+                  </span>
+                ))}
+              </span>
+              <span className="text-slate-500">=</span>
+              <span className={cn(
+                "font-bold w-8 text-center",
+                lastGameDisplay.userWon ? "text-green-400" : "text-white"
+              )}>{lastGameDisplay.userScore}</span>
+            </div>
+            <div className="text-sm font-mono flex items-center gap-2">
+              <span className="text-slate-200 font-medium w-10 text-right">{lastGameDisplay.opponentAbbrev}</span>
+              <span className="text-slate-400 flex-1">
+                {lastGameDisplay.quarters.map((q: any, i: number) => (
+                  <span key={q.quarter}>
+                    <span className="inline-block w-6 text-center">{q.opponentPoints}</span>
+                    {i < lastGameDisplay.quarters.length - 1 && <span className="text-slate-600">|</span>}
+                  </span>
+                ))}
+              </span>
+              <span className="text-slate-500">=</span>
+              <span className={cn(
+                "font-bold w-8 text-center",
+                !lastGameDisplay.userWon ? "text-red-400" : "text-white"
+              )}>{lastGameDisplay.opponentScore}</span>
+            </div>
+          </div>
+
+          {/* Full Box Scores */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* User Team Box Score */}
+            <div>
+              <div className="text-xs font-semibold text-slate-300 mb-2 flex items-center gap-2">
+                <span className={cn(
+                  "w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold",
+                  lastGameDisplay.userWon ? "bg-green-500/30 text-green-400" : "bg-slate-700"
+                )}>
+                  {lastGameDisplay.userWon ? 'W' : 'L'}
+                </span>
+                {lastGameDisplay.userTeamAbbrev}
+              </div>
+              <BoxScoreTable players={lastGameDisplay.userPlayerStats} compact />
+            </div>
+            {/* Opponent Team Box Score */}
+            <div>
+              <div className="text-xs font-semibold text-slate-300 mb-2 flex items-center gap-2">
+                <span className={cn(
+                  "w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold",
+                  !lastGameDisplay.userWon ? "bg-red-500/30 text-red-400" : "bg-slate-700"
+                )}>
+                  {!lastGameDisplay.userWon ? 'W' : 'L'}
+                </span>
+                {lastGameDisplay.opponentAbbrev}
+              </div>
+              <BoxScoreTable players={lastGameDisplay.opponentPlayerStats} compact />
+            </div>
+          </div>
+
+          {/* View Full Game Link */}
+          <div className="mt-4 pt-3 border-t border-white/10 text-center">
+            <Link
+              to={`/basketball/games/${lastGameDisplay.id}`}
+              className="text-sm text-blue-400 hover:text-blue-300"
+            >
+              View Full Game Details →
+            </Link>
+          </div>
+        </div>
       )}
 
       {/* Franchise Header Card */}
