@@ -145,17 +145,17 @@ export function calculateOverall(attributes: Record<string, number>, position?: 
     const value = attributes[attr];
     if (typeof value === 'number') {
       overall += value * weight;
-      // Star bonus: high attributes (80+) boost overall
-      if (value >= 90) starBonus += 3;
-      else if (value >= 85) starBonus += 2;
-      else if (value >= 80) starBonus += 1;
+      // Bonus for good attributes (lower thresholds)
+      if (value >= 85) starBonus += 2;
+      else if (value >= 75) starBonus += 1;
+      else if (value >= 65) starBonus += 0.5;
     }
   }
 
-  // Apply star bonus (capped) and base boost
-  overall = overall + Math.min(starBonus, 15) + 10;
+  // Apply bonus (capped at 20) and base boost of 15
+  overall = overall + Math.min(starBonus, 20) + 15;
 
-  return Math.round(Math.min(99, Math.max(65, overall)));
+  return Math.round(Math.min(99, Math.max(70, overall)));
 }
 
 function getMinutesModifier(seasonMinutes: number): number {
